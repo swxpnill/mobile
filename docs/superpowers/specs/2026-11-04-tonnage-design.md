@@ -65,10 +65,10 @@ Conventions:
 - Time: all business dates in Asia/Kolkata; financial year 1 Apr–31 Mar IST.
 
 **Organisation & access**
-- `tenants(id, name, settings jsonb)` — settings: `completionToleranceKg` (default 1000), `agedOrderDays` (10), `defaultPricing`, `allowHardDeleteAfterDispatch` (true), WhatsApp toggles, `orderNumberFormat`.
+- `tenants(id, name, settings jsonb)` — settings: `completionToleranceKg` (default 1000), `agedOrderDays` (10), `defaultPricing`, `allowHardDeleteAfterDispatch` (true), `externalUnitBasis` (`mt`), WhatsApp toggles, `orderNumberFormat`.
 - `companies(id, code, name, gstin, order_prefix, active)`
 - `plants(id, company_id, name, location, active)`
-- `users(id, name, mobile unique-per-tenant, role ∈ owner|city_staff|plant_head|supervisor, active, invited_at, last_seen_at)`
+- `users(id, name, mobile unique-per-tenant, role ∈ owner|city_staff|plant_head|supervisor, active, invited_at, last_seen_at, preferences jsonb)` — `preferences.unitBasis ∈ mt|kg` (default `mt`, see §5.6).
 - `user_plants(user_id, plant_id)` — plant head: 1..n; supervisor: exactly 1 (enforced).
 - `refresh_tokens(id, user_id, device_id, hash, expires_at, revoked_at)`, `devices(id, user_id, push_token, app_version)`
 
@@ -197,7 +197,26 @@ Every route declares an action. Two checks on every request: (1) role allowed fo
 
 Users are deactivated, never deleted; deactivation revokes all refresh tokens.
 
-### 5.6 Concurrency and retries
+### 5.6 Unit basis: MT/₹ or kg/₹ (per user)
+
+Each user chooses a **unit basis** in Settings: **MT** (quantities in MT, rates in ₹/MT) or **kg** (quantities in kg, rates in ₹/kg). Default MT. It is stored on the user (`preferences.unitBasis`), so it follows them across devices, and applies to every screen they see, every value they type, and every report they export.
+
+It is **display and input only** — storage is unchanged (integer kg, whole ₹ per MT), so switching is lossless in both directions:
+
+| | MT basis | kg basis |
+|---|---|---|
+| Quantity shown / typed | 24.180 MT (3 decimals) | 24,180 kg (whole number) |
+| Rate shown / typed | ₹46,300 / MT (whole ₹) | ₹46.300 / kg (up to 3 decimals) |
+| Weighment keypad | decimal key, max 3 decimals | no decimal key, whole kg |
+| Tolerance setting | ±1.000 MT | ±1,000 kg |
+
+- ₹/kg input accepts up to 3 decimals because 1 ₹/MT = 0.001 ₹/kg; `rate_per_mt = ₹/kg × 1000` is then always a whole rupee, so no rounding is ever introduced by the conversion. More than 3 decimals → validation error.
+- **Money totals are identical in both modes** (line value, order value, broker earning, ledger) because they are always computed from the stored kg and ₹/MT (§5.4).
+- Conversion lives in one place: `packages/shared/units.ts` (`toDisplayQty`, `parseQtyInput`, `toDisplayRate`, `parseRateInput`) used by every input and formatter; the API always speaks kg and ₹/MT.
+- Exports (Excel/PDF) use the exporting user's basis and label every column with its unit ("Net (kg)" / "Net (MT)").
+- Messages to outside parties (WhatsApp to customer/broker, shared loading slips) use the tenant setting `externalUnitBasis` (default `mt`), not the sender's preference, so customers always see a consistent unit.
+
+### 5.7 Concurrency and retries
 
 - **Idempotency:** every mutating request from the app carries `Idempotency-Key`; the server stores key → response for 24 h. Retries cannot create a second order, truck or payment.
 - **Optimistic locking:** edits send `version`; mismatch → `409 STALE`; app reloads and shows what changed.
@@ -290,7 +309,7 @@ Body shape: `{ code, message, details? }`.
 Every route declares its allowed roles; forbidden routes (including deep links) redirect.
 
 ### 8.2 State
-TanStack Query for server data; query keys include the unit filter (`companyId | 'all'`) held in Zustand, so the unit switcher refetches every screen. Mutations invalidate affected keys; **no optimistic updates for money, quantities or status**. Forms use react-hook-form with the shared zod schemas. Device settings (theme Light/Dark/Auto, text size, fingerprint) in SecureStore/MMKV; tenant settings on the server.
+TanStack Query for server data; query keys include the unit filter (`companyId | 'all'`) held in Zustand, so the unit switcher refetches every screen. Mutations invalidate affected keys; **no optimistic updates for money, quantities or status**. Forms use react-hook-form with the shared zod schemas. Device settings (theme Light/Dark/Auto, text size, fingerprint) in SecureStore/MMKV; the unit basis (MT/₹ or kg/₹) is a user preference on the server, cached locally so it also applies offline; tenant settings on the server. Changing unit basis re-renders every screen immediately — no refetch needed, since API values are always kg and ₹/MT.
 
 ### 8.3 Flows
 1. **Book order:** Parties (type, customer/broker, commission from profile editable per order, bill-to, ship-to) → Items (pricing method; per company: lines with product filtered by `product_companies`, length from standard lengths or any 1–100 in m/ft/mm, MT, rate, overprice) → Review (sub-orders, estimated value, estimated broker earning, WhatsApp toggles) → Create (idempotency key). Server recomputes totals; if they differ from the preview the server wins and the screen shows the difference.
@@ -307,7 +326,7 @@ TanStack Query for server data; query keys include the unit filter (`companyId |
 ### 8.4 UI system
 - Tokens copied from the canvas: light and Graphite dark palettes (`bg, card, ctl, act, bd, bd2, tx, tx2, tx3, inv, br/brt/brs, vi/vis, ok/okt/oks, wnt/wns, dgt/dgs`), unit tag colours (AIP/VSL/KRM/NAP → per-company colour slot). Inter 400/500/600, tabular numerals; Large text ×1.15.
 - Components: `Screen`, `Header`, `TabBar`, `Group`/`Row`, `Badge(kind)`, `UnitTag`, `Chip`, `ProgressBar`, `Button(primary|secondary|danger)`, `Sheet`, `Keypad`, `SegmentedControl`, `OtpInput`, `MoneyText`, `QtyText`, `EmptyState`.
-- Formatters (shared): MT always 3 decimals; ₹ Indian grouping (₹1,46,000) and short (₹38.64 L, ₹1.46 Cr); IST relative dates.
+- Formatters (shared): quantity and rate follow the user's unit basis (§5.6) — MT always 3 decimals, kg whole numbers with Indian grouping; ₹ Indian grouping (₹1,46,000) and short (₹38.64 L, ₹1.46 Cr); IST relative dates.
 - Tablet (≥ 768 dp): Orders and Dispatch use the split view; other screens responsive single column.
 - Accessibility: touch targets ≥ 44, labels on icon-only buttons, canvas contrast-checked colours, live region on the weight readout.
 
@@ -330,7 +349,7 @@ Push (Expo) for: new order for my plant, truck assigned, dispatched, aged orders
 ## 10. Testing
 
 ### 10.1 Layers
-1. **`shared/rules`** — unit + property-based (fast-check): pending never negative; allocations sum to net; half-up rounding stable; tolerance close; exhaustive status-derivation tables.
+1. **`shared/rules` and `shared/units`** — unit + property-based (fast-check): kg↔MT and ₹/kg↔₹/MT round-trip losslessly and money totals are identical in both bases; pending never negative; allocations sum to net; half-up rounding stable; tolerance close; exhaustive status-derivation tables.
 2. **API integration against real Postgres** (Docker locally, service container in CI; no DB mocks):
    - permission matrix generated from `policy.ts` (every role × action), plus cross-tenant and cross-plant reads/writes → 404;
    - serializer leak test: walk every plant-head and supervisor response, fail on any money key;
@@ -358,6 +377,7 @@ GitHub Actions: lint, typecheck, unit, integration, migration check on every pus
 4. Add **Needs attention** (rejected weighments) list and detail.
 5. Add the **short close with open trucks** confirmation listing the trucks.
 6. Settings: "Allow over / under loading" → "Completion tolerance ±1.000 MT".
+7. Settings → Appearance: add **Units: MT / ₹ per MT · kg / ₹ per kg** segmented control; supervisor Profile gets the same control.
 
 ## 12. Delivery milestones
 
