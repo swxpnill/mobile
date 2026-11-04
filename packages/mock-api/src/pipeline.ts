@@ -59,9 +59,10 @@ function purgeIdempotency(state: MockState, userId: string, now: number): void {
 }
 
 /**
- * The request pipeline, in the same order as B1's Fastify app:
- * route match → zod query/body → bearer auth → policy → idempotency → handler (scoped)
- * → money redaction → persist. Controls (offline/latency/failNext) wrap this in `controls.ts`.
+ * The request pipeline, in the same order as B1's Fastify app (onRequest auth before validation):
+ * route match (404) → bearer auth (401) → policy (403) → zod query/body (422) → idempotency
+ * → handler (scoped) → money redaction → persist. Unauthenticated callers never see schema errors.
+ * Controls (offline/latency/failNext) wrap this in `controls.ts`.
  */
 export function createPipeline(deps: { router: Router; store: Store; clock: Clock }) {
   const { router, store, clock } = deps;
@@ -74,9 +75,6 @@ export function createPipeline(deps: { router: Router; store: Store; clock: Cloc
     const r: RouteDef = match.route;
     const headers = lowerKeys(req.headers);
 
-    const query = parseWith(r.query, match.query);
-    const body = parseWith(r.body, wire(req.body));
-
     let user: UserRec | undefined;
     let scope: PlantScope | undefined;
     if (!r.public) {
@@ -85,6 +83,9 @@ export function createPipeline(deps: { router: Router; store: Store; clock: Cloc
       if (!r.action || !can(user.role, r.action)) throw new ApiError(403, 'FORBIDDEN');
       scope = plantScope(user);
     }
+
+    const query = parseWith(r.query, match.query);
+    const body = parseWith(r.body, wire(req.body));
 
     const routeId = `${r.method} ${r.pattern}`;
     let idemSlot: string | null = null;
