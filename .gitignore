@@ -7,3 +7,4 @@ build/
 .expo/
 *.log
 .DS_Store
+.superpowers/
