@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { ACTIONS, can, plantRule, scopeKind, describeRole, type Action } from './policy.ts';
+import { ACTIONS, can, plantRule, plantScope, scopeKind, describeRole, type Action } from './policy.ts';
 import type { Role } from './roles.ts';
 import { ROLES } from './roles.ts';
 import { MONEY_KEYS } from './redact.ts';
@@ -28,4 +28,17 @@ it('describeRole returns fresh arrays for every role', () => {
     expect(describeRole(r).can).not.toContain('x');
   }
   expect(describeRole('owner').cannot).toEqual([]);
+});
+it('plantScope: owner/city_staff → all; plant roles → a copy of their plants', () => {
+  expect(plantScope({ role: 'owner', plantIds: [] })).toEqual({ kind: 'all' });
+  expect(plantScope({ role: 'city_staff', plantIds: ['x'] })).toEqual({ kind: 'all' });
+  const ids = ['p1'];
+  const s = plantScope({ role: 'supervisor', plantIds: ids });
+  expect(s).toEqual({ kind: 'plants', plantIds: ['p1'] });
+  ids.push('p2');
+  expect(s).toEqual({ kind: 'plants', plantIds: ['p1'] });
+  expect(plantScope({ role: 'plant_head', plantIds: ['a', 'b'] })).toEqual({
+    kind: 'plants',
+    plantIds: ['a', 'b'],
+  });
 });

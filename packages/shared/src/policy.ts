@@ -72,3 +72,12 @@ export function describeRole(role: Role): { can: string[]; cannot: string[] } {
       return { can: ['Everything, including delete and settings'], cannot: [] };
   }
 }
+
+export type PlantScope = { kind: 'all' } | { kind: 'plants'; plantIds: string[] };
+
+/** Row scope for a user: owner/city_staff see everything; plant roles only their plants. */
+export function plantScope(user: { role: Role; plantIds: readonly string[] }): PlantScope {
+  return scopeKind(user.role) === 'all'
+    ? { kind: 'all' }
+    : { kind: 'plants', plantIds: [...user.plantIds] };
+}

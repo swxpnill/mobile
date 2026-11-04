@@ -26,3 +26,6 @@ export const refreshBodySchema = z.object({
   deviceId: idSchema,
 });
 export type RefreshBody = z.infer<typeof refreshBodySchema>;
+
+export const signOutBodySchema = z.object({ refreshToken: z.string().min(1) });
+export type SignOutBody = z.infer<typeof signOutBodySchema>;
