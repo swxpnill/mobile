@@ -21,3 +21,13 @@ it('handles arrays and primitives', () => {
   expect(redactForRole('supervisor', null)).toBeNull();
   expect('rate' in (redactForRole('supervisor', { rate: null }) as object)).toBe(false);
 });
+it('passes Date and other non-plain objects through untouched', () => {
+  const d0 = new Date(0);
+  const d5 = new Date(5);
+  const out = redactForRole('supervisor', { at: d0, rate: 1, nested: { d: d5 } }) as {
+    at: Date; rate?: number; nested: { d: Date };
+  };
+  expect(out.at).toBe(d0);
+  expect(out.nested.d).toBe(d5);
+  expect('rate' in out).toBe(false);
+});

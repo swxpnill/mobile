@@ -7,9 +7,15 @@ export const MONEY_KEYS: ReadonlySet<string> = new Set([
   'tdsRupees', 'billedRate',
 ]);
 
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  if (v === null || typeof v !== 'object') return false;
+  const proto: unknown = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+}
+
 function strip(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(strip);
-  if (value !== null && typeof value === 'object') {
+  if (isPlainObject(value)) {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
       if (!MONEY_KEYS.has(k)) out[k] = strip(v);
