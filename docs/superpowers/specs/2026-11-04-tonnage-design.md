@@ -201,6 +201,8 @@ Users are deactivated, never deleted; deactivation revokes all refresh tokens.
 
 Each user chooses a **unit basis** in Settings: **MT** (quantities in MT, rates in ₹/MT) or **kg** (quantities in kg, rates in ₹/kg). Default MT. It is stored on the user (`preferences.unitBasis`), so it follows them across devices, and applies to every screen they see, every value they type, and every report they export.
 
+**It is app-wide, never per screen.** With MT selected, every quantity and rate in the whole app is MT and ₹/MT; with kg selected, every one is kg and ₹/kg. The two are never mixed on one screen. This covers: Home totals and unit split, order list and detail, new-order lines and review, assign-vehicle load plan, dispatch board and detail, tare / gross / net and the line split, Done today, party and broker pending figures, broker ledger lines (e.g. "24.180 MT × ₹450" vs "24,180 kg × ₹0.450"), short close, unit switcher, notifications, reports, exports and settings (tolerance). Rupee amounts (line value, order value, earnings, payments) are the same number in both bases.
+
 It is **display and input only** — storage is unchanged (integer kg, whole ₹ per MT), so switching is lossless in both directions:
 
 | | MT basis | kg basis |
