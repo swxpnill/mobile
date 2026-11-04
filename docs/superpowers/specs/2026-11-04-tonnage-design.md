@@ -300,6 +300,18 @@ REST under `/v1`, JSON, bodies validated by shared zod schemas.
 
 Body shape: `{ code, message, details? }`.
 
+### 7.1 Mock API (frontend-first delivery)
+
+The whole app is built and demoed against an in-app mock API before the real backend exists (§12). The mock must behave like the real API, so that switching over changes configuration, not screens.
+
+- **One transport seam.** `apps/mobile/src/api/client.ts` sends every request through a `Transport` (`request({ method, path, headers, body }) → { status, headers, body }`). `HttpTransport` calls the real API; `MockTransport` calls `packages/mock-api` in-process. Chosen by `EXPO_PUBLIC_API_MODE = mock | http` (default `mock` until the backend milestones finish). Screens and hooks never know which is active.
+- **`packages/mock-api`** is pure TypeScript (no React Native imports): a route table matching §7 paths and methods, an in-memory store seeded with the canvas sample world (§9 seed), and handlers that validate with the **same shared zod schemas**, compute with the **same `shared/rules`**, authorise with **`policy.ts` + plant scope**, redact with the **same `redactForRole`** (moved to `packages/shared`), and return the **same error codes and bodies**. Idempotency keys, optimistic `version` checks and server-side numbering are implemented too, so retry and conflict UX is exercised early.
+- **Persistence:** the mock store snapshots to AsyncStorage through an injected `StorageAdapter`, so demo data survives app restarts; "Reset demo data" restores the seed.
+- **Auth in mock mode:** same OTP flow; code `123456`; tokens are opaque strings mapped to users; 15-min access expiry is simulated so the refresh path runs.
+- **Demo tools** (More → Demo tools; mock mode only, never in production builds): reset data, quick switch user (owner, city staff, plant head, each supervisor), simulate offline (forces the transport to fail as a network error), simulate latency (0 / 800 ms / 6 s "waking server"), inject the next error code.
+- **Contract tests (`packages/contract-tests`):** one Vitest suite of HTTP-level scenarios (status codes, bodies, permissions, redaction, idempotency, the §10.3 end-to-end cases) written against a `Transport`. It runs against `MockTransport` from the start; in the backend milestones the same suite runs against the Fastify app (`app.inject`). A change that passes on one and fails on the other is a contract break. The backend is done when the suite is green on both.
+- **Limits of the mock:** no real concurrency (requests are serialised), no Postgres-level guarantees (RLS, row locks), no real push/WhatsApp. Those are covered by the backend milestones' own integration tests (§10.1 item 2).
+
 ## 8. Mobile app
 
 ### 8.1 Navigation
@@ -311,7 +323,7 @@ Body shape: `{ code, message, details? }`.
 Every route declares its allowed roles; forbidden routes (including deep links) redirect.
 
 ### 8.2 State
-TanStack Query for server data; query keys include the unit filter (`companyId | 'all'`) held in Zustand, so the unit switcher refetches every screen. Mutations invalidate affected keys; **no optimistic updates for money, quantities or status**. Forms use react-hook-form with the shared zod schemas. Device settings (theme Light/Dark/Auto, text size, fingerprint) in SecureStore/MMKV; the unit basis (MT/₹ or kg/₹) is a user preference on the server, cached locally so it also applies offline; tenant settings on the server. Changing unit basis re-renders every screen immediately — no refetch needed, since API values are always kg and ₹/MT.
+TanStack Query for server data; query keys include the unit filter (`companyId | 'all'`) held in Zustand, so the unit switcher refetches every screen. Mutations invalidate affected keys; **no optimistic updates for money, quantities or status**. Forms use react-hook-form with the shared zod schemas. Device settings (theme Light/Dark/Auto, text size, fingerprint) in AsyncStorage (secrets in SecureStore); the app must run in Expo Go during development, so no custom native modules; the unit basis (MT/₹ or kg/₹) is a user preference on the server, cached locally so it also applies offline; tenant settings on the server. Changing unit basis re-renders every screen immediately — no refetch needed, since API values are always kg and ₹/MT.
 
 ### 8.3 Flows
 1. **Book order:** Parties (type, customer/broker, commission from profile editable per order, bill-to, ship-to) → Items (pricing method; per company: lines with product filtered by `product_companies`, length from standard lengths or any 1–100 in m/ft/mm, MT, rate, overprice) → Review (sub-orders, estimated value, estimated broker earning, WhatsApp toggles) → Create (idempotency key). Server recomputes totals; if they differ from the preview the server wins and the screen shows the difference.
@@ -333,7 +345,7 @@ TanStack Query for server data; query keys include the unit filter (`companyId |
 - Accessibility: touch targets ≥ 44, labels on icon-only buttons, canvas contrast-checked colours, live region on the weight readout.
 
 ### 8.5 Reports
-Server-side SQL, IST date range, unit filter. Kinds: dispatch register, pending orders (ageing buckets), company-wise sales, broker-wise, customer-wise, product-wise, over/under loading (columns per decisions register §11). Export xlsx (exceljs) and PDF (pdfmake), shared via expo-sharing. The per-company dispatch register (one row per truck line) is the Tally hand-off.
+Report data is computed by the API (server-side SQL; in mock mode by `mock-api` using the same `shared/reports` aggregation functions), IST date range, unit filter. Kinds: dispatch register, pending orders (ageing buckets), company-wise sales, broker-wise, customer-wise, product-wise, over/under loading (columns per decisions register §11). **Export files are generated on the device** from the report JSON — xlsx with SheetJS, PDF with expo-print (HTML → PDF) — in the viewer's unit basis, then shared via expo-sharing. This works identically in mock and real mode and keeps heavy PDF work off the free-tier server. The per-company dispatch register (one row per truck line) is the Tally hand-off.
 
 ### 8.6 Notifications
 Push (Expo) for: new order for my plant, truck assigned, dispatched, aged orders (> `agedOrderDays`), over-tolerance loading, needs attention. WhatsApp events (log-only until #11): order created, truck dispatched, order completed/short closed, broker payment — to numbers flagged WhatsApp.
@@ -360,6 +372,8 @@ Push (Expo) for: new order for my plant, truck assigned, dispatched, aged orders
    - hard delete leaves zero rows in every table.
 3. **Mobile:** Jest + React Native Testing Library (keypad, split form, formatters, outbox state machine on in-memory SQLite); Maestro E2E for sign-in → book order and offline weighing (airplane mode on → weigh → off → synced).
 
+4. **Contract tests** (`packages/contract-tests`, §7.1): the same HTTP-level suite against the mock (from F1) and the real API (from B1).
+
 ### 10.2 CI
 GitHub Actions: lint, typecheck, unit, integration, migration check on every push.
 
@@ -383,15 +397,27 @@ GitHub Actions: lint, typecheck, unit, integration, migration check on every pus
 
 ## 12. Delivery milestones
 
-Each milestone gets its own implementation plan.
+**Frontend first, then backend** (decided 2026-11-04). The whole app is built on the mock API (§7.1) and demoed to the client; then the real backend is built to the same contract and the app is switched to `http` mode. Each milestone gets its own implementation plan.
+
+**Frontend milestones** (app + `packages/shared` + `packages/mock-api` + `packages/contract-tests`):
 
 | # | Milestone | Contents |
 |---|---|---|
-| M1 | Foundation | monorepo, CI, DB schema + RLS + migrations, auth (dev OTP, tokens, fingerprint), `policy.ts` + guards + serializers, users, companies, plants, theme + components, app shell with role tabs |
-| M2 | Masters & orders | parties, products, order wizard, drafts, numbering, order list/detail, edits, move quantity, short close (incl. open-truck cancel), reopen, cancel, hard delete |
-| M3 | Dispatch & offline weighing | assign/edit/cancel truck, dispatch board/detail, supervisor app, outbox + sync, tolerance close, loading slip numbers, weight correction, Needs attention |
-| M4 | Money & reports | broker ledger, payments, reversals, all reports, Excel/PDF export |
-| M5 | Remaining canvas | Excel import, notifications + push + outbox worker, settings, tablet split view, empty state, unit switcher polish |
+| F1 | App foundation | monorepo, CI, shared units/formatters/policy/errors/settings/schemas/redaction, mock-api core (router, store, seed, auth, me, companies, plants, users, settings), contract-test harness, theme + components, transport + client, OTP sign-in + fingerprint lock + force update, role tab shell, unit basis, admin screens (companies, users, invite, settings), Demo tools |
+| F2 | Masters & orders | shared order rules (pricing, pending, status derivation, numbering format); mock: parties, products, orders, drafts, edits, move quantity, short close (incl. open-truck cancel), reopen, cancel, hard delete; screens: parties list/detail/form, transporter, products/form, Home (owner), Orders list + filters, order detail, new-order wizard (3 steps + add line sheet), order actions, short close, delete, unit switcher, empty state |
+| F3 | Dispatch & offline weighing | shared truck rules (state machine, allocation, plausibility, tolerance close); mock: trucks, dispatch board, supervisor tasks, `weighments/sync` with conflicts and rejections; app: assign/edit vehicle, dispatch board/detail, supervisor app (tasks, at gate, tare, gross + split, dispatched, done today), SQLite outbox + pull/push sync, Needs attention, weight correction |
+| F4 | Money & reports | shared ledger and report aggregation; mock: broker ledger, payments, reversals, reports; screens: broker profile & ledger, record payment, reports with on-device xlsx/PDF export |
+| F5 | Remaining canvas | Excel import (on-device parse with SheetJS, dry run, commit), notifications list + local push simulation, Graphite dark polish, tablet split views, accessibility pass, client demo build (EAS preview APK) |
+
+**Backend milestones** (`apps/api`; each ends with `packages/contract-tests` green against the real API):
+
+| # | Milestone | Contents |
+|---|---|---|
+| B1 | API foundation | Fastify skeleton, env guard, error contract, embedded-Postgres test harness, M1 schema + RLS + DB roles, dev OTP + JWT + rotating refresh, request pipeline (auth hook, policy guard, scope, redaction, idempotency), companies, plants, users, settings, seed |
+| B2 | Orders on Postgres | masters and order tables, numbering under row lock, all F2 endpoints, concurrency tests |
+| B3 | Dispatch & sync on Postgres | trucks, weighments, allocations, dispatch transaction, sync endpoint, rejections, tolerance close, concurrency and sync tests |
+| B4 | Money, reports, notifications | ledger, payments, report SQL, notification outbox + pg-boss worker + Expo push, `Notifier` (log-only WhatsApp) |
+| B5 | Cut-over | deploy to staging (free tier), switch app to `http`, full contract + E2E run on device, backups, Sentry |
 
 ## 13. Open client questions
 
