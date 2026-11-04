@@ -15,3 +15,7 @@ it('defaults', () => {
 it('rejects invalid', () => {
   expect(() => tenantSettingsSchema.parse({ completionToleranceKg: -1 })).toThrow();
 });
+it('pricing method enum', () => {
+  expect(() => tenantSettingsSchema.parse({ defaultPricing: 'flat' })).toThrow();
+  expect(tenantSettingsSchema.parse({ defaultPricing: 'direct' }).defaultPricing).toBe('direct');
+});
