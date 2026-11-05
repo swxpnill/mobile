@@ -1,11 +1,6 @@
-import { ComingNext } from '../../src/screens/ComingNext';
+import { SettingsScreen } from '../../src/screens/SettingsScreen';
 
+/** Everyone: appearance and units. Owner also sees the order rules inside. */
 export default function Settings() {
-  return (
-    <ComingNext
-      title="Settings"
-      icon="sliders"
-      body="Theme, text size and units for everyone; order and dispatch rules for the owner."
-    />
-  );
+  return <SettingsScreen />;
 }

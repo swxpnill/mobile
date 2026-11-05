@@ -8,6 +8,14 @@ export const ROLE_LABEL: Record<Role, string> = {
   supervisor: 'Loading supervisor',
 };
 
+/** Short role names for badges in lists, where the full name would crowd the row. */
+export const ROLE_SHORT: Record<Role, string> = {
+  owner: 'Owner',
+  city_staff: 'City staff',
+  plant_head: 'Plant head',
+  supervisor: 'Supervisor',
+};
+
 /** "Aarav Ispat Pvt Ltd" → "Aarav": the short company name the canvas uses next to a plant. */
 export function shortCompanyName(name: string): string {
   return name.split(/\s+/)[0] ?? name;

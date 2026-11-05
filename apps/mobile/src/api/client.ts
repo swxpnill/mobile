@@ -30,6 +30,11 @@ export interface ApiInit<T> {
   body?: unknown;
   /** Adds an `Idempotency-Key`, created once and reused if this call retries. */
   idempotent?: boolean;
+  /**
+   * A key the caller holds across retries of one submit (see `useSubmitKey`), so a retry after a
+   * lost answer replays the first result instead of creating a second record.
+   */
+  idempotencyKey?: string;
   /** Parses the 2xx body; a mismatch is a bug, not a user error. */
   schema?: ZodType<T>;
   /** Send the access token (default). Public routes such as `/v1/meta` pass `false`. */
@@ -42,8 +47,8 @@ export interface ApiInit<T> {
  * never does (the phone may simply be offline).
  */
 export async function api<T = unknown>(path: string, init: ApiInit<T> = {}): Promise<T> {
-  const { method = 'GET', body, idempotent, schema, auth = true } = init;
-  const key = idempotent ? Crypto.randomUUID() : undefined;
+  const { method = 'GET', body, idempotent, idempotencyKey, schema, auth = true } = init;
+  const key = idempotencyKey ?? (idempotent ? Crypto.randomUUID() : undefined);
 
   let sentWith: string | undefined;
   const send = async (): Promise<TransportResponse> => {

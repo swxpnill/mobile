@@ -1,17 +1,10 @@
 import { formatMobile } from '@tonnage/shared';
 import { StyleSheet, View } from 'react-native';
-import { useCompanies, usePlants } from '../api/hooks/org';
+import { useCompanies, usePlants } from '../api/hooks/companies';
 import { useMe } from '../api/hooks/me';
 import { ROLE_LABEL, scopeLine } from '../nav/roles';
 import { useTheme } from '../theme/ThemeProvider';
-import { Text } from '../ui';
-
-export function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  return (
-    (parts[0]?.[0] ?? '') + (parts.length > 1 ? (parts.at(-1)?.[0] ?? '') : '')
-  ).toUpperCase();
-}
+import { initials, Text } from '../ui';
 
 /** Canvas More header: initials tile, name, "Owner · all 4 units · +91 98261 00012". */
 export function ProfileCard() {

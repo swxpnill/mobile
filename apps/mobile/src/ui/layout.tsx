@@ -24,6 +24,7 @@ export function Screen({
   contentStyle,
   keyboard,
   edges = ['top', 'bottom'],
+  footer,
 }: {
   children: ReactNode;
   /** Large page title; scrolls away with the content, as in the canvas. */
@@ -40,6 +41,8 @@ export function Screen({
   keyboard?: boolean;
   /** Safe-area sides to pad. Tab screens pass `['top']`: the tab bar handles the bottom. */
   edges?: ('top' | 'bottom')[];
+  /** Pinned under the scrolling content (e.g. "Send invite"); rides above the keyboard. */
+  footer?: ReactNode;
 }) {
   const { t, scheme } = useTheme();
   // flexGrow lets a `<View style={{ flex: 1 }} />` spacer push a footer to the bottom.
@@ -64,6 +67,9 @@ export function Screen({
       {children}
     </View>
   );
+  const pinned = footer ? (
+    <View style={[styles.footer, { backgroundColor: t.bg, borderTopColor: t.bd }]}>{footer}</View>
+  ) : null;
   return (
     <SafeAreaView style={[styles.fill, { backgroundColor: t.bg }]} edges={edges}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
@@ -71,9 +77,13 @@ export function Screen({
       {keyboard ? (
         <KeyboardAvoidingView testID="screen-keyboard" behavior="padding" style={styles.fill}>
           {content}
+          {pinned}
         </KeyboardAvoidingView>
       ) : (
-        content
+        <>
+          {content}
+          {pinned}
+        </>
       )}
     </SafeAreaView>
   );
@@ -196,5 +206,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     minHeight: MIN_TOUCH + 6,
   },
+  footer: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 12, borderTopWidth: 1, gap: 10 },
   section: { paddingHorizontal: 4, marginBottom: -10 },
 });

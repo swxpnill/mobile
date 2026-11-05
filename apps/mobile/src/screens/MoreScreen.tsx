@@ -1,7 +1,7 @@
 import { can } from '@tonnage/shared';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
-import { useCompanies } from '../api/hooks/org';
+import { useCompanies } from '../api/hooks/companies';
 import { useMe } from '../api/hooks/me';
 import { Group, MenuRow, Screen, SectionLabel } from '../ui';
 import { ProfileCard } from './ProfileCard';

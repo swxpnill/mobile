@@ -11,3 +11,6 @@ export { TextField, type TextFieldProps } from './TextField';
 export { Switch } from './Switch';
 export { TabBar } from './TabBar';
 export { IconTile, MenuRow, type Tone } from './MenuRow';
+export { ChoiceCard, ChoiceRow } from './Choice';
+export { Avatar, type AvatarTone, IconButton, initials } from './Avatar';
+export { ToastHost, showToast, hideToast } from './Toast';
