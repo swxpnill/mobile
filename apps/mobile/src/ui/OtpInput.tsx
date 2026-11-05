@@ -10,6 +10,8 @@ export interface OtpInputProps {
   autoFocus?: boolean;
   /** Draws the boxes in the danger colour (wrong code). */
   invalid?: boolean;
+  /** False while the code is being checked. */
+  editable?: boolean;
 }
 
 /** Keeps digits only, at most `length` of them — typing, paste and SMS autofill all go through it. */
@@ -21,7 +23,14 @@ export function sanitizeOtp(raw: string, length: number): string {
  * One real text field drawn as six boxes. A single field (rather than six) is what makes paste,
  * Android SMS autofill and screen readers work.
  */
-export function OtpInput({ length = 6, value, onChange, autoFocus, invalid }: OtpInputProps) {
+export function OtpInput({
+  length = 6,
+  value,
+  onChange,
+  autoFocus,
+  invalid,
+  editable = true,
+}: OtpInputProps) {
   const { t } = useTheme();
   const ref = useRef<ComponentRef<typeof TextInput>>(null);
   const [focused, setFocused] = useState(Boolean(autoFocus));
@@ -61,6 +70,8 @@ export function OtpInput({ length = 6, value, onChange, autoFocus, invalid }: Ot
         textContentType="oneTimeCode"
         autoComplete="sms-otp"
         autoFocus={autoFocus}
+        editable={editable}
+        accessibilityHint={`${length} digits`}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         caretHidden

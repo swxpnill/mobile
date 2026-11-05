@@ -7,6 +7,7 @@
     "@hookform/resolvers": "^7.0.2",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@tanstack/react-query": "^5.106.0",
+    "@tonnage/mock-api": "workspace:*",
     "@tonnage/shared": "workspace:*",
     "expo": "~58.0.23",
     "expo-constants": "~58.0.15",
@@ -24,6 +25,7 @@
     "react-native-safe-area-context": "~5.11.1",
     "react-native-screens": "~4.30.1",
     "react-native-svg": "15.16.0",
+    "zod": "^4.6.7",
     "zustand": "^5.0.16"
   },
   "devDependencies": {
@@ -50,6 +52,12 @@
     ],
     "setupFiles": [
       "<rootDir>/test/setup.ts"
-    ]
+    ],
+    "transformIgnorePatterns": [
+      "/node_modules/(?!(.pnpm|react-native|@react-native|@react-native-community|expo|@expo|@expo-google-fonts|react-navigation|@react-navigation|@sentry/react-native|native-base|standard-navigation|uuid|@tonnage))",
+      "/node_modules/react-native-reanimated/plugin/",
+      "/node_modules/@react-native/babel-preset/"
+    ],
+    "testTimeout": 20000
   }
 }

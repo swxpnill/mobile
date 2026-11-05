@@ -8,3 +8,9 @@ export function normalizeIndianMobile(input: string): string | null {
   else return null;
   return /^[6-9]\d{9}$/.test(ten) ? `+91${ten}` : null;
 }
+
+/** "+919826100012" → "+91 98261 00012" for display. Anything else is returned unchanged. */
+export function formatMobile(normalized: string): string {
+  const m = /^\+91(\d{5})(\d{5})$/.exec(normalized);
+  return m ? `+91 ${m[1]} ${m[2]}` : normalized;
+}
