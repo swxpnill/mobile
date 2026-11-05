@@ -9,3 +9,5 @@ export { QtyText, MoneyText } from './values';
 export { EmptyState, type EmptyStateAction } from './EmptyState';
 export { TextField, type TextFieldProps } from './TextField';
 export { Switch } from './Switch';
+export { TabBar } from './TabBar';
+export { IconTile, MenuRow, type Tone } from './MenuRow';

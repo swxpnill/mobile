@@ -6,13 +6,15 @@ import {
   useFonts,
 } from '@expo-google-fonts/inter';
 import { metaSchema } from '@tonnage/shared';
+import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { AppState, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api, needsForceUpdate } from '../src/api/client';
+import { UnitBasisProvider } from '../src/api/hooks/me';
 import { useNetStatus } from '../src/api/netStatus';
 import { useIdleLock } from '../src/auth/lock';
 import { useSession } from '../src/auth/session';
@@ -22,6 +24,16 @@ import { ThemeProvider, useTheme } from '../src/theme/ThemeProvider';
 import { Text } from '../src/ui';
 
 void SplashScreen.preventAutoHideAsync();
+
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
+});
+
+// React Native has no window focus: refetch stale data when the app comes back to the foreground.
+focusManager.setEventListener((setFocused) => {
+  const sub = AppState.addEventListener('change', (s) => setFocused(s === 'active'));
+  return () => sub.remove();
+});
 
 /** "Waking server…" while a request has been pending for 5 s (free-tier cold start). */
 function WakingBanner() {
@@ -107,9 +119,13 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <ThemeProvider onReady={() => setThemeReady(true)}>
-        {ready ? <AppShell updateRequired={updateRequired} /> : null}
-      </ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider onReady={() => setThemeReady(true)}>
+          <UnitBasisProvider>
+            {ready ? <AppShell updateRequired={updateRequired} /> : null}
+          </UnitBasisProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
     </SafeAreaProvider>
   );
 }

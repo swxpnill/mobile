@@ -23,6 +23,7 @@ export function Screen({
   header,
   contentStyle,
   keyboard,
+  edges = ['top', 'bottom'],
 }: {
   children: ReactNode;
   /** Large page title; scrolls away with the content, as in the canvas. */
@@ -37,6 +38,8 @@ export function Screen({
    * window no longer resizes for the keyboard by itself.
    */
   keyboard?: boolean;
+  /** Safe-area sides to pad. Tab screens pass `['top']`: the tab bar handles the bottom. */
+  edges?: ('top' | 'bottom')[];
 }) {
   const { t, scheme } = useTheme();
   // flexGrow lets a `<View style={{ flex: 1 }} />` spacer push a footer to the bottom.
@@ -62,7 +65,7 @@ export function Screen({
     </View>
   );
   return (
-    <SafeAreaView style={[styles.fill, { backgroundColor: t.bg }]} edges={['top', 'bottom']}>
+    <SafeAreaView style={[styles.fill, { backgroundColor: t.bg }]} edges={edges}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       {header}
       {keyboard ? (

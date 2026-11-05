@@ -1,19 +1,21 @@
 import { formatRupees, formatRupeesShort, toDisplayQty, type UnitBasis } from '@tonnage/shared';
+import { useDisplayBasis } from '../api/hooks/me';
 import { Text, type TextProps } from './Text';
 
 /**
- * A quantity stored as integer kg, shown in the user's unit basis. Until the app shell provides
- * `useUnitBasis()` (Task 8) the basis is a prop, defaulting to MT.
+ * A quantity stored as integer kg, shown in the user's unit basis (MT or kg, from their profile).
+ * Pass `basis` only to force one, e.g. in a unit-switcher preview.
  */
 export function QtyText({
   kg,
-  basis = 'mt',
+  basis,
   withUnit,
   ...rest
 }: { kg: number; basis?: UnitBasis; withUnit?: boolean } & Omit<TextProps, 'children'>) {
+  const current = useDisplayBasis();
   return (
     <Text numeric {...rest}>
-      {toDisplayQty(kg, basis, { withUnit })}
+      {toDisplayQty(kg, basis ?? current, { withUnit })}
     </Text>
   );
 }
