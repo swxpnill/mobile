@@ -76,6 +76,9 @@ export function VerifyScreen() {
           return;
         }
       }
+      // Back to the code screen (with resend) — the company picker would be a dead end, since the
+      // code it needs has just been cleared.
+      setTenants(null);
       setError(messageFor(e));
       setCode('');
     } finally {

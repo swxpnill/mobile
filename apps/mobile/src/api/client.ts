@@ -2,13 +2,12 @@ import * as Crypto from 'expo-crypto';
 import {
   type ErrorCode,
   type HttpMethod,
-  NetworkError,
   type TransportResponse,
   apiErrorBodySchema,
 } from '@tonnage/shared';
 import type { ZodType } from 'zod';
 import { useSession } from '../auth/session';
-import { WAKING_AFTER_MS, useNetStatus } from './netStatus';
+import { timed } from './netStatus';
 import { getTransport } from './transport';
 
 /** A non-2xx response from the API, with the contract's `{ code, message, details? }`. */
@@ -24,7 +23,7 @@ export class ApiError extends Error {
   }
 }
 
-export const REQUEST_TIMEOUT_MS = 90_000;
+export { REQUEST_TIMEOUT_MS } from './netStatus';
 
 export interface ApiInit<T> {
   method?: HttpMethod;
@@ -46,18 +45,26 @@ export async function api<T = unknown>(path: string, init: ApiInit<T> = {}): Pro
   const { method = 'GET', body, idempotent, schema, auth = true } = init;
   const key = idempotent ? Crypto.randomUUID() : undefined;
 
+  let sentWith: string | undefined;
   const send = async (): Promise<TransportResponse> => {
     const headers: Record<string, string> = {};
-    const token = useSession.getState().accessToken;
-    if (auth && token) headers.authorization = `Bearer ${token}`;
+    sentWith = useSession.getState().accessToken;
+    if (auth && sentWith) headers.authorization = `Bearer ${sentWith}`;
     if (key) headers['idempotency-key'] = key;
     return timed((await getTransport()).request({ method, path, headers, body }));
   };
 
   let res = await send();
   if (res.status === 401 && auth && useSession.getState().refreshToken) {
-    const refreshed = await useSession.getState().refresh(); // shared by concurrent callers
-    if (refreshed) res = await send();
+    const current = useSession.getState().accessToken;
+    if (current && current !== sentWith) {
+      // Another request already refreshed while this one was out: just retry with the new token.
+      // Rotating again would waste a rotation and invite the chained-rotation edge (F1.4 review).
+      res = await send();
+    } else {
+      const refreshed = await useSession.getState().refresh(); // shared by concurrent callers
+      if (refreshed) res = await send();
+    }
   }
   if (res.status < 200 || res.status >= 300) throw toApiError(res);
   return (schema ? schema.parse(res.body) : res.body) as T;
@@ -69,31 +76,6 @@ function toApiError(res: TransportResponse): ApiError {
     return new ApiError(res.status, parsed.data.code, parsed.data.message, parsed.data.details);
   }
   return new ApiError(res.status, 'INTERNAL', 'Something went wrong');
-}
-
-/** Tracks the request for the "Waking server…" banner and gives up after 90 s. */
-async function timed<T>(work: Promise<T>): Promise<T> {
-  useNetStatus.setState((s) => ({ pending: s.pending + 1 }));
-  const waking = setTimeout(() => useNetStatus.setState({ waking: true }), WAKING_AFTER_MS);
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      work,
-      new Promise<never>((_, reject) => {
-        timeout = setTimeout(
-          () => reject(new NetworkError('The server took too long to answer')),
-          REQUEST_TIMEOUT_MS,
-        );
-      }),
-    ]);
-  } finally {
-    clearTimeout(waking);
-    clearTimeout(timeout);
-    useNetStatus.setState((s) => {
-      const pending = Math.max(0, s.pending - 1);
-      return { pending, waking: pending > 0 ? s.waking : false };
-    });
-  }
 }
 
 /**

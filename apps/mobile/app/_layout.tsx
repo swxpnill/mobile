@@ -47,17 +47,27 @@ function AppShell({ updateRequired }: { updateRequired: boolean }) {
   const onActivity = useIdleLock();
 
   if (updateRequired) return <UpdateRequiredScreen />;
-  if (status === 'locked') return <LockScreen />;
+  const locked = status === 'locked';
+  // The app stays mounted under the lock, so unlocking returns to exactly where the user was
+  // (navigation and half-filled forms). While locked it is hidden from screen readers.
   return (
-    <View style={styles.fill} onTouchStart={onActivity}>
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: t.bg },
-          animation: 'slide_from_right',
-        }}
-      />
-      <WakingBanner />
+    <View style={styles.fill}>
+      <View
+        style={styles.fill}
+        onTouchStart={onActivity}
+        importantForAccessibility={locked ? 'no-hide-descendants' : 'auto'}
+        accessibilityElementsHidden={locked}
+      >
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: t.bg },
+            animation: 'slide_from_right',
+          }}
+        />
+        <WakingBanner />
+      </View>
+      {locked ? <LockScreen /> : null}
     </View>
   );
 }
