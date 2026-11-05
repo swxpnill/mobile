@@ -120,18 +120,46 @@ describe('controls', () => {
     expect(api.controls.getState().offline).toBe(true);
   });
 
-  it('writesOnly failures skip reads and hit the next write', async () => {
+  it('writesOnly failures skip reads and auth calls, and hit the next save', async () => {
     const api = await createMockApi({ clock: createFakeClock(START) });
+    const pair = await api.controls.signInAs(SAMPLE_WORLD.ids.users.rajesh, device);
     api.controls.failNext(409, 'STALE', { writesOnly: true });
     expect((await api.transport.request(meta)).status).toBe(200);
-    const write = await api.transport.request({
+    // A token refresh or sign-in is not a save: it must not use up the armed conflict.
+    const refresh = await api.transport.request({
       method: 'POST',
-      path: '/v1/auth/request-code',
+      path: '/v1/auth/refresh',
       headers: {},
-      body: { mobile: '9826100012' },
+      body: { refreshToken: pair.refreshToken, deviceId: device },
     });
-    expect(write.status).toBe(409);
+    expect(refresh.status).toBe(200);
+    const token = (refresh.body as { accessToken: string }).accessToken;
+    const save = await api.transport.request({
+      method: 'PATCH',
+      path: '/v1/settings',
+      headers: { authorization: `Bearer ${token}` },
+      body: { agedOrderDays: 12 },
+    });
+    expect(save.status).toBe(409);
     expect(api.controls.getState().failNext).toBeNull();
+  });
+
+  it('revokeRefreshToken revokes inside the mock: no request, armed failures untouched', async () => {
+    const api = await createMockApi({ clock: createFakeClock(START) });
+    const pair = await api.controls.signInAs(SAMPLE_WORLD.ids.users.rajesh, device);
+    api.controls.setOffline(true);
+    api.controls.dropNext();
+    await api.controls.revokeRefreshToken(pair.refreshToken);
+    expect(api.controls.getState().failNext).toMatchObject({ kind: 'network' });
+    api.controls.setOffline(false);
+    api.controls.clearFailNext();
+    const refresh = await api.transport.request({
+      method: 'POST',
+      path: '/v1/auth/refresh',
+      headers: {},
+      body: { refreshToken: pair.refreshToken, deviceId: device },
+    });
+    expect(refresh.status).toBe(401);
   });
 
   it('dropNext rejects exactly one request with NetworkError; clearFailNext disarms', async () => {

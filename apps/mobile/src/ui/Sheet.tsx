@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSession } from '../auth/session';
 import { useTheme } from '../theme/ThemeProvider';
 import { Text } from './Text';
 
@@ -23,12 +24,14 @@ export function Sheet({
 }) {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
+  // A Modal is its own native window: the lock screen cannot cover it, so it hides while locked.
+  const locked = useSession((s) => s.status === 'locked');
   const close = () => {
     if (!busy) onClose();
   };
   return (
     <Modal
-      visible={visible}
+      visible={visible && !locked}
       transparent
       animationType="slide"
       statusBarTranslucent
@@ -41,6 +44,7 @@ export function Sheet({
           onPress={close}
           accessibilityRole="button"
           accessibilityLabel="Close"
+          accessibilityState={{ disabled: Boolean(busy) }}
         />
         <View
           accessibilityViewIsModal

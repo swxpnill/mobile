@@ -19,6 +19,7 @@ import { DemoSignInScreen } from '../src/screens/DemoSignInScreen';
 import { ProfileScreen } from '../src/screens/ProfileScreen';
 import { SignInScreen } from '../src/screens/SignInScreen';
 import { ThemeProvider } from '../src/theme/ThemeProvider';
+import { Sheet } from '../src/ui/Sheet';
 import { WakingBanner } from '../src/ui/WakingBanner';
 
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), canGoBack: () => true };
@@ -258,5 +259,73 @@ describe('Demo sign-in from the Sign in screen', () => {
     } finally {
       g.__DEV__ = true;
     }
+  });
+});
+
+describe('Task 10 review fixes', () => {
+  it('I2: switching person turns simulated Offline off, so the new person is not stranded', async () => {
+    mock.controls.setOffline(true);
+    await wrap(<DemoToolsScreen />);
+    await fireEvent.press(await screen.findByRole('button', { name: /^Ravi Verma/ }));
+    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/tasks'));
+    expect(mock.controls.getState().offline).toBe(false);
+    expect(meSchema.parse(await api('/v1/me')).name).toBe('Ravi Verma');
+  });
+
+  it('M5: the previous refresh token is revoked even with a failure armed, which stays armed', async () => {
+    const previous = useSession.getState().refreshToken!;
+    mock.controls.failNext(409, 'STALE', { writesOnly: true });
+    await wrap(<DemoToolsScreen />);
+    await fireEvent.press(await screen.findByRole('button', { name: /^Ravi Verma/ }));
+    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/tasks'));
+    await waitFor(() => expect(mock.controls.getState().failNext).toMatchObject({ code: 'STALE' }));
+    mock.controls.clearFailNext();
+    const res = await mock.transport.request({
+      method: 'POST',
+      path: '/v1/auth/refresh',
+      headers: {},
+      body: { refreshToken: previous, deviceId: await useSession.getState().ensureDeviceId() },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('I1: a sheet never shows over the fingerprint lock', async () => {
+    const { Text } = jest.requireActual('react-native');
+    await wrap(
+      <Sheet visible title="Reset demo data?" onClose={() => undefined}>
+        <Text>Inside</Text>
+      </Sheet>,
+    );
+    expect(await screen.findByText('Inside')).toBeOnTheScreen();
+    await act(async () => {
+      useSession.getState().lock();
+    });
+    expect(screen.queryByText('Inside')).toBeNull();
+  });
+
+  it('M4: a 401 that lands after a person switch is not retried as the new person', async () => {
+    let calls = 0;
+    let firstAuth: string | undefined;
+    const rajeshToken = useSession.getState().accessToken;
+    setTransport({
+      request: async (req) => {
+        if (req.path === '/v1/settings' && req.method === 'PATCH') {
+          calls += 1;
+          firstAuth ??= req.headers.authorization;
+          if (calls === 1) {
+            // While the save is out, the tester switches to Priya; the old token then expires.
+            await signIn(ids.users.priya);
+            return { status: 401, headers: {}, body: { code: 'UNAUTHENTICATED', message: 'x' } };
+          }
+        }
+        return mock.transport.request(req);
+      },
+    });
+    await expect(
+      api('/v1/settings', { method: 'PATCH', body: { agedOrderDays: 12 } }),
+    ).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
+    expect(firstAuth).toBe(`Bearer ${rajeshToken}`);
+    expect(calls).toBe(1);
+    setTransport(null);
   });
 });

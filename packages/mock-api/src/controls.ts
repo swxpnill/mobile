@@ -38,7 +38,7 @@ export interface MockControls {
   setLatency(ms: number): void;
   /**
    * The next request (only that one) returns `status` with `{ code, message }`. With
-   * `writesOnly`, reads pass and the next non-GET request fails (e.g. STALE on a save).
+   * `writesOnly`, reads and auth calls pass and the next save fails (e.g. STALE).
    */
   failNext(status: number, code: ErrorCode, opts?: { writesOnly?: boolean }): void;
   /** The next request (only that one) rejects with `NetworkError` (the connection drops). */
@@ -47,8 +47,10 @@ export interface MockControls {
   clearFailNext(): void;
   /** A copy of the current simulation settings, for the demo screen. */
   getState(): ControlState;
-  /** Everyone in every tenant: active first, then by role and name. */
+  /** Everyone, active first, then by business name, role and name. */
   listUsers(): Promise<DemoUser[]>;
+  /** Revoke a refresh token directly (demo person switch): no request, so no simulation applies. */
+  revokeRefreshToken(refreshToken: string): Promise<void>;
   /** Demo quick-switch: a token pair for the user without the OTP flow. */
   signInAs(userId: string, deviceId: string): Promise<TokenPair>;
 }
@@ -71,6 +73,9 @@ export function createQueue(): Enqueue {
   };
 }
 
+/** A request that changes business data: not a read, and not sign-in / refresh / sign-out. */
+const isSave = (req: TransportRequest) => req.method !== 'GET' && !req.path.startsWith('/v1/auth/');
+
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export function createTransport(deps: {
@@ -86,7 +91,7 @@ export function createTransport(deps: {
       if (cs.offline) throw new NetworkError('Offline (simulated)');
       return enqueue(async () => {
         const fail = cs.failNext;
-        if (fail && (!fail.writesOnly || req.method !== 'GET')) {
+        if (fail && (!fail.writesOnly || isSave(req))) {
           cs.failNext = null;
           if (fail.kind === 'network') throw new NetworkError('Connection dropped (simulated)');
           return {
@@ -136,6 +141,14 @@ export function createControls(deps: {
       latencyMs: cs.latencyMs,
       failNext: cs.failNext ? { ...cs.failNext } : null,
     }),
+    revokeRefreshToken: (refreshToken) =>
+      enqueue(async () => {
+        const rec = store.state.refreshTokens[refreshToken];
+        if (rec && rec.revokedAt === null) {
+          rec.revokedAt = toIso(clock.now());
+          store.schedulePersist();
+        }
+      }),
     listUsers: () =>
       enqueue(async () => {
         const st = store.state;

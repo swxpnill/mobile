@@ -1,5 +1,5 @@
 import type { MockControls } from '@tonnage/mock-api';
-import { revoke, useSession } from '../auth/session';
+import { useSession } from '../auth/session';
 import { API_MODE, getMockApi } from './transport';
 
 interface DemoEnv {
@@ -43,12 +43,13 @@ export async function signInAsDemo(userId: string): Promise<void> {
   const c = await controls();
   const previous = useSession.getState().refreshToken;
   const pair = await c.signInAs(userId, await useSession.getState().ensureDeviceId());
+  // Simulated offline would strand the new person on "Can't reach the server" with no way back
+  // to this switch (Demo tools live inside the tabs): a switch always starts online.
+  c.setOffline(false);
   await useSession.getState().signIn(pair);
-  // The revoke goes through the mock like any request: it must not use up a failure the tester
-  // armed for the next screen, nor fail against simulated offline. The old token then simply
-  // expires (mock only).
-  const sim = c.getState();
-  if (previous && !sim.offline && !sim.failNext) void revoke(previous);
+  // Revoked inside the mock, not over the transport: no latency, and an armed failure is kept
+  // for the screen the tester is about to try.
+  if (previous) await c.revokeRefreshToken(previous);
 }
 
 /** Back to the sample data, every simulation off, everyone signed out (this phone too). */

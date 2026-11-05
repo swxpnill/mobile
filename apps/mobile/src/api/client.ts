@@ -59,8 +59,11 @@ export async function api<T = unknown>(path: string, init: ApiInit<T> = {}): Pro
     return timed((await getTransport()).request({ method, path, headers, body }));
   };
 
+  const identity = useSession.getState().identity;
   let res = await send();
-  if (res.status === 401 && auth && useSession.getState().refreshToken) {
+  // Signed out or switched person while this was out: never resend it as someone else.
+  const samePerson = useSession.getState().identity === identity;
+  if (res.status === 401 && auth && samePerson && useSession.getState().refreshToken) {
     const current = useSession.getState().accessToken;
     if (current && current !== sentWith) {
       // Another request already refreshed while this one was out: just retry with the new token.
