@@ -22,13 +22,21 @@ export const settingsRoutes: RouteDef[] = [
       const a = authed(ctx);
       const parsed = tenantSettingsSchema.safeParse({ ...a.tenant.settings, ...ctx.body });
       if (!parsed.success) throw validationError(issueDetails(parsed.error.issues));
+      const before = a.tenant.settings;
+      // Only real settings whose value changed: unknown keys are stripped by the schema, and
+      // re-sending a current value is not a change.
+      const changed = (Object.keys(parsed.data) as (keyof typeof parsed.data)[]).filter(
+        (k) => parsed.data[k] !== before[k],
+      );
       a.tenant.settings = parsed.data;
-      logActivity(ctx.state, a, ctx.now, {
-        entityType: 'tenant',
-        entityId: a.tenant.id,
-        action: 'settings.updated',
-        meta: { keys: Object.keys(ctx.body) },
-      });
+      if (changed.length > 0) {
+        logActivity(ctx.state, a, ctx.now, {
+          entityType: 'tenant',
+          entityId: a.tenant.id,
+          action: 'settings.updated',
+          meta: { keys: changed },
+        });
+      }
       return { body: { ...parsed.data } };
     },
   }),
