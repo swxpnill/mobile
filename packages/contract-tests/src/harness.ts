@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, expect } from 'vitest';
+import { afterAll, beforeAll, beforeEach, expect } from 'vitest';
 import type { z } from 'zod';
 import {
   type ApiErrorBody,
@@ -14,7 +14,10 @@ import {
 
 /** Test-only hooks a target must offer so the suite can set up cross-tenant cases. */
 export interface ContractFixtures {
-  /** A second tenant: one owner (never signed in), one company `TNT`, one plant. */
+  /**
+   * A second tenant: one owner (never signed in), one company `TNT`, one plant. `ownerMobile` is
+   * normalised (`+91…`), not used by `SAMPLE_WORLD`, and unique across calls until `reset()`.
+   */
   createTenant(
     name: string,
   ): Promise<{ tenantId: string; ownerMobile: string; companyId: string; plantId: string }>;
@@ -22,11 +25,16 @@ export interface ContractFixtures {
 
 /**
  * Anything that serves the API contract: the in-process mock today, Fastify + Postgres in B1.
- * Time moves only through `clock.advance`, so expiry and grace windows are deterministic.
+ *
+ * Target requirements:
+ * - `clock` drives every time rule (token expiry, OTP expiry and lockout, refresh grace,
+ *   idempotency retention). Windows are half-open: a 30 s window is over at exactly 30 000 ms.
+ * - Rate limiting is off: the suite sends far more auth requests than a real client.
+ * - Response header names are lower-case; a 204 has no body (`null` or `undefined`).
+ * - `reset()` returns to `SAMPLE_WORLD` with no sessions, challenges, lockouts or idempotency keys.
  */
 export interface ContractTarget {
   transport: Transport;
-  /** Back to `SAMPLE_WORLD` with no sessions, challenges or lockouts. */
   reset(): Promise<void>;
   clock: { advance(ms: number): void };
   fixtures: ContractFixtures;
@@ -34,6 +42,8 @@ export interface ContractTarget {
     /** The target really runs requests concurrently (the mock serialises them). */
     concurrency: boolean;
   };
+  /** Releases the target (server, DB pool). Called once after each suite. */
+  close?(): Promise<void>;
 }
 
 export type TargetFactory = () => Promise<ContractTarget>;
@@ -80,6 +90,10 @@ export function useTarget(factory: TargetFactory): () => ContractTarget {
   beforeEach(async () => {
     await target?.reset();
   });
+  afterAll(async () => {
+    await target?.close?.();
+    target = undefined;
+  });
   return () => {
     if (!target) throw new Error('contract target not ready');
     return target;
@@ -124,6 +138,14 @@ export function expectOk<S extends z.ZodType>(
 ): z.output<S> {
   expect(res.status, `expected ${status}, body: ${JSON.stringify(res.body)}`).toBe(status);
   return parseExact(schema, res.body);
+}
+
+/**
+ * Two responses a client cannot tell apart: same status and body. Headers are not compared —
+ * `date`, request ids and rate-limit counters legitimately differ between any two responses.
+ */
+export function expectSameResponse(a: TransportResponse, b: TransportResponse): void {
+  expect({ status: a.status, body: a.body }).toEqual({ status: b.status, body: b.body });
 }
 
 /** Asserts an error status, the `{ code, message, details? }` shape and the code. */

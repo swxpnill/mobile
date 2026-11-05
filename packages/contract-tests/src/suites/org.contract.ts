@@ -11,6 +11,7 @@ import {
   call,
   expectError,
   expectOk,
+  expectSameResponse,
   newKey,
   tokenFor,
   useTarget,
@@ -155,7 +156,7 @@ export function register(factory: TargetFactory): void {
         const foreign = await call(t, 'GET', `/v1/companies/${other.companyId}`, { token: owner });
         const missing = await call(t, 'GET', `/v1/companies/${RANDOM_ID}`, { token: owner });
         expectError(foreign, 404, 'NOT_FOUND');
-        expect(foreign).toEqual(missing);
+        expectSameResponse(foreign, missing);
         const patch = await call(t, 'PATCH', `/v1/companies/${other.companyId}`, {
           token: owner,
           body: { name: 'Taken over', version: 1 },
@@ -171,7 +172,7 @@ export function register(factory: TargetFactory): void {
         const missing = await call(t, 'GET', `/v1/plants/${RANDOM_ID}`, { token: owner });
         const foreign = await call(t, 'GET', `/v1/plants/${other.plantId}`, { token: owner });
         expectError(foreign, 404, 'NOT_FOUND');
-        expect(foreign).toEqual(missing);
+        expectSameResponse(foreign, missing);
         expectError(
           await call(t, 'PATCH', `/v1/plants/${other.plantId}`, {
             token: owner,

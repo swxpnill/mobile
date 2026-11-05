@@ -141,18 +141,31 @@ export function register(factory: TargetFactory): void {
       expect(validationDetailsSchema.parse(err.details)[0]?.path).toEqual(['idempotency-key']);
     });
 
-    it('two concurrent same-key POSTs → one 2xx, one 409 IDEMPOTENCY_IN_PROGRESS', async (ctx) => {
+    it('two concurrent same-key POSTs → one plant; the other gets 409 IDEMPOTENCY_IN_PROGRESS or the replay', async () => {
+      // Which of the two outcomes happens depends on timing: the second request either finds the
+      // first still running (409) or already finished (replay). Both are correct; a second plant
+      // never is. A serial target (the mock) always takes the replay path.
       const t = target();
-      if (!t.capabilities.concurrency) ctx.skip();
       const owner = await tokenFor(t, PEOPLE.rajesh);
       const key = newKey();
       const send = () =>
         call(t, 'POST', '/v1/plants', { token: owner, idempotencyKey: key, body: plantBody });
-      const results = await Promise.all([send(), send()]);
-      const statuses = results.map((r) => r.status).sort();
-      expect(statuses).toEqual([201, 409]);
-      const conflict = results.find((r) => r.status === 409);
-      if (conflict) expectError(conflict, 409, 'IDEMPOTENCY_IN_PROGRESS');
+      const [a, b] = await Promise.all([send(), send()]);
+      const [won, other] =
+        a.status === 201 && a.headers['idempotent-replay'] === undefined ? [a, b] : [b, a];
+      const created = expectOk(won, plantSchema, 201);
+      expect(won.headers['idempotent-replay']).toBeUndefined();
+      if (other.status === 409) {
+        expectError(other, 409, 'IDEMPOTENCY_IN_PROGRESS');
+      } else {
+        expect(expectOk(other, plantSchema, 201)).toEqual(created);
+        expect(other.headers['idempotent-replay']).toBe('true');
+      }
+      const list = expectOk(
+        await call(t, 'GET', `/v1/plants?companyId=${COMPANY.VSL}`, { token: owner }),
+        z.array(plantSchema),
+      );
+      expect(list.filter((p) => p.name === 'Urla II')).toHaveLength(1);
     });
 
     it('unknown route → 404 NOT_FOUND, with or without a token', async () => {

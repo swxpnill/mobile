@@ -21,6 +21,7 @@ import {
   call,
   expectError,
   expectOk,
+  expectSameResponse,
   newKey,
   signIn,
   tokenFor,
@@ -44,7 +45,7 @@ export function register(factory: TargetFactory): void {
         const known = await requestCode(t, PEOPLE.rajesh.mobile);
         const unknown = await requestCode(t, '9999999999');
         expect(expectOk(known, requestCodeResponseSchema)).toEqual({ resendAfterSeconds: 30 });
-        expect(unknown).toEqual(known); // status, headers and body: no way to tell them apart
+        expectSameResponse(unknown, known); // no way to tell them apart
       });
 
       it('a number that is not a valid Indian mobile → 422 VALIDATION on mobile', async () => {

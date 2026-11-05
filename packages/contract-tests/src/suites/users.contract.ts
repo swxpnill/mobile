@@ -281,6 +281,91 @@ export function register(factory: TargetFactory): void {
         );
       });
 
+      it('Review Focus 1: a deactivated second owner does not count — Rajesh is still the last active owner', async () => {
+        const t = target();
+        const owner = await tokenFor(t, PEOPLE.rajesh);
+        const second = expectOk(
+          await invite(t, owner, {
+            name: 'Sunita Agrawal',
+            mobile: '9826100060',
+            role: 'owner',
+            plantIds: [],
+          }),
+          userSchema,
+          201,
+        );
+        expectOk(
+          await call(t, 'POST', `/v1/users/${second.id}/deactivate`, { token: owner }),
+          userSchema,
+        );
+        expectError(
+          await call(t, 'PATCH', `/v1/users/${PEOPLE.rajesh.id}`, {
+            token: owner,
+            body: { role: 'city_staff', version: 1 },
+          }),
+          409,
+          'LAST_OWNER',
+        );
+        expectError(
+          await call(t, 'POST', `/v1/users/${PEOPLE.rajesh.id}/deactivate`, { token: owner }),
+          409,
+          'LAST_OWNER',
+        );
+      });
+
+      it('a role change applies to tokens already issued: demoted Rajesh’s old token → 403 on admin routes', async () => {
+        const t = target();
+        const rajesh = await tokenFor(t, PEOPLE.rajesh);
+        expectOk(
+          await invite(t, rajesh, {
+            name: 'Sunita Agrawal',
+            mobile: '9826100060',
+            role: 'owner',
+            plantIds: [],
+          }),
+          userSchema,
+          201,
+        );
+        expectOk(
+          await call(t, 'PATCH', `/v1/users/${PEOPLE.rajesh.id}`, {
+            token: rajesh,
+            body: { role: 'city_staff', version: 1 },
+          }),
+          userSchema,
+        );
+        expectError(await call(t, 'GET', '/v1/users', { token: rajesh }), 403, 'FORBIDDEN');
+        const me = expectOk(await call(t, 'GET', '/v1/me', { token: rajesh }), meSchema);
+        expect(me.role).toBe('city_staff');
+      });
+
+      it('a plant change applies to tokens already issued: Ravi moved to Borai sees KRM, not AIP', async () => {
+        const t = target();
+        const ravi = await tokenFor(t, PEOPLE.ravi);
+        const before = expectOk(
+          await call(t, 'GET', '/v1/companies', { token: ravi }),
+          z.array(companySchema),
+        );
+        expect(before.map((c) => c.code)).toEqual(['AIP']);
+        const owner = await tokenFor(t, PEOPLE.rajesh);
+        expectOk(
+          await call(t, 'PATCH', `/v1/users/${PEOPLE.ravi.id}`, {
+            token: owner,
+            body: { plantIds: [PLANT.borai], version: 1 },
+          }),
+          userSchema,
+        );
+        const list = expectOk(
+          await call(t, 'GET', '/v1/companies', { token: ravi }),
+          z.array(companySchema),
+        );
+        expect(list.map((c) => c.code)).toEqual(['KRM']);
+        expectError(
+          await call(t, 'GET', `/v1/plants/${PLANT.siltara}`, { token: ravi }),
+          404,
+          'NOT_FOUND',
+        );
+      });
+
       it('Deepak status invited; after he signs in → active', async () => {
         const t = target();
         const owner = await tokenFor(t, PEOPLE.rajesh);
