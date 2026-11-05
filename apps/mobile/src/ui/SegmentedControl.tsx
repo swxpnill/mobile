@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useTheme } from '../theme/ThemeProvider';
+import { SMALL_TEXT_MAX_SCALE } from '../theme/tokens';
 import { Text } from './Text';
 
 export interface SegmentedControlProps<T extends string> {
@@ -49,6 +50,7 @@ export function SegmentedControl<T extends string>({
               color={selected ? 'tx' : 'tx2'}
               style={{ fontSize: full ? 13 : 12 }}
               numberOfLines={1}
+              maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
             >
               {o.label}
             </Text>
@@ -61,8 +63,21 @@ export function SegmentedControl<T extends string>({
 
 const styles = StyleSheet.create({
   track: { flexDirection: 'row', padding: 3, gap: 2 },
-  compact: { height: 30, paddingHorizontal: 10, borderRadius: 8, justifyContent: 'center' },
-  full: { flex: 1, height: 38, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  compact: {
+    minHeight: 30,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    justifyContent: 'center',
+  },
+  full: {
+    flex: 1,
+    minHeight: 38,
+    paddingVertical: 6,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   on: {
     shadowColor: '#0B0D12',
     shadowOpacity: 0.08,

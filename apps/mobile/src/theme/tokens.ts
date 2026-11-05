@@ -32,6 +32,8 @@ export interface Tokens {
   dg: string;
   dgt: string;
   dgs: string;
+  /** Danger button fill: passes 4.5:1 with white text in both themes. */
+  dgf: string;
   te: string;
   tes: string;
 }
@@ -62,6 +64,7 @@ export const lightTokens: Tokens = {
   dg: '#E11D2E',
   dgt: '#D21E2B',
   dgs: 'rgba(242,54,69,.09)',
+  dgf: '#D21E2B',
   te: '#0E7490',
   tes: 'rgba(14,116,144,.10)',
 };
@@ -92,6 +95,7 @@ export const darkTokens: Tokens = {
   dg: '#EF5350',
   dgt: '#EF5350',
   dgs: 'rgba(239,83,80,.14)',
+  dgf: '#C62828',
   te: '#3CC7D9',
   tes: 'rgba(60,199,217,.14)',
 };
@@ -144,6 +148,12 @@ export const fontFamily: Record<FontWeight, string> = {
 };
 
 export const radius = { group: 16, button: 14, chip: 18, badge: 6, control: 10, tag: 5 } as const;
+
+/**
+ * Cap on the phone font-size multiplier for text inside small pills (badge, unit tag, chip, compact
+ * segment). Body text still scales freely.
+ */
+export const SMALL_TEXT_MAX_SCALE = 1.3;
 
 /** Minimum touch target (Android/Material and WCAG 2.5.5 guidance). */
 export const MIN_TOUCH = 44;

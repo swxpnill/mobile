@@ -45,7 +45,7 @@ export function OtpInput({ length = 6, value, onChange, autoFocus, invalid }: Ot
                 },
               ]}
             >
-              <Text variant="subtitle" numeric style={{ fontSize: 24 }}>
+              <Text variant="subtitle" numeric maxFontSizeMultiplier={1.5} style={{ fontSize: 24 }}>
                 {value[i] ?? ''}
               </Text>
             </View>
@@ -64,6 +64,8 @@ export function OtpInput({ length = 6, value, onChange, autoFocus, invalid }: Ot
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         caretHidden
+        // The cursor always stays after the last digit: a tap on an early box cannot insert there.
+        selection={{ start: value.length, end: value.length }}
         style={styles.hidden}
       />
     </Pressable>

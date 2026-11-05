@@ -3,7 +3,7 @@
     "name": "Tonnage",
     "slug": "tonnage",
     "version": "1.0.0",
-    "orientation": "default",
+    "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "android": {

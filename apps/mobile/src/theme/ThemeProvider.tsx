@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { useColorScheme } from 'react-native';
@@ -12,6 +13,7 @@ import {
   DEFAULT_DEVICE_PREFS,
   type DevicePrefs,
   getDevicePrefs,
+  mergeDevicePrefs,
   setDevicePrefs,
 } from '../prefs/device';
 import { type ColorScheme, darkTokens, lightTokens, type Tokens } from './tokens';
@@ -30,14 +32,30 @@ export interface ThemeValue {
 
 const ThemeContext = createContext<ThemeValue | null>(null);
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
+/**
+ * Renders nothing until the stored prefs are read, so the first visible frame already has the
+ * user's theme and text size (the root layout keeps the splash up until `onReady`).
+ */
+export function ThemeProvider({
+  children,
+  onReady,
+}: {
+  children: ReactNode;
+  onReady?: () => void;
+}) {
   const system = useColorScheme();
-  const [prefs, setPrefsState] = useState<DevicePrefs>(DEFAULT_DEVICE_PREFS);
+  const [prefs, setPrefsState] = useState<DevicePrefs | null>(null);
+  const current = useRef<DevicePrefs>(DEFAULT_DEVICE_PREFS);
+  const readyCb = useRef(onReady);
+  readyCb.current = onReady;
 
   useEffect(() => {
     let alive = true;
     void getDevicePrefs().then((p) => {
-      if (alive) setPrefsState(p);
+      if (!alive) return;
+      current.current = p;
+      setPrefsState(p);
+      readyCb.current?.();
     });
     return () => {
       alive = false;
@@ -45,11 +63,20 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setPrefs = useCallback(async (patch: Partial<DevicePrefs>) => {
-    setPrefsState((p) => ({ ...p, ...patch })); // instant on screen
-    setPrefsState(await setDevicePrefs(patch)); // then the persisted, sanitised value
+    // The screen follows the latest choice at once; storage writes run in order behind it.
+    const next = mergeDevicePrefs(current.current, patch);
+    current.current = next;
+    setPrefsState(next);
+    try {
+      await setDevicePrefs(patch);
+    } catch {
+      // Not saved (storage full or unavailable): keep the choice for this session rather than
+      // snapping back, and never surface an unhandled rejection to fire-and-forget callers.
+    }
   }, []);
 
-  const value = useMemo<ThemeValue>(() => {
+  const value = useMemo<ThemeValue | null>(() => {
+    if (!prefs) return null;
     const scheme: ColorScheme =
       prefs.themeMode === 'auto' ? (system === 'dark' ? 'dark' : 'light') : prefs.themeMode;
     return {
@@ -62,6 +89,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     };
   }, [prefs, system, setPrefs]);
 
+  if (!value) return null;
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 

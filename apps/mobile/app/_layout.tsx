@@ -6,7 +6,7 @@ import {
 } from '@expo-google-fonts/inter';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, useTheme } from '../src/theme/ThemeProvider';
 
@@ -27,17 +27,19 @@ function ThemedStack() {
 
 export default function RootLayout() {
   const [loaded, error] = useFonts({ Inter_400Regular, Inter_500Medium, Inter_600SemiBold });
+  const fontsDone = loaded || Boolean(error); // a font failure falls back to the system font
+  const [themeReady, setThemeReady] = useState(false);
 
   useEffect(() => {
-    // A font failure must not leave the user on the splash screen: fall back to the system font.
-    if (loaded || error) void SplashScreen.hideAsync();
-  }, [loaded, error]);
+    // Keep the splash until both fonts and the stored theme are ready: no flash of the wrong
+    // theme or text size on cold start.
+    if (fontsDone && themeReady) void SplashScreen.hideAsync();
+  }, [fontsDone, themeReady]);
 
-  if (!loaded && !error) return null;
   return (
     <SafeAreaProvider>
-      <ThemeProvider>
-        <ThemedStack />
+      <ThemeProvider onReady={() => setThemeReady(true)}>
+        {fontsDone ? <ThemedStack /> : null}
       </ThemeProvider>
     </SafeAreaProvider>
   );

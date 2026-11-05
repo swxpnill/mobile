@@ -32,7 +32,7 @@ export function Button({
   const colors = {
     primary: { bg: t.inv, fg: t.invtx, border: undefined },
     secondary: { bg: t.card, fg: t.tx, border: t.bd2 },
-    danger: { bg: t.dgt, fg: '#FFFFFF', border: undefined },
+    danger: { bg: t.dgf, fg: '#FFFFFF', border: undefined },
   }[variant];
   return (
     <Pressable

@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useTheme } from '../theme/ThemeProvider';
-import { radius, type Tokens, unitTagColors } from '../theme/tokens';
+import { radius, SMALL_TEXT_MAX_SCALE, type Tokens, unitTagColors } from '../theme/tokens';
 import { Text } from './Text';
 
 export type BadgeKind = 'br' | 'ok' | 'wn' | 'dg' | 'nu' | 'vi' | 'te';
@@ -30,7 +30,13 @@ export function Badge({
   return (
     <View style={[styles.badge, { backgroundColor: t[c.bg] }]}>
       {dot ? <View style={[styles.dot, { backgroundColor: t[c.fg] }]} /> : null}
-      <Text variant="caption" weight="medium" color={c.fg} numberOfLines={1}>
+      <Text
+        variant="caption"
+        weight="medium"
+        color={c.fg}
+        numberOfLines={1}
+        maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+      >
         {children}
       </Text>
     </View>
@@ -45,6 +51,7 @@ export function UnitTag({ code, slot }: { code: string; slot: number }) {
     <View style={[styles.unit, { backgroundColor: c.bg }]} accessibilityLabel={`Unit ${code}`}>
       <Text
         weight="semibold"
+        maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
         style={{ color: c.fg, fontSize: 11, lineHeight: 14, letterSpacing: 0.33 }}
       >
         {code}
@@ -81,11 +88,19 @@ export function Chip({
           : { backgroundColor: t.card, borderColor: t.bd, borderWidth: 1 },
       ]}
     >
-      <Text weight="medium" style={{ color: fg, fontSize: 13 }}>
+      <Text
+        weight="medium"
+        maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+        style={{ color: fg, fontSize: 13 }}
+      >
         {label}
       </Text>
       {count === undefined ? null : (
-        <Text numeric style={{ color: fg, fontSize: 12, opacity: 0.65 }}>
+        <Text
+          numeric
+          maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+          style={{ color: fg, fontSize: 12, opacity: 0.65 }}
+        >
           {String(count)}
         </Text>
       )}
@@ -98,21 +113,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    height: 22,
+    minHeight: 22,
+    paddingVertical: 3,
     paddingHorizontal: 8,
     borderRadius: radius.badge,
     alignSelf: 'flex-start',
   },
   dot: { width: 6, height: 6, borderRadius: 3 },
   unit: {
-    height: 20,
+    minHeight: 20,
+    paddingVertical: 3,
     paddingHorizontal: 6,
     borderRadius: radius.tag,
     justifyContent: 'center',
     alignSelf: 'flex-start',
   },
   chip: {
-    height: 36,
+    minHeight: 36,
+    paddingVertical: 6,
     paddingHorizontal: 14,
     borderRadius: radius.chip,
     flexDirection: 'row',

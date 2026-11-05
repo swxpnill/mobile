@@ -1,6 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import { Children, Fragment, isValidElement, type ReactNode } from 'react';
 import {
+  KeyboardAvoidingView,
   Pressable,
   ScrollView,
   type StyleProp,
@@ -20,25 +21,44 @@ export function Screen({
   scroll = true,
   header,
   contentStyle,
+  keyboard,
 }: {
   children: ReactNode;
   scroll?: boolean;
   /** Rendered above the scrolling area (e.g. `<Header onBack>`). */
   header?: ReactNode;
   contentStyle?: StyleProp<ViewStyle>;
+  /**
+   * Screens with text input: the content shrinks above the on-screen keyboard, so a bottom
+   * action ("Verify and continue") stays visible. Android is edge-to-edge from SDK 54, so the
+   * window no longer resizes for the keyboard by itself.
+   */
+  keyboard?: boolean;
 }) {
   const { t, scheme } = useTheme();
+  // flexGrow lets a `<View style={{ flex: 1 }} />` spacer push a footer to the bottom.
   const body = [styles.content, contentStyle];
+  const content = scroll ? (
+    <ScrollView
+      testID="screen-scroll"
+      contentContainerStyle={body}
+      keyboardShouldPersistTaps="handled"
+    >
+      {children}
+    </ScrollView>
+  ) : (
+    <View style={[styles.fill, body]}>{children}</View>
+  );
   return (
     <SafeAreaView style={[styles.fill, { backgroundColor: t.bg }]} edges={['top', 'bottom']}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       {header}
-      {scroll ? (
-        <ScrollView contentContainerStyle={body} keyboardShouldPersistTaps="handled">
-          {children}
-        </ScrollView>
+      {keyboard ? (
+        <KeyboardAvoidingView testID="screen-keyboard" behavior="padding" style={styles.fill}>
+          {content}
+        </KeyboardAvoidingView>
       ) : (
-        <View style={[styles.fill, body]}>{children}</View>
+        content
       )}
     </SafeAreaView>
   );
@@ -133,7 +153,7 @@ export function SectionLabel({ children }: { children: string }) {
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  content: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 32, gap: 18 },
+  content: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 4, paddingBottom: 32, gap: 18 },
   bar: {
     flexDirection: 'row',
     alignItems: 'center',

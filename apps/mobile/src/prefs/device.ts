@@ -46,8 +46,30 @@ export async function getDevicePrefs(): Promise<DevicePrefs> {
   }
 }
 
-export async function setDevicePrefs(patch: Partial<DevicePrefs>): Promise<DevicePrefs> {
-  const next = sanitize({ ...(await getDevicePrefs()), ...patch });
-  await AsyncStorage.setItem(DEVICE_PREFS_KEY, JSON.stringify(next));
+/** Drops keys whose value is `undefined`, so `{ themeMode: undefined }` never resets a setting. */
+export function definedOnly(patch: Partial<DevicePrefs>): Partial<DevicePrefs> {
+  return Object.fromEntries(
+    Object.entries(patch).filter(([, v]) => v !== undefined),
+  ) as Partial<DevicePrefs>;
+}
+
+export function mergeDevicePrefs(current: DevicePrefs, patch: Partial<DevicePrefs>): DevicePrefs {
+  return sanitize({ ...current, ...definedOnly(patch) });
+}
+
+// Every read-merge-write runs after the previous one, so two quick changes cannot overwrite each
+// other (each would otherwise read the same old value).
+let chain: Promise<unknown> = Promise.resolve();
+function serial<T>(fn: () => Promise<T>): Promise<T> {
+  const next = chain.then(fn, fn);
+  chain = next.catch(() => undefined);
   return next;
+}
+
+export function setDevicePrefs(patch: Partial<DevicePrefs>): Promise<DevicePrefs> {
+  return serial(async () => {
+    const next = mergeDevicePrefs(await getDevicePrefs(), patch);
+    await AsyncStorage.setItem(DEVICE_PREFS_KEY, JSON.stringify(next));
+    return next;
+  });
 }
