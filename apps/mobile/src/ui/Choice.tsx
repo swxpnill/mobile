@@ -1,8 +1,21 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useTheme } from '../theme/ThemeProvider';
-import { MIN_TOUCH } from '../theme/tokens';
+import { MIN_TOUCH, type Tokens } from '../theme/tokens';
 import { Icon } from './Icon';
 import { Text } from './Text';
+
+/**
+ * Control colours that stay at least 3:1 against the card in both themes (WCAG 1.4.11): the
+ * canvas hairline `bd2` is too faint for an empty radio/checkbox, especially in Graphite dark.
+ */
+export function choiceColors(t: Tokens): {
+  outline: string;
+  on: string;
+  off: string;
+  tick: string;
+} {
+  return { outline: t.tx3, on: t.wnt, off: t.tx3, tick: t.card };
+}
 
 /** Radio dot or checkbox square, drawn to the canvas (amber accent on Invite user). */
 function Mark({
@@ -15,18 +28,26 @@ function Mark({
   disabled?: boolean;
 }) {
   const { t } = useTheme();
-  const on = checked && !disabled ? t.wn : checked ? t.tx3 : t.bd2;
+  const c = choiceColors(t);
+  const on = checked && !disabled ? c.on : c.off;
   if (kind === 'radio') {
-    return <View style={[styles.radio, { borderColor: on, borderWidth: checked ? 6 : 1.5 }]} />;
+    return (
+      <View
+        style={[
+          styles.radio,
+          { borderColor: checked ? on : c.outline, borderWidth: checked ? 6 : 1.5 },
+        ]}
+      />
+    );
   }
   return (
     <View
       style={[
         styles.box,
-        checked ? { backgroundColor: on, borderColor: on } : { borderColor: t.bd2 },
+        checked ? { backgroundColor: on, borderColor: on } : { borderColor: c.outline },
       ]}
     >
-      {checked ? <Icon name="check" size={14} color="#FFFFFF" /> : null}
+      {checked ? <Icon name="check" size={14} color={c.tick} /> : null}
     </View>
   );
 }

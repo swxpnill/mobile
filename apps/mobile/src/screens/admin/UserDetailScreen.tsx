@@ -1,4 +1,4 @@
-import { formatMobile, type Role } from '@tonnage/shared';
+import { formatMobile, type Role, type User } from '@tonnage/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
@@ -7,14 +7,17 @@ import { ApiError } from '../../api/client';
 import { useCompanies } from '../../api/hooks/companies';
 import { useMe } from '../../api/hooks/me';
 import { usePlants } from '../../api/hooks/plants';
+import { currentIdentity } from '../../api/hooks/cache';
 import { USERS_KEY, useSetUserActive, useUpdateUser, useUsers } from '../../api/hooks/users';
 import { ROLE_LABEL } from '../../nav/roles';
 import { useTheme } from '../../theme/ThemeProvider';
 import { Avatar, Badge, Button, EmptyState, Screen, showToast, Text } from '../../ui';
 import { MSG, messageFor } from '../messages';
+import { useSingleFlight } from '../../api/submitKey';
 import { AccessFields, BackHeader, FormMessage, ROLE_TONE } from './parts';
 
-type Draft = { role: Role; plantIds: string[] };
+/** An edit in progress, with the record it started from (diffed against and versioned from). */
+type Draft = { role: Role; plantIds: string[]; base: User };
 
 /**
  * One person: role and plant access, deactivate / reactivate. Read from the users list cache
@@ -34,6 +37,7 @@ export function UserDetailScreen({ id }: { id: string }) {
   const [message, setMessage] = useState<string | undefined>();
   const [plantError, setPlantError] = useState<string | undefined>();
   const [confirming, setConfirming] = useState(false);
+  const once = useSingleFlight();
 
   const user = users.data?.find((u) => u.id === id);
 
@@ -60,9 +64,11 @@ export function UserDetailScreen({ id }: { id: string }) {
   }
 
   const self = me?.id === user.id;
-  const values: Draft = draft ?? { role: user.role, plantIds: user.plantIds };
-  const parsed = accessFormSchema.safeParse(values);
-  const patch = parsed.success ? userPatch(user, parsed.data) : null;
+  const values = draft ?? { role: user.role, plantIds: user.plantIds };
+  const parsed = accessFormSchema.safeParse({ role: values.role, plantIds: values.plantIds });
+  // Diff against the version the edit started from: a change saved meanwhile elsewhere must come
+  // back as STALE, never be reverted by our older copy of the other fields.
+  const patch = parsed.success ? userPatch(draft?.base ?? user, parsed.data) : null;
   const first = user.name.split(/\s+/)[0] ?? user.name;
   const busy = update.isPending || setActive.isPending;
 
@@ -80,11 +86,14 @@ export function UserDetailScreen({ id }: { id: string }) {
       return;
     }
     if (!patch) return;
+    const identity = currentIdentity();
     try {
       await update.mutateAsync({ id: user!.id, patch });
+      if (currentIdentity() !== identity) return;
       setDraft(null);
       showToast('Saved');
     } catch (e) {
+      if (currentIdentity() !== identity) return;
       if (e instanceof ApiError && e.code === 'STALE') await reloadAfterStale();
       else if (e instanceof ApiError && e.code === 'PLANT_RULE') setPlantError(MSG.plantRule);
       else setMessage(messageFor(e));
@@ -112,7 +121,7 @@ export function UserDetailScreen({ id }: { id: string }) {
       footer={
         user.active && !self ? (
           <Button
-            onPress={() => void save()}
+            onPress={() => void once(save)}
             loading={update.isPending}
             disabled={!draft || !patch || setActive.isPending}
           >
@@ -155,7 +164,7 @@ export function UserDetailScreen({ id }: { id: string }) {
           onChange={(next) => {
             setPlantError(undefined);
             setMessage(undefined);
-            setDraft(next);
+            setDraft((d) => ({ ...next, base: d?.base ?? user }));
           }}
         />
       ) : null}

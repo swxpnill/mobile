@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
 import type { ReactElement } from 'react';
@@ -18,6 +18,7 @@ import { resetSessionForTests, useSession } from '../src/auth/session';
 import { CompaniesScreen } from '../src/screens/admin/CompaniesScreen';
 import { CompanyFormScreen } from '../src/screens/admin/CompanyFormScreen';
 import { InviteScreen } from '../src/screens/admin/InviteScreen';
+import { PlantFormScreen } from '../src/screens/admin/PlantFormScreen';
 import { UserDetailScreen } from '../src/screens/admin/UserDetailScreen';
 import { UsersScreen } from '../src/screens/admin/UsersScreen';
 import { SettingsScreen } from '../src/screens/SettingsScreen';
@@ -39,6 +40,10 @@ let client: QueryClient;
 let sent: TransportRequest[];
 /** When set, the next matching request reaches the server but its answer is "lost". */
 let dropAnswerOf: ((r: TransportRequest) => boolean) | null;
+/** When set, matching answers are held (a slow network) until `release()`. */
+let holdAnswerOf: ((r: TransportRequest) => boolean) | null;
+let releaseHeld: () => void = () => undefined;
+const release = () => releaseHeld();
 
 async function signInAs(mobile: string) {
   const deviceId = await useSession.getState().ensureDeviceId();
@@ -95,11 +100,17 @@ beforeEach(async () => {
   mock = await createMockApi({ clock: createFakeClock(Date.UTC(2026, 10, 3, 4, 30)) });
   sent = [];
   dropAnswerOf = null;
+  holdAnswerOf = null;
   hideToast();
   const spy: Transport = {
     request: async (req) => {
       sent.push(req);
       const res = await mock.transport.request(req);
+      if (holdAnswerOf?.(req)) {
+        await new Promise<void>((r) => {
+          releaseHeld = r;
+        });
+      }
       if (dropAnswerOf?.(req)) {
         dropAnswerOf = null;
         throw new NetworkError('connection lost');
@@ -394,5 +405,156 @@ describe('Settings', () => {
     expect(screen.queryByText('Orders & dispatch')).toBeNull();
     expect(screen.queryByLabelText(/Completion tolerance/)).toBeNull();
     expect(screen.getByText(/Tonnage v\d+\.\d+\.\d+ · /)).toBeOnTheScreen();
+  });
+});
+
+// ── Review fixes (Task 9 review) ─────────────────────────────────────────────────────────────────
+
+describe('Task 9 review fixes', () => {
+  beforeEach(() => signInAs('9826100012'));
+
+  /** A background refetch (app back in foreground, 30 s stale time) that the screen renders. */
+  const refetchAndSettle = (key: string[]) =>
+    act(async () => {
+      await client.refetchQueries({ queryKey: key });
+      await new Promise((r) => setTimeout(r, 20));
+    });
+
+  const otherPhoneChange = (path: string, body: object) =>
+    asOtherPhone({ method: 'PATCH', path, body });
+
+  async function fillInvite(mobile = '99261 44508') {
+    await fireEvent.changeText(screen.getByLabelText('Full name'), 'Deepak Kumar');
+    await fireEvent.changeText(screen.getByLabelText('Mobile number'), mobile);
+    await fireEvent.press(screen.getByRole('radio', { name: /City staff/ }));
+  }
+
+  it('C1 company: a background refetch mid-edit does not turn STALE into a silent overwrite', async () => {
+    await wrap(<CompanyFormScreen id={ids.companies.KRM} />);
+    const name = await screen.findByLabelText('Company name');
+    await waitFor(() => expect(name.props.value).toBe('Kalinga Rolling Mills'));
+    await fireEvent.changeText(name, 'Kalinga Steel');
+    await otherPhoneChange(`/v1/companies/${ids.companies.KRM}`, {
+      orderPrefix: 'KRM-',
+      version: 1,
+    });
+    await refetchAndSettle(['companies']);
+    await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
+    expect(
+      await screen.findByText('Someone else changed this. Showing the latest.'),
+    ).toBeOnTheScreen();
+    const krm = (await asOtherPhone({ method: 'GET', path: `/v1/companies/${ids.companies.KRM}` }))
+      .body as { orderPrefix: string; name: string };
+    expect(krm).toMatchObject({ orderPrefix: 'KRM-', name: 'Kalinga Rolling Mills' });
+  });
+
+  it('C1 plant: after a refetch, saving never sends the old location back', async () => {
+    await wrap(<PlantFormScreen companyId={ids.companies.KRM} id={ids.plants.borai} />);
+    const loc = await screen.findByLabelText('Town or city');
+    await waitFor(() => expect(loc.props.value).toBe('Durg'));
+    await fireEvent.changeText(screen.getByLabelText('Plant name'), 'Borai 2');
+    await otherPhoneChange(`/v1/plants/${ids.plants.borai}`, { location: 'Bhilai', version: 1 });
+    await refetchAndSettle(['plants']);
+    await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
+    expect(
+      await screen.findByText('Someone else changed this. Showing the latest.'),
+    ).toBeOnTheScreen();
+    const borai = (await asOtherPhone({ method: 'GET', path: `/v1/plants/${ids.plants.borai}` }))
+      .body as { location: string; name: string };
+    expect(borai).toMatchObject({ location: 'Bhilai', name: 'Borai' });
+  });
+
+  it('C1 user: a draft held across a refetch gets STALE, not a revert of the other change', async () => {
+    await wrap(<UserDetailScreen id={ids.users.kiran} />);
+    await fireEvent.press(await screen.findByRole('checkbox', { name: /Nandan Alloys · Tilda/ }));
+    await otherPhoneChange(`/v1/users/${ids.users.kiran}`, {
+      plantIds: [ids.plants.siltara, ids.plants.urla],
+      version: 1,
+    });
+    await refetchAndSettle(['users']);
+    await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
+    expect(
+      await screen.findByText('Someone else changed this. Showing the latest.'),
+    ).toBeOnTheScreen();
+    const users = (await asOtherPhone({ method: 'GET', path: '/v1/users' })).body as {
+      id: string;
+      plantIds: string[];
+    }[];
+    expect(users.find((u) => u.id === ids.users.kiran)!.plantIds).toEqual([
+      ids.plants.siltara,
+      ids.plants.urla,
+    ]);
+  });
+
+  it('I2 invite: a corrected retry after a lost answer says the first try went through and opens it', async () => {
+    await wrap(<InviteScreen />);
+    await fillInvite();
+    dropAnswerOf = (r) => r.method === 'POST' && r.path === '/v1/users';
+    await fireEvent.press(screen.getByRole('button', { name: 'Send invite' }));
+    await screen.findByText(/Can't reach the server/);
+    await fireEvent.changeText(screen.getByLabelText('Mobile number'), '99261 44509');
+    await fireEvent.press(screen.getByRole('button', { name: 'Send invite' }));
+    expect(
+      await screen.findByText(
+        'Your first try went through as Deepak Kumar, +91 99261 44508. Check the details.',
+      ),
+    ).toBeOnTheScreen();
+    expect(mockRouter.replace).toHaveBeenCalledWith(expect.stringMatching(/^\/users\/[0-9a-f-]+$/));
+    expect(mockRouter.back).not.toHaveBeenCalled();
+  });
+
+  it('I5: an answer that lands after sign-out neither toasts nor navigates', async () => {
+    await wrap(<InviteScreen />);
+    await fillInvite();
+    holdAnswerOf = (r) => r.method === 'POST' && r.path === '/v1/users';
+    await fireEvent.press(screen.getByRole('button', { name: 'Send invite' }));
+    await waitFor(() => expect(writes('/v1/users')).toHaveLength(1));
+    await act(() => useSession.getState().signOut());
+    await act(async () => release());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByTestId('toast')).toBeNull();
+    expect(mockRouter.back).not.toHaveBeenCalled();
+  });
+
+  it('I3: switching units mid-edit never saves the typed number in the new unit', async () => {
+    await wrap(<SettingsScreen />);
+    const field = await screen.findByLabelText('Completion tolerance (MT)');
+    await waitFor(() => expect(field.props.value).toBe('1.000'));
+    await fireEvent(field, 'focus');
+    await fireEvent.changeText(field, '2');
+    await fireEvent.press(screen.getByRole('radio', { name: 'kg / ₹ per kg' }));
+    const kg = await screen.findByLabelText('Completion tolerance (kg)');
+    await fireEvent(kg, 'blur');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(writes('/v1/settings', 'PATCH')).toHaveLength(0);
+    expect(screen.getByLabelText('Completion tolerance (kg)').props.value).toBe('1,000');
+  });
+
+  it('I4: the typed value stays while saving, and Done then blur save once', async () => {
+    await wrap(<SettingsScreen />);
+    const field = await screen.findByLabelText('Completion tolerance (MT)');
+    await waitFor(() => expect(field.props.value).toBe('1.000'));
+    holdAnswerOf = (r) => r.method === 'PATCH' && r.path === '/v1/settings';
+    await fireEvent(field, 'focus');
+    await fireEvent.changeText(field, '0.5');
+    await fireEvent(field, 'submitEditing');
+    await fireEvent(field, 'blur');
+    await waitFor(() => expect(writes('/v1/settings', 'PATCH')).toHaveLength(1));
+    expect(screen.getByLabelText('Completion tolerance (MT)').props.value).toBe('0.5');
+    await act(async () => release());
+    await waitFor(() =>
+      expect(screen.getByLabelText('Completion tolerance (MT)').props.value).toBe('0.500'),
+    );
+    expect(writes('/v1/settings', 'PATCH')).toHaveLength(1);
+  });
+
+  it('M9: tolerance above 100 MT is refused without saving', async () => {
+    await wrap(<SettingsScreen />);
+    const field = await screen.findByLabelText('Completion tolerance (MT)');
+    await waitFor(() => expect(field.props.value).toBe('1.000'));
+    await fireEvent.changeText(field, '9999999');
+    await fireEvent(field, 'blur');
+    expect(await screen.findByText('Keep it within 100 MT')).toBeOnTheScreen();
+    expect(writes('/v1/settings', 'PATCH')).toHaveLength(0);
   });
 });

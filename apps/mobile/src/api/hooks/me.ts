@@ -4,6 +4,7 @@ import { type QueryClient, useQuery, useQueryClient } from '@tanstack/react-quer
 import { createContext, createElement, type ReactNode, useContext, useEffect } from 'react';
 import { useSession } from '../../auth/session';
 import { api } from '../client';
+import { hideToast } from '../../ui/Toast';
 
 /** Last known profile, so the app can open on the right tabs without the network. */
 export const ME_CACHE_KEY = 'tonnage.me';
@@ -98,6 +99,7 @@ export function useUnitBasis(): { basis: UnitBasis; setBasis(b: UnitBasis): Prom
  * refetch for the new person; with no one signed in, queries stay disabled and empty.
  */
 export function resetClientData(qc: QueryClient): void {
+  hideToast(); // a message meant for the previous person must not show to the next one
   void qc.cancelQueries();
   void qc.resetQueries();
   void AsyncStorage.removeItem(ME_CACHE_KEY).catch(() => undefined);

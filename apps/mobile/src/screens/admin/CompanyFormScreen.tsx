@@ -23,7 +23,8 @@ import {
   useUpdateCompany,
 } from '../../api/hooks/companies';
 import { usePlants } from '../../api/hooks/plants';
-import { useSubmitKey } from '../../api/submitKey';
+import { currentIdentity } from '../../api/hooks/cache';
+import { useSingleFlight, useSubmitKey } from '../../api/submitKey';
 import { useTheme } from '../../theme/ThemeProvider';
 import {
   Badge,
@@ -40,7 +41,7 @@ import {
   TextField,
 } from '../../ui';
 import { MSG, messageFor } from '../messages';
-import { BackHeader, FormMessage } from './parts';
+import { BackHeader, firstTryNote, FormMessage } from './parts';
 
 const FIELDS = ['code', 'name', 'gstin', 'orderPrefix'] as const;
 
@@ -81,7 +82,14 @@ function CompanyForm({ company }: { company: Company | undefined }) {
   const create = useCreateCompany();
   const update = useUpdateCompany();
   const submitKey = useSubmitKey();
+  const once = useSingleFlight();
   const [formError, setFormError] = useState<string | undefined>();
+  /**
+   * The record as it was when the owner started editing. Edits are diffed against it and sent with
+   * its version, so a change saved meanwhile on another phone comes back as STALE instead of being
+   * overwritten — even after a background refetch has moved the cached copy ahead.
+   */
+  const [base, setBase] = useState(company);
   // A new company's prefix follows its code ("SO-BSP") until the owner types their own.
   const prefixEdited = useRef(Boolean(company));
 
@@ -99,11 +107,16 @@ function CompanyForm({ company }: { company: Company | undefined }) {
     >,
   });
 
-  // After someone else's change is loaded, show it (unless the owner is mid-edit).
+  // Read during render so react-hook-form tracks it.
+  const { isDirty } = formState;
+  // Someone else's change arrived while the form is untouched: follow it.
   const version = company?.version;
   useEffect(() => {
-    if (company && !formState.isDirty) reset(companyFormDefaults(company));
-  }, [version]);
+    if (company && !isDirty && company.version !== base?.version) {
+      setBase(company);
+      reset(companyFormDefaults(company));
+    }
+  }, [version, isDirty]);
 
   const onError = (e: unknown) => {
     const fields = fieldErrorsFrom(e, FIELDS);
@@ -114,31 +127,46 @@ function CompanyForm({ company }: { company: Company | undefined }) {
 
   const submit = handleSubmit(async (v) => {
     setFormError(undefined);
-    if (!company) {
+    const identity = currentIdentity();
+    const stillHere = () => currentIdentity() === identity;
+    if (!base) {
+      const body = toCompanyBody(v);
       try {
-        const c = await create.mutateAsync({ body: toCompanyBody(v), key: submitKey.key() });
+        const c = await create.mutateAsync({ body, key: submitKey.key() });
         submitKey.settle();
+        if (!stillHere()) return;
+        if (companyPatch(c, v)) {
+          // A lost earlier try with other details was replayed by the key: show what exists.
+          showToast(firstTryNote(`${c.code} · ${c.name}`));
+          router.replace(`/companies/${c.id}`);
+          return;
+        }
         showToast(`${c.code} added. Add its plants next.`);
         router.back();
       } catch (e) {
         submitKey.settle(e);
-        onError(e);
+        if (stillHere()) onError(e);
       }
       return;
     }
-    const patch = companyPatch(company, v);
+    const patch = companyPatch(base, v);
     if (!patch) return router.back();
     try {
-      const c = await update.mutateAsync({ id: company.id, patch });
+      const c = await update.mutateAsync({ id: base.id, patch });
+      if (!stillHere()) return;
+      setBase(c);
       reset(companyFormDefaults(c));
       showToast('Saved');
     } catch (e) {
+      if (!stillHere()) return;
       if (e instanceof ApiError && e.code === 'STALE') {
         showToast(MSG.stale);
-        const fresh = await qc
-          .refetchQueries({ queryKey: COMPANIES_KEY })
-          .then(() => qc.getQueryData<Company[]>(COMPANIES_KEY)?.find((x) => x.id === company.id));
-        if (fresh) reset(companyFormDefaults(fresh));
+        await qc.refetchQueries({ queryKey: COMPANIES_KEY });
+        const fresh = qc.getQueryData<Company[]>(COMPANIES_KEY)?.find((x) => x.id === base.id);
+        if (fresh) {
+          setBase(fresh);
+          reset(companyFormDefaults(fresh));
+        }
       } else onError(e);
     }
   });
@@ -146,8 +174,16 @@ function CompanyForm({ company }: { company: Company | undefined }) {
   async function setActive(active: boolean) {
     if (!company) return;
     setFormError(undefined);
+    const sentVersion = company.version;
     try {
-      await update.mutateAsync({ id: company.id, patch: { active, version: company.version } });
+      const c = await update.mutateAsync({
+        id: company.id,
+        patch: { active, version: sentVersion },
+      });
+      // Our own switch moved the version on: keep the form's base in step so Save still works.
+      setBase((b) =>
+        b && b.version === sentVersion ? { ...b, active: c.active, version: c.version } : b,
+      );
       showToast(active ? `${company.code} is active again` : `${company.code} is inactive`);
     } catch (e) {
       if (e instanceof ApiError && e.code === 'STALE') {
@@ -167,7 +203,11 @@ function CompanyForm({ company }: { company: Company | undefined }) {
       footer={
         <>
           <FormMessage>{formError}</FormMessage>
-          <Button onPress={() => void submit()} loading={formState.isSubmitting} disabled={busy}>
+          <Button
+            onPress={() => void once(submit)}
+            loading={formState.isSubmitting}
+            disabled={busy}
+          >
             {company ? 'Save changes' : 'Add company'}
           </Button>
         </>

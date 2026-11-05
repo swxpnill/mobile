@@ -15,6 +15,7 @@ export const MSG = {
   forbidden: "You don't have access to this.",
   notFound: 'This was removed or is no longer available.',
   plantRule: 'Choose plants that match the role',
+  inProgress: 'Still sending your first try. Wait a moment, then try again.',
 } as const;
 
 export function messageFor(e: unknown): string {
@@ -39,6 +40,8 @@ export function messageFor(e: unknown): string {
         return MSG.notFound;
       case 'PLANT_RULE':
         return MSG.plantRule;
+      case 'IDEMPOTENCY_IN_PROGRESS':
+        return MSG.inProgress;
       default:
         return MSG.generic;
     }

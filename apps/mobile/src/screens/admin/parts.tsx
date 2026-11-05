@@ -241,3 +241,7 @@ const styles = StyleSheet.create({
   line: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
   mark: { width: 14 },
 });
+
+/** Toast when a retry replayed an earlier try that had different details (its answer was lost). */
+export const firstTryNote = (what: string) =>
+  `Your first try went through as ${what}. Check the details.`;

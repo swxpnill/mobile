@@ -2,14 +2,15 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import type { Plant } from '@tonnage/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { fieldErrorsFrom, type PlantFormValues, plantFormSchema } from '../../admin/forms';
 import { ApiError } from '../../api/client';
 import { useCompanies } from '../../api/hooks/companies';
 import { PLANTS_KEY, useCreatePlant, usePlants, useUpdatePlant } from '../../api/hooks/plants';
-import { useSubmitKey } from '../../api/submitKey';
+import { currentIdentity } from '../../api/hooks/cache';
+import { useSingleFlight, useSubmitKey } from '../../api/submitKey';
 import { useTheme } from '../../theme/ThemeProvider';
 import {
   Button,
@@ -23,7 +24,7 @@ import {
   TextField,
 } from '../../ui';
 import { MSG, messageFor } from '../messages';
-import { BackHeader, FormMessage } from './parts';
+import { BackHeader, firstTryNote, FormMessage } from './parts';
 
 /** Add a plant to a company (`id` absent) or edit one. */
 export function PlantFormScreen({ companyId, id }: { companyId: string; id?: string }) {
@@ -69,12 +70,23 @@ function PlantForm({
   const create = useCreatePlant();
   const update = useUpdatePlant();
   const submitKey = useSubmitKey();
+  const once = useSingleFlight();
   const [formError, setFormError] = useState<string | undefined>();
+  /** The plant as it was when editing started; diffed against and versioned from (see company form). */
+  const [base, setBase] = useState(plant);
   const { control, handleSubmit, reset, setError, formState } = useForm<PlantFormValues>({
     defaultValues: { name: plant?.name ?? '', location: plant?.location ?? '' },
     mode: 'onTouched',
     resolver: zodResolver(plantFormSchema),
   });
+  const { isDirty } = formState;
+  const version = plant?.version;
+  useEffect(() => {
+    if (plant && !isDirty && plant.version !== base?.version) {
+      setBase(plant);
+      reset({ name: plant.name, location: plant.location });
+    }
+  }, [version, isDirty]);
 
   const onError = (e: unknown) => {
     const fields = fieldErrorsFrom(e, ['name', 'location'] as const);
@@ -87,32 +99,45 @@ function PlantForm({
     showToast(MSG.stale);
     await qc.refetchQueries({ queryKey: PLANTS_KEY });
     const fresh = qc.getQueryData<Plant[]>(PLANTS_KEY)?.find((p) => p.id === plant?.id);
-    if (fresh) reset({ name: fresh.name, location: fresh.location });
+    if (fresh) {
+      setBase(fresh);
+      reset({ name: fresh.name, location: fresh.location });
+    }
   };
 
   const submit = handleSubmit(async (v) => {
     setFormError(undefined);
+    const identity = currentIdentity();
+    const stillHere = () => currentIdentity() === identity;
     try {
-      if (!plant) {
+      if (!base) {
         const p = await create.mutateAsync({ body: { companyId, ...v }, key: submitKey.key() });
         submitKey.settle();
+        if (!stillHere()) return;
+        if (p.name !== v.name || p.location !== v.location) {
+          showToast(firstTryNote(`${p.name}, ${p.location}`));
+          router.replace({ pathname: '/companies/plant', params: { companyId, id: p.id } });
+          return;
+        }
         showToast(`${p.name} added to ${companyCode}`);
         router.back();
         return;
       }
-      if (v.name === plant.name && v.location === plant.location) return router.back();
+      if (v.name === base.name && v.location === base.location) return router.back();
       await update.mutateAsync({
-        id: plant.id,
+        id: base.id,
         patch: {
-          ...(v.name !== plant.name ? { name: v.name } : {}),
-          ...(v.location !== plant.location ? { location: v.location } : {}),
-          version: plant.version,
+          ...(v.name !== base.name ? { name: v.name } : {}),
+          ...(v.location !== base.location ? { location: v.location } : {}),
+          version: base.version,
         },
       });
+      if (!stillHere()) return;
       showToast('Saved');
       router.back();
     } catch (e) {
-      if (!plant) submitKey.settle(e);
+      if (!base) submitKey.settle(e);
+      if (!stillHere()) return;
       if (e instanceof ApiError && e.code === 'STALE') await reloadAfterStale();
       else onError(e);
     }
@@ -121,8 +146,12 @@ function PlantForm({
   async function setActive(active: boolean) {
     if (!plant) return;
     setFormError(undefined);
+    const sentVersion = plant.version;
     try {
-      await update.mutateAsync({ id: plant.id, patch: { active, version: plant.version } });
+      const p = await update.mutateAsync({ id: plant.id, patch: { active, version: sentVersion } });
+      setBase((b) =>
+        b && b.version === sentVersion ? { ...b, active: p.active, version: p.version } : b,
+      );
       showToast(active ? `${plant.name} is active again` : `${plant.name} is inactive`);
     } catch (e) {
       if (e instanceof ApiError && e.code === 'STALE') await reloadAfterStale();
@@ -140,7 +169,11 @@ function PlantForm({
       footer={
         <>
           <FormMessage>{formError}</FormMessage>
-          <Button onPress={() => void submit()} loading={formState.isSubmitting} disabled={busy}>
+          <Button
+            onPress={() => void once(submit)}
+            loading={formState.isSubmitting}
+            disabled={busy}
+          >
             {plant ? 'Save changes' : 'Add plant'}
           </Button>
         </>

@@ -8,7 +8,7 @@ import {
 } from '@tonnage/shared';
 import Constants from 'expo-constants';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 import { parseAgedDays } from '../admin/forms';
 import { useMe, useUnitBasis } from '../api/hooks/me';
@@ -29,6 +29,9 @@ import {
 import { BackHeader } from './admin/parts';
 import { messageFor } from './messages';
 import { UNIT_OPTIONS } from './ProfileScreen';
+
+/** A typo like 9999999 would make every order line count as complete; 100 MT is far above use. */
+export const MAX_TOLERANCE_KG = 100_000;
 
 const PRICING_OPTIONS: { value: PricingMethod; label: string }[] = [
   { value: 'basic_conversion', label: 'Basic + conversion' },
@@ -167,6 +170,8 @@ function OrderRules() {
             />
           </View>
           <NumberSetting
+            // A new instance per unit basis: text typed in MT is never read back as kg.
+            key={`tolerance-${basis}`}
             icon="scales"
             label={`Completion tolerance (${unitLabel(basis)})`}
             title="Completion tolerance"
@@ -177,7 +182,14 @@ function OrderRules() {
             suffix={unitLabel(basis)}
             parse={(text) => {
               const r = parseQtyInput(text, basis);
-              if (r.ok) return r;
+              if (r.ok) {
+                return r.value <= MAX_TOLERANCE_KG
+                  ? r
+                  : {
+                      ok: false,
+                      error: `Keep it within ${toDisplayQty(MAX_TOLERANCE_KG, basis, { withUnit: true }).replace('.000', '')}`,
+                    };
+              }
               return {
                 ok: false,
                 error:
@@ -268,15 +280,19 @@ function NumberSetting({
 }) {
   const [text, setText] = useState(display);
   const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  // Done fires submit and then blur: one save per edit.
+  const inFlight = useRef(false);
 
-  // Follow the server value and unit basis whenever the field is not being edited.
+  // Follow the server value whenever the field is neither being edited nor saving (while saving,
+  // the typed value stays; it is replaced by the saved one, or the old one if the save failed).
   useEffect(() => {
-    if (!editing) setText(display);
-  }, [display, editing]);
+    if (!editing && !saving) setText(display);
+  }, [display, editing, saving]);
 
   const commit = async () => {
-    setEditing(false);
+    if (inFlight.current) return;
     const r = parse(text);
     if (!r.ok) {
       setError(r.error);
@@ -284,11 +300,18 @@ function NumberSetting({
       return;
     }
     setError(undefined);
-    if (r.value === current) {
-      setText(display);
-      return;
+    setEditing(false);
+    if (r.value === current) return;
+    inFlight.current = true;
+    setSaving(true);
+    try {
+      await onSave(r.value);
+    } catch {
+      // The section shows the error; the field goes back to the saved value.
+    } finally {
+      inFlight.current = false;
+      setSaving(false);
     }
-    await onSave(r.value).catch(() => setText(display));
   };
 
   return (
