@@ -166,12 +166,16 @@ describe('small primitives', () => {
 
   it('Header back button has a label and a 44 pt target', async () => {
     const onBack = jest.fn();
-    await wrap(<Header title="Settings" onBack={onBack} />);
+    await wrap(<Header onBack={onBack} />);
     const back = screen.getByRole('button', { name: 'Back' });
     expect(back).toHaveStyle({ width: 44, height: 44 });
     await fireEvent.press(back);
     expect(onBack).toHaveBeenCalled();
-    expect(screen.getByText('Settings')).toBeOnTheScreen();
+  });
+
+  it('Header with nothing to show renders no empty bar', async () => {
+    await wrap(<Header />);
+    expect(screen.toJSON()).toBeNull();
   });
 
   it('Group puts a divider between rows, not after the last', async () => {

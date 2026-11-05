@@ -18,12 +18,15 @@ import { Text } from './Text';
 /** A full screen: safe area, background, status bar colour, and (by default) scrolling content. */
 export function Screen({
   children,
+  title,
   scroll = true,
   header,
   contentStyle,
   keyboard,
 }: {
   children: ReactNode;
+  /** Large page title; scrolls away with the content, as in the canvas. */
+  title?: string;
   scroll?: boolean;
   /** Rendered above the scrolling area (e.g. `<Header onBack>`). */
   header?: ReactNode;
@@ -38,16 +41,25 @@ export function Screen({
   const { t, scheme } = useTheme();
   // flexGrow lets a `<View style={{ flex: 1 }} />` spacer push a footer to the bottom.
   const body = [styles.content, contentStyle];
+  const heading = title ? (
+    <Text variant="title" accessibilityRole="header">
+      {title}
+    </Text>
+  ) : null;
   const content = scroll ? (
     <ScrollView
       testID="screen-scroll"
       contentContainerStyle={body}
       keyboardShouldPersistTaps="handled"
     >
+      {heading}
       {children}
     </ScrollView>
   ) : (
-    <View style={[styles.fill, body]}>{children}</View>
+    <View style={[styles.fill, body]}>
+      {heading}
+      {children}
+    </View>
   );
   return (
     <SafeAreaView style={[styles.fill, { backgroundColor: t.bg }]} edges={['top', 'bottom']}>
@@ -64,17 +76,13 @@ export function Screen({
   );
 }
 
-/** Back button bar, optional actions on the right, and the screen's large title below it. */
-export function Header({
-  title,
-  onBack,
-  right,
-}: {
-  title?: string;
-  onBack?: () => void;
-  right?: ReactNode;
-}) {
+/**
+ * Top bar above the scrolling content: back button and optional actions on the right. The page
+ * title is not here — pass `title` to `Screen` so it scrolls with the content.
+ */
+export function Header({ onBack, right }: { onBack?: () => void; right?: ReactNode }) {
   const { t } = useTheme();
+  if (!onBack && !right) return null;
   return (
     <View>
       <View style={styles.bar}>
@@ -91,11 +99,6 @@ export function Header({
         <View style={styles.fill} />
         {right}
       </View>
-      {title ? (
-        <Text variant="title" accessibilityRole="header" style={styles.title}>
-          {title}
-        </Text>
-      ) : null}
     </View>
   );
 }
@@ -123,19 +126,28 @@ export function Row({
   children,
   onPress,
   accessibilityLabel,
+  disabled,
 }: {
   children: ReactNode;
   onPress?: () => void;
   accessibilityLabel?: string;
+  /** Greyed out and not pressable (e.g. "Coming soon" rows). */
+  disabled?: boolean;
 }) {
   const { t } = useTheme();
-  if (!onPress) return <View style={styles.row}>{children}</View>;
+  if (!onPress) return <View style={[styles.row, disabled ? styles.dim : null]}>{children}</View>;
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled: Boolean(disabled) }}
+      disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [styles.row, pressed ? { backgroundColor: t.act } : null]}
+      style={({ pressed }) => [
+        styles.row,
+        disabled ? styles.dim : null,
+        pressed ? { backgroundColor: t.act } : null,
+      ]}
     >
       {children}
     </Pressable>
@@ -153,7 +165,8 @@ export function SectionLabel({ children }: { children: string }) {
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  content: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 4, paddingBottom: 32, gap: 18 },
+  dim: { opacity: 0.45 },
+  content: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 32, gap: 18 },
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -170,7 +183,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 14 },
   group: { borderRadius: radius.group, borderWidth: 1, overflow: 'hidden' },
   divider: { height: 1, marginLeft: 16 },
   row: {

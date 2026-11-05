@@ -7,7 +7,6 @@ import {
   Chip,
   EmptyState,
   Group,
-  Header,
   MoneyText,
   OtpInput,
   QtyText,
@@ -31,7 +30,7 @@ export default function DesignKit() {
   const [busy, setBusy] = useState(false);
 
   return (
-    <Screen header={<Header title="Design kit" />}>
+    <Screen title="Design kit">
       <SectionLabel>Appearance</SectionLabel>
       <Group>
         <Row>
