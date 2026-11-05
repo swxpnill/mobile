@@ -12,16 +12,15 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
 import { AppState, StyleSheet, View } from 'react-native';
-import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { api, needsForceUpdate } from '../src/api/client';
 import { UnitBasisProvider } from '../src/api/hooks/me';
-import { useNetStatus } from '../src/api/netStatus';
 import { useIdleLock } from '../src/auth/lock';
 import { useSession } from '../src/auth/session';
 import { LockScreen } from '../src/screens/LockScreen';
 import { UpdateRequiredScreen } from '../src/screens/UpdateRequiredScreen';
 import { ThemeProvider, useTheme } from '../src/theme/ThemeProvider';
-import { Text } from '../src/ui';
+import { WakingBanner } from '../src/ui/WakingBanner';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -34,24 +33,6 @@ focusManager.setEventListener((setFocused) => {
   const sub = AppState.addEventListener('change', (s) => setFocused(s === 'active'));
   return () => sub.remove();
 });
-
-/** "Waking server…" while a request has been pending for 5 s (free-tier cold start). */
-function WakingBanner() {
-  const waking = useNetStatus((s) => s.waking);
-  const { t } = useTheme();
-  const insets = useSafeAreaInsets();
-  if (!waking) return null;
-  return (
-    <View
-      style={[styles.banner, { top: insets.top + 8, backgroundColor: t.tx }]}
-      accessibilityLiveRegion="polite"
-    >
-      <Text weight="medium" style={{ color: t.bg, fontSize: 13 }}>
-        Waking server…
-      </Text>
-    </View>
-  );
-}
 
 function AppShell({ updateRequired }: { updateRequired: boolean }) {
   const { t } = useTheme();
@@ -132,11 +113,4 @@ export default function RootLayout() {
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  banner: {
-    position: 'absolute',
-    alignSelf: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 18,
-  },
 });

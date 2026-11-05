@@ -1,8 +1,10 @@
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useUnitBasis } from '../api/hooks/me';
 import { useTheme } from '../theme/ThemeProvider';
-import { Group, Row, Screen, SectionLabel, SegmentedControl, Text } from '../ui';
+import { demoToolsEnabled } from '../api/demo';
+import { Group, MenuRow, Row, Screen, SectionLabel, SegmentedControl, Text } from '../ui';
 import { messageFor } from './messages';
 import { ProfileCard } from './ProfileCard';
 import { SignOutRow } from './SignOutRow';
@@ -14,6 +16,7 @@ export const UNIT_OPTIONS = [
 
 /** Supervisor's Profile tab: who and where, units, appearance, sign out. */
 export function ProfileScreen() {
+  const router = useRouter();
   const { basis, setBasis } = useUnitBasis();
   const { prefs, setPrefs } = useTheme();
   const [error, setError] = useState<string | undefined>();
@@ -74,6 +77,14 @@ export function ProfileScreen() {
 
       <View style={styles.spacer} />
       <Group>
+        {demoToolsEnabled() ? (
+          <MenuRow
+            icon="grid"
+            tone="am"
+            label="Demo tools"
+            onPress={() => router.push('/demo-tools')}
+          />
+        ) : null}
         <SignOutRow />
       </Group>
     </Screen>

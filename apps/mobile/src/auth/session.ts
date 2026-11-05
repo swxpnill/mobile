@@ -67,7 +67,8 @@ const initial = {
   resumed: false,
 };
 
-async function revoke(refreshToken: string): Promise<void> {
+/** Best-effort server revoke of a refresh token; never throws. */
+export async function revoke(refreshToken: string): Promise<void> {
   try {
     const t = await getTransport();
     await timed(

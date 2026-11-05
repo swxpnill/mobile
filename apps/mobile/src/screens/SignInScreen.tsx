@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { ApiError, api } from '../api/client';
+import { demoToolsEnabled } from '../api/demo';
 import { Button, Screen, Text, TextField } from '../ui';
 import { Brand } from './Brand';
 import { MSG, messageFor } from './messages';
@@ -87,6 +88,12 @@ export function SignInScreen() {
       <Button onPress={() => void send()} disabled={!mobile} loading={busy}>
         Send code
       </Button>
+      {demoToolsEnabled() ? (
+        // Mock mode only: rehearse any role without typing a number and code.
+        <Button variant="secondary" onPress={() => router.push('/demo-sign-in')}>
+          Sign in as a sample person
+        </Button>
+      ) : null}
     </Screen>
   );
 }

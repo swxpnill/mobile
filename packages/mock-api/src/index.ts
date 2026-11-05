@@ -25,7 +25,7 @@ import {
 } from './store.ts';
 
 export { type Clock, createFakeClock, systemClock } from './clock.ts';
-export type { MockControls } from './controls.ts';
+export type { ArmedFailure, ControlState, DemoUser, MockControls } from './controls.ts';
 export type { MockFixtures } from './fixtures.ts';
 export { type StorageAdapter, createMemoryStorage } from './store.ts';
 export { DEV_OTP_CODE } from './handlers/auth.ts';

@@ -23,6 +23,11 @@ export async function getTransport(): Promise<Transport> {
   return http;
 }
 
+/** Replaces the in-app mock (tests): its transport and its demo controls are then the same instance. */
+export function setMockApi(api: MockApi | null): void {
+  mockApi = api ? Promise.resolve(api) : null;
+}
+
 /** Replaces the transport (tests). `null` restores the default. */
 export function setTransport(t: Transport | null): void {
   override = t;

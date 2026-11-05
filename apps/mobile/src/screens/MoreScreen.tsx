@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useCompanies } from '../api/hooks/companies';
 import { useMe } from '../api/hooks/me';
+import { demoToolsEnabled } from '../api/demo';
 import { Group, MenuRow, Screen, SectionLabel } from '../ui';
 import { ProfileCard } from './ProfileCard';
 import { SignOutRow } from './SignOutRow';
@@ -94,6 +95,14 @@ export function MoreScreen() {
       )}
 
       <Group>
+        {demoToolsEnabled() ? (
+          <MenuRow
+            icon="grid"
+            tone="am"
+            label="Demo tools"
+            onPress={() => router.push('/demo-tools')}
+          />
+        ) : null}
         <MenuRow
           icon="info"
           tone="gr"
