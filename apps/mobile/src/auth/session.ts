@@ -22,6 +22,13 @@ interface SessionState {
   refreshToken?: string;
   /** Stable per install; refresh tokens are bound to it. */
   deviceId: string;
+  /**
+   * Changes whenever the person using the app changes (every sign-in and sign-out). Client data
+   * fetched under an older identity must be dropped, never shown or cached.
+   */
+  identity: number;
+  /** True when this session was resumed from storage at launch (not a sign-in on this run). */
+  resumed: boolean;
 
   /**
    * Cold start: read the device id and any stored refresh token, then try to resume. With
@@ -56,6 +63,8 @@ const initial = {
   accessToken: undefined,
   refreshToken: undefined,
   deviceId: '',
+  identity: 0,
+  resumed: false,
 };
 
 async function revoke(refreshToken: string): Promise<void> {
@@ -106,6 +115,7 @@ export const useSession = create<SessionState>((set, get) => ({
     });
     const outcome = await Promise.race([attempt, slow]);
     clearTimeout(cap);
+    if (outcome !== 'refused') set({ resumed: true });
     // Refused → refresh() already signed out. Offline or slow → open with the stored session; the
     // next request refreshes once the network is back (a slow refresh keeps going meanwhile).
     if (outcome !== 'refused') set({ status: resumed });
@@ -114,7 +124,13 @@ export const useSession = create<SessionState>((set, get) => ({
   async signIn(pair) {
     epoch += 1;
     await SecureStore.setItemAsync(REFRESH_KEY, pair.refreshToken);
-    set({ status: 'signedIn', accessToken: pair.accessToken, refreshToken: pair.refreshToken });
+    set({
+      status: 'signedIn',
+      accessToken: pair.accessToken,
+      refreshToken: pair.refreshToken,
+      identity: epoch,
+      resumed: false,
+    });
   },
 
   async signOut() {
@@ -122,7 +138,13 @@ export const useSession = create<SessionState>((set, get) => ({
     const { refreshToken } = get();
     const pending = inflight;
     // Signed out on this phone at once, whatever the network does next.
-    set({ status: 'signedOut', accessToken: undefined, refreshToken: undefined });
+    set({
+      status: 'signedOut',
+      accessToken: undefined,
+      refreshToken: undefined,
+      identity: epoch,
+      resumed: false,
+    });
     await SecureStore.deleteItemAsync(REFRESH_KEY);
     if (refreshToken) await revoke(refreshToken);
     // A refresh that was in flight may have been rotated by the server: revoke its successor too.
@@ -169,7 +191,13 @@ export const useSession = create<SessionState>((set, get) => ({
         // The server refused the token (expired, revoked, reused): sign out on this phone. Not via
         // signOut(), which waits for the in-flight refresh — this one.
         epoch += 1;
-        set({ status: 'signedOut', accessToken: undefined, refreshToken: undefined });
+        set({
+          status: 'signedOut',
+          accessToken: undefined,
+          refreshToken: undefined,
+          identity: epoch,
+          resumed: false,
+        });
         await SecureStore.deleteItemAsync(REFRESH_KEY);
         return false;
       }
@@ -195,5 +223,5 @@ export function resetSessionForTests(): void {
   inflight = null;
   orphan = undefined;
   epoch += 1;
-  useSession.setState(initial);
+  useSession.setState({ ...initial, identity: epoch });
 }

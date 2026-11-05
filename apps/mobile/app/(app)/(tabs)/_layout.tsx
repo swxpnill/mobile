@@ -37,7 +37,12 @@ export default function TabsLayout() {
         />
       )}
     >
-      {ALL_TABS.map((tab) => (
+      {/*
+        The role's own tabs are declared first: the tab router sends Back to the first declared
+        route, so declaring Home first left supervisors bouncing between a hidden Home and the
+        redirect — they could never leave the app with Back.
+      */}
+      {[...allowed, ...ALL_TABS.filter((x) => !allowed.includes(x))].map((tab) => (
         <Tabs.Screen
           key={tab}
           name={tab}

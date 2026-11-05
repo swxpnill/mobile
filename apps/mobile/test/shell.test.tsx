@@ -6,7 +6,7 @@ import * as SecureStore from 'expo-secure-store';
 import type { ReactElement } from 'react';
 import { type Me, SAMPLE_WORLD, type Transport, tokenPairSchema } from '@tonnage/shared';
 import { createFakeClock, createMockApi, type MockApi } from '@tonnage/mock-api';
-import { ME_CACHE_KEY, UnitBasisProvider, useUnitBasis } from '../src/api/hooks/me';
+import { ME_CACHE_KEY, UnitBasisProvider, useMe, useUnitBasis } from '../src/api/hooks/me';
 import { setTransport } from '../src/api/transport';
 import { resetSessionForTests, useSession } from '../src/auth/session';
 import { RequireAction } from '../src/nav/guard';
@@ -218,5 +218,87 @@ describe('sign-out clears cached data', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
     await waitFor(async () => expect(await AsyncStorage.getItem(ME_CACHE_KEY)).toBeNull());
     expect(client.getQueryData(['me'])).toBeUndefined();
+  });
+});
+
+describe('client data follows the person signed in (review #2, #3)', () => {
+  function gate(path: string) {
+    let release!: () => void;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    setTransport({
+      async request(req) {
+        const res = await mock.transport.request(req);
+        if (req.path === path) await held;
+        return res;
+      },
+    });
+    return () => release();
+  }
+
+  it('a /v1/me answer that lands after sign-out is not cached', async () => {
+    await signInAs('9826100012');
+    const release = gate('/v1/me');
+    await wrap(<MoreScreen />);
+    await useSession.getState().signOut();
+    release();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await AsyncStorage.getItem(ME_CACHE_KEY)).toBeNull();
+    expect(client.getQueryData(['me'])).toBeUndefined();
+  });
+
+  it('a unit switch that lands after sign-out does not bring the old profile back', async () => {
+    await signInAs('9826100014');
+    let setBasis: ((b: 'mt' | 'kg') => Promise<void>) | undefined;
+    function Grab() {
+      setBasis = useUnitBasis().setBasis;
+      return null;
+    }
+    await wrap(<Grab />);
+    await waitFor(() => expect(client.getQueryData(['me'])).toBeDefined());
+    const release = gate('/v1/me/preferences');
+    const switching = setBasis!('kg').catch(() => undefined);
+    await useSession.getState().signOut();
+    release();
+    await switching;
+    expect(client.getQueryData(['me'])).toBeUndefined();
+    expect(await AsyncStorage.getItem(ME_CACHE_KEY)).toBeNull();
+  });
+
+  it('signing in as someone else without signing out ("Sign in as") replaces the profile', async () => {
+    await signInAs('9826100012');
+    await wrap(<MoreScreen />);
+    expect(await screen.findByText('Rajesh Agrawal')).toBeOnTheScreen();
+    await signInAs('9826100014');
+    expect(await screen.findByText('Ravi Verma')).toBeOnTheScreen();
+    expect(screen.queryByText('Rajesh Agrawal')).toBeNull();
+  });
+
+  it('after a fresh sign-in, a cached profile left by someone else is never shown', async () => {
+    const stale = {
+      id: ids.users.rajesh,
+      name: 'Rajesh Agrawal',
+      mobile: '+919826100012',
+      role: 'owner',
+      plantIds: [],
+      preferences: { unitBasis: 'mt' },
+      tenant: { id: SAMPLE_WORLD.tenant.id, name: 'Agrawal Group' },
+    };
+    await AsyncStorage.setItem(ME_CACHE_KEY, JSON.stringify(stale));
+    await signInAs('9826100014');
+    const release = gate('/v1/me'); // the network is slow: the cache gets its chance first
+    const seen: string[] = [];
+    const { Text } = jest.requireActual('react-native');
+    function Who() {
+      const { data } = useMe();
+      if (data) seen.push(data.name);
+      return <Text>{data?.name ?? '…'}</Text>;
+    }
+    await wrap(<Who />);
+    await new Promise((r) => setTimeout(r, 50));
+    release();
+    expect(await screen.findByText('Ravi Verma')).toBeOnTheScreen();
+    expect(seen).not.toContain('Rajesh Agrawal');
   });
 });
