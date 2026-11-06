@@ -193,6 +193,7 @@ describe('controls', () => {
     expect(users).toHaveLength(8);
     expect(users[0]).toEqual({
       id: SAMPLE_WORLD.ids.users.rajesh,
+      tenantId: SAMPLE_WORLD.ids.tenant,
       tenantName: 'Agrawal Group',
       name: 'Rajesh Agrawal',
       mobile: '+919826100012',

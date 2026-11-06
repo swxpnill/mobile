@@ -2,7 +2,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
-import { router } from 'expo-router';
+import { router, Stack, useNavigation, useRootNavigationState } from 'expo-router';
 import { renderRouter, screen } from 'expo-router/testing-library';
 import type { ReactNode } from 'react';
 import { Text } from 'react-native';
@@ -11,6 +11,7 @@ import { act } from '@testing-library/react-native';
 import { tokenPairSchema } from '@tonnage/shared';
 import { createFakeClock, createMockApi, type MockApi } from '@tonnage/mock-api';
 import TabsLayout from '../app/(app)/(tabs)/_layout';
+import { freshStartOn } from '../src/nav/freshStart';
 import { UnitBasisProvider } from '../src/api/hooks/me';
 import { setTransport } from '../src/api/transport';
 import { resetSessionForTests, useSession } from '../src/auth/session';
@@ -102,5 +103,47 @@ describe('tabs layout', () => {
     await renderRouter(routes, { initialUrl: '/home', wrapper: Providers });
     expect(await screen.findByText('home screen')).toBeOnTheScreen();
     expect(router.canGoBack()).toBe(false);
+  });
+});
+
+type NavState = { index?: number; routes: { name: string; state?: NavState }[] } | undefined;
+let lastState: NavState;
+let demoNav: Parameters<typeof freshStartOn>[0];
+const tree = (st: NavState): string =>
+  st ? `[${st.routes.map((r, i) => (i === st.index ? '*' : '') + r.name + tree(r.state)).join(',')}]` : '';
+
+describe('person switch (F1.11)', () => {
+  const stackRoutes = {
+    _layout: function Root() {
+      lastState = useRootNavigationState() as unknown as NavState;
+      return <Stack screenOptions={{ headerShown: false }} />;
+    },
+    ...routes,
+    'demo-tools': function DemoTools() {
+      demoNav = useNavigation() as typeof demoNav;
+      return <Text>demo screen</Text>;
+    },
+  };
+
+  it('switching from Demo tools gives the new person fresh tabs: Back has nowhere to go', async () => {
+    await signInAs('9826100014'); // Ravi, supervisor
+    await renderRouter(stackRoutes, { initialUrl: '/tasks', wrapper: Providers });
+    await screen.findByText('tasks screen');
+    await act(async () => router.navigate('/profile'));
+    await screen.findByText('profile screen');
+    await act(async () => router.push('/demo-tools'));
+    await screen.findByText('demo screen');
+
+    // What DemoPeopleList does: new session, then a fresh start on the first tab.
+    await act(async () => signInAs('9826100013')); // Priya, city staff
+    await act(async () => freshStartOn(demoNav, 'home'));
+    expect(await screen.findByText('home screen')).toBeOnTheScreen();
+    // Android Back from the new person's first tab must leave the app, not visit a tab left
+    // over from the previous person (a supervisor's Profile, or a hidden tab that redirects).
+    await act(async () => {
+      router.back();
+    });
+    const after = tree(lastState);
+    expect(after).toBe('[*__root[*(tabs)[*home]]]');
   });
 });

@@ -16,6 +16,7 @@ import type { Store } from './store.ts';
 /** A person as the demo "Sign in as" list shows them (mock only; not part of the API). */
 export interface DemoUser {
   id: string;
+  tenantId: string;
   tenantName: string;
   name: string;
   mobile: string;
@@ -156,6 +157,7 @@ export function createControls(deps: {
         return st.users
           .map((u): DemoUser => ({
             id: u.id,
+            tenantId: u.tenantId,
             tenantName: st.tenants.find((t) => t.id === u.tenantId)?.name ?? '',
             name: u.name,
             mobile: u.mobile,

@@ -23,15 +23,42 @@ import { Sheet } from '../src/ui/Sheet';
 import { WakingBanner } from '../src/ui/WakingBanner';
 
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), canGoBack: () => true };
+// The signed-in stack Demo tools sits in: (tabs) underneath, demo-tools on top.
+const mockNavigation = {
+  getState: () => ({
+    key: 'stack-1',
+    index: 1,
+    routeNames: ['(tabs)', 'demo-tools'],
+    routes: [
+      { key: 'tabs-1', name: '(tabs)' },
+      { key: 'demo-1', name: 'demo-tools' },
+    ],
+    routeKeySeq: 2,
+    stale: false,
+    type: 'stack',
+  }),
+  dispatch: jest.fn(),
+};
 jest.mock('expo-router', () => {
   const { Text } = jest.requireActual('react-native');
   return {
     useRouter: () => mockRouter,
+    useNavigation: () => mockNavigation,
     Redirect: ({ href }: { href: string }) => <Text testID="redirect">{href}</Text>,
   };
 });
 
 const { ids } = SAMPLE_WORLD;
+
+/** The tab a person switch from inside the app reset the signed-in stack to (fresh tabs). */
+function freshStartTab(): string | undefined {
+  const action = mockNavigation.dispatch.mock.calls.at(-1)?.[0] as
+    | { type: string; payload: { routes: { name: string; state?: { routes: { name: string }[] } }[] } }
+    | undefined;
+  if (action?.type !== 'RESET') return undefined;
+  const [only, ...rest] = action.payload.routes;
+  return rest.length === 0 && only?.name === '(tabs)' ? only.state?.routes[0]?.name : undefined;
+}
 let mock: MockApi;
 let client: QueryClient;
 
@@ -115,7 +142,7 @@ describe('Sign in as', () => {
   it('Sign in as Ravi Verma lands on My tasks as Ravi', async () => {
     await wrap(<DemoToolsScreen />);
     await fireEvent.press(await screen.findByRole('button', { name: /^Ravi Verma/ }));
-    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/tasks'));
+    await waitFor(() => expect(freshStartTab()).toBe('tasks'));
     const me = meSchema.parse(await api('/v1/me'));
     expect(me.name).toBe('Ravi Verma');
   });
@@ -267,7 +294,7 @@ describe('Task 10 review fixes', () => {
     mock.controls.setOffline(true);
     await wrap(<DemoToolsScreen />);
     await fireEvent.press(await screen.findByRole('button', { name: /^Ravi Verma/ }));
-    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/tasks'));
+    await waitFor(() => expect(freshStartTab()).toBe('tasks'));
     expect(mock.controls.getState().offline).toBe(false);
     expect(meSchema.parse(await api('/v1/me')).name).toBe('Ravi Verma');
   });
@@ -277,7 +304,7 @@ describe('Task 10 review fixes', () => {
     mock.controls.failNext(409, 'STALE', { writesOnly: true });
     await wrap(<DemoToolsScreen />);
     await fireEvent.press(await screen.findByRole('button', { name: /^Ravi Verma/ }));
-    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/tasks'));
+    await waitFor(() => expect(freshStartTab()).toBe('tasks'));
     await waitFor(() => expect(mock.controls.getState().failNext).toMatchObject({ code: 'STALE' }));
     mock.controls.clearFailNext();
     const res = await mock.transport.request({
@@ -327,5 +354,95 @@ describe('Task 10 review fixes', () => {
     expect(firstAuth).toBe(`Bearer ${rajeshToken}`);
     expect(calls).toBe(1);
     setTransport(null);
+  });
+});
+
+describe('F1.11 demo follow-ups', () => {
+  it('a double tap on a person starts one switch, not two', async () => {
+    let finish!: () => void;
+    const spy = jest
+      .spyOn(demo, 'signInAsDemo')
+      .mockImplementation(() => new Promise<void>((r) => (finish = r)));
+    try {
+      await wrap(<DemoToolsScreen />);
+      const ravi = await screen.findByRole('button', { name: /^Ravi Verma/ });
+      await act(async () => {
+        fireEvent.press(ravi);
+        fireEvent.press(ravi);
+      });
+      expect(spy).toHaveBeenCalledTimes(1);
+      await act(async () => finish());
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('when the people list fails to load, Try again loads it', async () => {
+    const spy = jest
+      .spyOn(mock.controls, 'listUsers')
+      .mockRejectedValueOnce(new Error('boom'));
+    try {
+      await wrap(<DemoToolsScreen />);
+      await fireEvent.press(await screen.findByRole('button', { name: 'Try again' }));
+      expect(await screen.findByRole('button', { name: /^Ravi Verma/ })).toBeTruthy();
+      expect(spy).toHaveBeenCalledTimes(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('Sign in as says so when demo data is unavailable, instead of spinning forever', async () => {
+    await useSession.getState().signOut();
+    const spy = jest.spyOn(demo, 'getMockControls').mockResolvedValue(null);
+    try {
+      await wrap(<DemoSignInScreen />);
+      expect(await screen.findByText(/Sample people aren't available/)).toBeTruthy();
+      expect(screen.queryByLabelText('Loading')).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('demo routes redirect away when demo tools are off', async () => {
+    const g = globalThis as { __DEV__?: boolean };
+    g.__DEV__ = false;
+    try {
+      const DemoToolsRoute = jest.requireActual('../app/(app)/demo-tools').default;
+      const DemoSignInRoute = jest.requireActual('../app/(auth)/demo-sign-in').default;
+      const a = await wrap(<DemoToolsRoute />);
+      expect(screen.getByTestId('redirect').props.children).toBe('/');
+      await a.unmount();
+      await wrap(<DemoSignInRoute />);
+      expect(screen.getByTestId('redirect').props.children).toBe('/sign-in');
+    } finally {
+      g.__DEV__ = true;
+    }
+  });
+});
+
+describe('F1.11 back stack', () => {
+  it('switching from Demo tools resets the signed-in stack to fresh tabs on the new first tab', async () => {
+    await wrap(<DemoToolsScreen />);
+    await fireEvent.press(await screen.findByRole('button', { name: /^Ravi Verma/ }));
+    await waitFor(() => expect(freshStartTab()).toBe('tasks'));
+    const reset = mockNavigation.dispatch.mock.calls.at(-1)![0] as {
+      payload: { key: string; index: number; routeNames: string[]; stale: boolean };
+    };
+    // A complete state, as this router requires: same stack, one route, not stale.
+    expect(reset.payload).toMatchObject({
+      key: 'stack-1',
+      index: 0,
+      routeNames: ['(tabs)', 'demo-tools'],
+      stale: false,
+    });
+    expect(mockRouter.replace).not.toHaveBeenCalled();
+  });
+
+  it('from the signed-out Sign in as screen it opens the first tab with the router, no reset', async () => {
+    await useSession.getState().signOut();
+    await wrap(<DemoSignInScreen />);
+    await fireEvent.press(await screen.findByRole('button', { name: /^Ravi Verma/ }));
+    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/tasks'));
+    expect(mockNavigation.dispatch).not.toHaveBeenCalled();
   });
 });
