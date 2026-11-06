@@ -163,10 +163,10 @@ export function useDeleteOrder() {
 
 const draftsSchema = z.array(draftSchema);
 
-export function useDrafts() {
+export function useDrafts(enabled = true) {
   return useQuery({
     queryKey: DRAFTS_KEY,
-    enabled: useSignedIn(),
+    enabled: useSignedIn() && enabled,
     queryFn: () => api('/v1/orders/drafts', { schema: draftsSchema }),
   });
 }

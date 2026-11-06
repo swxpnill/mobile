@@ -32,10 +32,10 @@ export const PARTIES_KEY = ['parties'] as const;
 export const partyKey = (id: string) => ['party', id] as const;
 const partiesSchema = z.array(partySummarySchema);
 
-export function useParties(filters: PartyFilters = {}) {
+export function useParties(filters: PartyFilters = {}, enabled = true) {
   return useQuery({
     queryKey: [...PARTIES_KEY, filters],
-    enabled: useSignedIn(),
+    enabled: useSignedIn() && enabled,
     // Typing in search keeps the last list on screen instead of flashing a spinner.
     placeholderData: keepPreviousData,
     queryFn: () => api(`/v1/parties${qs({ ...filters })}`, { schema: partiesSchema }),
@@ -95,10 +95,10 @@ export const PRODUCTS_KEY = ['products'] as const;
 export const productKey = (id: string) => ['product', id] as const;
 const productsSchema = z.array(productSchema);
 
-export function useProducts(filters: ProductFilters = {}) {
+export function useProducts(filters: ProductFilters = {}, enabled = true) {
   return useQuery({
     queryKey: [...PRODUCTS_KEY, filters],
-    enabled: useSignedIn(),
+    enabled: useSignedIn() && enabled,
     placeholderData: keepPreviousData,
     queryFn: () => api(`/v1/products${qs({ ...filters })}`, { schema: productsSchema }),
   });
