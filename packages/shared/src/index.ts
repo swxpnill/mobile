@@ -19,3 +19,4 @@ export * from './schemas/orders.ts';
 export * from './schemas/responses.ts';
 export * from './transport.ts';
 export * from './fixtures/sample-world.ts';
+export * from './fixtures/sample-masters.ts';

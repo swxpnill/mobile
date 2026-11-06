@@ -22,11 +22,22 @@ import {
   type StorageAdapter,
   createMemoryStorage,
   createStore,
+  seedState,
+  type MockState,
 } from './store.ts';
+import { seedDemoOrders } from './seed-orders.ts';
+import type { Clock as ClockT } from './clock.ts';
+
+function seedWithDemoOrders(clock: ClockT): MockState {
+  const s = seedState(clock);
+  seedDemoOrders(s, clock);
+  return s;
+}
 
 export { type Clock, createFakeClock, systemClock } from './clock.ts';
 export type { ArmedFailure, ControlState, DemoUser, MockControls } from './controls.ts';
 export type { MockFixtures } from './fixtures.ts';
+export type { AddTruckInput } from './trucks.ts';
 export { type StorageAdapter, createMemoryStorage } from './store.ts';
 export { DEV_OTP_CODE } from './handlers/auth.ts';
 
@@ -42,6 +53,8 @@ export interface CreateMockApiOptions {
   clock?: Clock;
   latencyMs?: number;
   storageKey?: string;
+  /** Add the canvas demo orders to the seed (the app). Contract and unit tests leave it off. */
+  seedOrders?: boolean;
 }
 
 export const ALL_ROUTES = [
@@ -62,6 +75,7 @@ export async function createMockApi(opts: CreateMockApiOptions = {}): Promise<Mo
     storage: opts.storage ?? createMemoryStorage(),
     storageKey: opts.storageKey ?? DEFAULT_STORAGE_KEY,
     clock,
+    seed: opts.seedOrders ? seedWithDemoOrders : seedState,
   });
   const cs: ControlState = {
     offline: false,

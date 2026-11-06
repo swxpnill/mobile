@@ -21,6 +21,18 @@ export interface ContractFixtures {
   createTenant(
     name: string,
   ): Promise<{ tenantId: string; ownerMobile: string; companyId: string; plantId: string }>;
+  /**
+   * A truck in any state on an existing sub-order, until F3 adds the real assign/weigh flow.
+   * Dispatched trucks carry net allocations; others carry only a plan. B2 inserts it with SQL.
+   */
+  addTruck(input: {
+    subOrderId: string;
+    state: 'assigned' | 'at_gate' | 'loading' | 'dispatched' | 'cancelled';
+    vehicleNo: string;
+    tareKg?: number;
+    plan: { orderLineId: string; plannedKg: number }[];
+    allocations?: { orderLineId: string; netKg: number }[];
+  }): Promise<{ truckId: string }>;
 }
 
 /**

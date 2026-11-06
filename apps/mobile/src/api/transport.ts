@@ -12,7 +12,7 @@ let http: Transport | null = null;
 
 /** The single in-app mock, persisted to AsyncStorage so demo data survives restarts. */
 export function getMockApi(): Promise<MockApi> {
-  mockApi ??= createMockApi({ storage: AsyncStorage });
+  mockApi ??= createMockApi({ storage: AsyncStorage, seedOrders: true });
   return mockApi;
 }
 
