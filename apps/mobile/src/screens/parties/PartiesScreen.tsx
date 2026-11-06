@@ -28,12 +28,17 @@ export const PARTY_TYPE_LABEL: Record<PartyType, { one: string; many: string; to
   broker: { one: 'broker', many: 'Brokers', tone: 'vi' },
   transporter: { one: 'transporter', many: 'Transporters', tone: 'te' },
 };
-const TYPES: PartyType[] = ['customer', 'broker', 'transporter'];
+/** More has two entries: trading partners (customers and brokers) and transporters, each its own list. */
+const TRADE: PartyType[] = ['customer', 'broker'];
+const TRANSPORT: PartyType[] = ['transporter'];
+export const typesFor = (t: PartyType): PartyType[] => (t === 'transporter' ? TRANSPORT : TRADE);
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** Canvas board 18: customers, brokers and transporters shared by every company. */
 export function PartiesScreen({ initialType = 'customer' }: { initialType?: PartyType }) {
+  const TYPES = typesFor(initialType);
+  const transporters = initialType === 'transporter';
   const router = useRouter();
   const { t } = useTheme();
   const basis = useDisplayBasis();
@@ -43,9 +48,11 @@ export function PartiesScreen({ initialType = 'customer' }: { initialType?: Part
   const q = useDebouncedValue(search.trim(), 300);
   // One request per search term; the type tabs filter it, so their counts come from the same answer.
   const parties = useParties(q ? { q } : {});
-  const all = useMemo(() => parties.data ?? [], [parties.data]);
+  // Only this list's types: a search here never surfaces the other list's parties.
+  const all = useMemo(() => (parties.data ?? []).filter((p) => TYPES.includes(p.type)), [parties.data, TYPES]);
   const counts = useMemo(
-    () => Object.fromEntries(TYPES.map((x) => [x, all.filter((p) => p.type === x).length])) as Record<PartyType, number>,
+    () =>
+      Object.fromEntries((['customer', 'broker', 'transporter'] as const).map((x) => [x, all.filter((p) => p.type === x).length])) as Record<PartyType, number>,
     [all],
   );
   // A search that only matches another type moves to that tab, so the result is never hidden.
@@ -55,7 +62,7 @@ export function PartiesScreen({ initialType = 'customer' }: { initialType?: Part
 
   return (
     <Screen
-      title="Parties"
+      title={transporters ? 'Transporters' : 'Customers & brokers'}
       header={<BackHeader />}
       footer={
         <Button onPress={() => router.push({ pathname: '/parties/form', params: { type: shown } })}>
@@ -67,13 +74,15 @@ export function PartiesScreen({ initialType = 'customer' }: { initialType?: Part
         {companyCount > 0 ? `Shared across all ${companyCount} companies` : 'Shared across all companies'}
       </Text>
       <SearchField value={search} onChangeText={setSearch} placeholder="Name, city, GSTIN or number" label="Search parties" />
-      <SegmentedControl
-        size="full"
-        accessibilityLabel="Party type"
-        value={shown}
-        onChange={(v: PartyType) => setType(v)}
-        options={TYPES.map((x) => ({ value: x, label: `${PARTY_TYPE_LABEL[x].many} ${counts[x]}` }))}
-      />
+{transporters ? null : (
+        <SegmentedControl
+          size="full"
+          accessibilityLabel="Party type"
+          value={shown}
+          onChange={(v: PartyType) => setType(v)}
+          options={TYPES.map((x) => ({ value: x, label: `${PARTY_TYPE_LABEL[x].many} ${counts[x]}` }))}
+        />
+      )}
       {parties.isPending ? (
         <ActivityIndicator color={t.br} accessibilityLabel="Loading parties" />
       ) : parties.isError ? (

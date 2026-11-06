@@ -82,6 +82,7 @@ describe('PartiesScreen', () => {
     await wrap(<PartiesScreen initialType="customer" />);
     expect(await screen.findByText('Shared across all 4 companies')).toBeOnTheScreen();
     expect(screen.getByRole('radio', { name: 'Customers 4' })).toBeChecked();
+    expect(screen.getByText('Customers & brokers')).toBeOnTheScreen();
     expect(screen.getByRole('button', { name: /^Shubham Traders, Nagpur · 2 people · 3 numbers, 84\.000 MT pending$/ })).toBeOnTheScreen();
     expect(screen.getByRole('button', { name: /^Gupta Hardware.*no pending$/ })).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole('radio', { name: 'Brokers 2' }));
@@ -90,7 +91,25 @@ describe('PartiesScreen', () => {
     expect(screen.getByRole('button', { name: 'Add broker' })).toBeOnTheScreen();
   });
 
-  it('search by a phone number as typed finds the party across types', async () => {
+  it('Customers & brokers has no Transporters tab, and its search never shows transporters', async () => {
+    await wrap(<PartiesScreen initialType="customer" />);
+    expect(await screen.findByText('Customers & brokers')).toBeOnTheScreen();
+    expect(screen.queryByRole('radio', { name: /^Transporters/ })).toBeNull();
+    await fireEvent.changeText(screen.getByLabelText('Search parties'), 'Raipur');
+    expect(await screen.findByText('R.K. Agarwal')).toBeOnTheScreen();
+    expect(screen.queryByText('Shree Ganesh Roadlines')).toBeNull();
+  });
+
+  it('Transporters is its own list: transporters only, no type tabs, Add transporter', async () => {
+    await wrap(<PartiesScreen initialType="transporter" />);
+    expect(await screen.findByText('Shree Ganesh Roadlines')).toBeOnTheScreen();
+    expect(screen.getByText('Golden Transport')).toBeOnTheScreen();
+    expect(screen.queryByRole('radiogroup', { name: 'Party type' })).toBeNull();
+    expect(screen.queryByText('Shubham Traders')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Add transporter' })).toBeOnTheScreen();
+  });
+
+  it('search by a phone number as typed finds the party in either tab', async () => {
     await wrap(<PartiesScreen initialType="broker" />);
     await screen.findByText('R.K. Agarwal');
     await fireEvent.changeText(screen.getByLabelText('Search parties'), '98260 12345');

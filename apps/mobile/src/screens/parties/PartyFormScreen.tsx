@@ -43,9 +43,8 @@ import {
 } from '../../ui';
 import { MSG, messageFor } from '../messages';
 import { BackHeader, FormMessage, firstTryNote } from '../admin/parts';
-import { PARTY_TYPE_LABEL } from './PartiesScreen';
+import { PARTY_TYPE_LABEL, typesFor } from './PartiesScreen';
 
-const TYPES: PartyType[] = ['customer', 'broker', 'transporter'];
 
 /** Add (`type`) or edit (`id`) a customer, broker or transporter — canvas board 19. */
 export function PartyFormScreen({ id, type = 'customer' }: { id?: string; type?: PartyType }) {
@@ -183,6 +182,8 @@ function PartyForm({ party, type: initialType }: { party: Party | undefined; typ
         </Text>
         {party ? (
           <Text variant="caption">{`${typeLabel.one.replace(/^./, (c) => c.toUpperCase())}. A party is one type only. Its type can’t change.`}</Text>
+        ) : typesFor(initialType).length === 1 ? (
+          <Text variant="caption">{`${typeLabel.one.replace(/^./, (c) => c.toUpperCase())}`}</Text>
         ) : (
           <>
             <SegmentedControl
@@ -192,7 +193,7 @@ function PartyForm({ party, type: initialType }: { party: Party | undefined; typ
               onChange={(type) =>
                 setD((x) => ({ ...x, type, shipTo: type === 'customer' && x.shipTo.length === 0 ? [newShipTo(true)] : x.shipTo }))
               }
-              options={TYPES.map((x) => ({ value: x, label: PARTY_TYPE_LABEL[x].one.replace(/^./, (c) => c.toUpperCase()) }))}
+              options={typesFor(initialType).map((x) => ({ value: x, label: PARTY_TYPE_LABEL[x].one.replace(/^./, (c) => c.toUpperCase()) }))}
             />
             <Text variant="caption">A party is one type only. Brokers also get a default commission.</Text>
           </>
