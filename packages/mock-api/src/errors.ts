@@ -17,6 +17,23 @@ const MESSAGES: Record<ErrorCode, string> = {
   IDEMPOTENCY_KEY_REQUIRED: 'Idempotency-Key header is required',
   IDEMPOTENCY_IN_PROGRESS: 'This request is already being processed',
   INTERNAL: 'Something went wrong',
+  GSTIN_EXISTS: 'Another party already has this GSTIN',
+  PARTY_IN_USE: 'This party is used on orders',
+  PRODUCT_IN_USE: 'This product is used on orders. Make it inactive instead',
+  PRODUCT_NOT_FOR_COMPANY: 'This company does not make this product',
+  COMPANY_INACTIVE: 'This company is inactive',
+  COMPANY_HAS_OPEN_ORDERS: 'This company still has open orders',
+  ORDER_LOCKED: 'This part of the order is closed. Reopen it first',
+  LINE_RATE_LOCKED: 'This line has dispatches, so its rate can no longer change',
+  BELOW_DISPATCHED: 'Quantity cannot be less than what is already dispatched',
+  LINE_HAS_DISPATCHES: 'A line with dispatches cannot be removed',
+  OPEN_TRUCKS: 'Trucks are still open on this order',
+  ALREADY_CLOSED: 'This is already closed',
+  NOT_CLOSED: 'This is not closed',
+  HARD_DELETE_DISABLED: 'Orders with dispatches cannot be deleted',
+  CONFIRMATION_MISMATCH: 'The order number does not match',
+  MOVE_EXCEEDS_AVAILABLE: 'More than the quantity available to move',
+  DRAFT_INCOMPLETE: 'This draft is not complete yet',
 };
 
 /** Thrown by the pipeline and handlers; turned into `{ code, message, details? }`. */
