@@ -34,6 +34,7 @@ const MESSAGES: Record<ErrorCode, string> = {
   CONFIRMATION_MISMATCH: 'The order number does not match',
   MOVE_EXCEEDS_AVAILABLE: 'More than the quantity available to move',
   DRAFT_INCOMPLETE: 'This draft is not complete yet',
+  LINE_NOT_ON_ORDER: 'This line is not on the order',
 };
 
 /** Thrown by the pipeline and handlers; turned into `{ code, message, details? }`. */

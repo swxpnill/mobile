@@ -13,6 +13,7 @@ import { companyRoutes } from './handlers/companies.ts';
 import { meRoutes } from './handlers/me.ts';
 import { draftRoutes } from './handlers/drafts.ts';
 import { homeRoutes } from './handlers/home.ts';
+import { orderLifecycleRoutes } from './handlers/order-lifecycle.ts';
 import { orderRoutes } from './handlers/orders.ts';
 import { partyRoutes } from './handlers/parties.ts';
 import { productRoutes } from './handlers/products.ts';
@@ -75,6 +76,7 @@ export const ALL_ROUTES = [
   // Drafts before /v1/orders/:id so "drafts" is never read as an order id.
   ...draftRoutes,
   ...orderRoutes,
+  ...orderLifecycleRoutes,
   ...homeRoutes,
 ];
 

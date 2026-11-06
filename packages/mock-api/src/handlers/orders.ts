@@ -200,6 +200,7 @@ export const orderRoutes: RouteDef[] = [
         pricingMethod: body.pricingMethod,
         basicRate: body.pricingMethod === 'basic_conversion' ? body.basicRate : null,
         notify: { ...body.notify },
+        suffixesUsed: body.subOrders.length,
         createdBy: a.user.id,
         version: 1,
         createdAt: at,

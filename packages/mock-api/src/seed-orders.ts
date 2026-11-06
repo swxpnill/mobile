@@ -204,6 +204,7 @@ export function seedDemoOrders(state: MockState, clock: Clock): void {
       pricingMethod: d.pricing,
       basicRate: d.basicRate,
       notify: { customer: true, broker: d.broker !== null },
+      suffixesUsed: d.subs.length,
       createdBy: d.createdBy,
       version: 1,
       createdAt: at,

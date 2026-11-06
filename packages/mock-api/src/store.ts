@@ -16,7 +16,7 @@ import {
 import { type Clock, toIso } from './clock.ts';
 
 /** Bump when the shape of `MockState` changes; older snapshots are discarded for the seed. */
-export const SNAPSHOT_VERSION = 2;
+export const SNAPSHOT_VERSION = 3;
 export const DEFAULT_STORAGE_KEY = 'tonnage.mockState';
 const PERSIST_DEBOUNCE_MS = 250;
 
@@ -158,6 +158,8 @@ export interface OrderRec {
   pricingMethod: PricingMethod;
   basicRate: number | null;
   notify: { customer: boolean; broker: boolean };
+  /** How many sub-order suffixes were ever handed out (A = 1); removed ones are not reused. */
+  suffixesUsed: number;
   createdBy: string;
   version: number;
   createdAt: string;
