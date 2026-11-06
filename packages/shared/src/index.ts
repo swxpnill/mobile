@@ -14,6 +14,8 @@ export * from './schemas/auth.ts';
 export * from './schemas/me.ts';
 export * from './schemas/org.ts';
 export * from './schemas/users.ts';
+export * from './schemas/masters.ts';
+export * from './schemas/orders.ts';
 export * from './schemas/responses.ts';
 export * from './transport.ts';
 export * from './fixtures/sample-world.ts';
