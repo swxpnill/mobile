@@ -35,8 +35,18 @@ export function MoreScreen() {
         <>
           <SectionLabel>Masters</SectionLabel>
           <Group>
-            <MenuRow icon="users" tone="bl" label="Customers & brokers" comingSoon />
-            <MenuRow icon="truck" tone="te" label="Transporters" comingSoon />
+            <MenuRow
+              icon="users"
+              tone="bl"
+              label="Customers & brokers"
+              onPress={() => router.push({ pathname: '/parties', params: { type: 'customer' } })}
+            />
+            <MenuRow
+              icon="truck"
+              tone="te"
+              label="Transporters"
+              onPress={() => router.push({ pathname: '/parties', params: { type: 'transporter' } })}
+            />
             <MenuRow icon="box" tone="vi" label="Products" comingSoon />
           </Group>
         </>

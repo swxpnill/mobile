@@ -16,3 +16,4 @@ export { Avatar, type AvatarTone, IconButton, initials } from './Avatar';
 export { ToastHost, showToast, hideToast } from './Toast';
 export { ProgressBar, type ProgressTone } from './ProgressBar';
 export { SearchField, useDebouncedValue } from './SearchField';
+export { ConfirmSheet } from './ConfirmSheet';

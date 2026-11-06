@@ -129,7 +129,9 @@ describe('More', () => {
     ).toBeOnTheScreen();
     expect(screen.getByRole('button', { name: 'Companies & units' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Users & roles' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Customers & brokers, coming soon' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Customers & brokers' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Transporters' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Products, coming soon' })).toBeDisabled();
     await fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
     await waitFor(() => expect(useSession.getState().status).toBe('signedOut'));
   });
