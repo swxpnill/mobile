@@ -11,6 +11,8 @@ import { type MockFixtures, createFixtures } from './fixtures.ts';
 import { authRoutes } from './handlers/auth.ts';
 import { companyRoutes } from './handlers/companies.ts';
 import { meRoutes } from './handlers/me.ts';
+import { partyRoutes } from './handlers/parties.ts';
+import { productRoutes } from './handlers/products.ts';
 import { metaRoutes } from './handlers/meta.ts';
 import { plantRoutes } from './handlers/plants.ts';
 import { settingsRoutes } from './handlers/settings.ts';
@@ -65,6 +67,8 @@ export const ALL_ROUTES = [
   ...plantRoutes,
   ...userRoutes,
   ...settingsRoutes,
+  ...partyRoutes,
+  ...productRoutes,
 ];
 
 /** In-process implementation of the M1 API contract, behind a `Transport`. */
