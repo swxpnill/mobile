@@ -64,6 +64,14 @@ function purgeIdempotency(state: MockState, userId: string, now: number): void {
  * → handler (scoped) → money redaction → persist. Unauthenticated callers never see schema errors.
  * Controls (offline/latency/failNext) wrap this in `controls.ts`.
  */
+/** Puts every top-level collection back as it was (the state object itself is shared with the store). */
+function restore(state: MockState, snapshot: string): void {
+  const before = JSON.parse(snapshot) as MockState;
+  const target = state as unknown as Record<string, unknown>;
+  for (const key of Object.keys(target)) delete target[key];
+  Object.assign(target, before);
+}
+
 export function createPipeline(deps: { router: Router; store: Store; clock: Clock }) {
   const { router, store, clock } = deps;
 
@@ -107,8 +115,12 @@ export function createPipeline(deps: { router: Router; store: Store; clock: Cloc
     }
 
     let result;
+    const snapshot = r.transactional ? JSON.stringify(state) : null;
     try {
       result = await r.handler({ user, scope, params: match.params, query, body, state, now });
+    } catch (e) {
+      if (snapshot !== null) restore(state, snapshot);
+      throw e;
     } finally {
       // Handlers may change state even when refusing (OTP failures, refresh-reuse revocation).
       if (req.method !== 'GET') store.schedulePersist();

@@ -48,7 +48,8 @@ export interface ContractFixtures {
 export interface ContractTarget {
   transport: Transport;
   reset(): Promise<void>;
-  clock: { advance(ms: number): void };
+  /** The target's time source: read it, and move it (also backwards, to restore a case's start). */
+  clock: { now(): number; advance(ms: number): void };
   fixtures: ContractFixtures;
   capabilities: {
     /** The target really runs requests concurrently (the mock serialises them). */

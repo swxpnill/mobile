@@ -39,3 +39,8 @@ it('F2: order estimates are money; quantity totals are not', () => {
   };
   expect(redactForRole('plant_head', order)).toEqual({ totals: { pendingKg: 84_000, total: 4 } });
 });
+
+it('F2: generic names are not money — a line length keeps its value for plant heads', () => {
+  const line = { length: { value: 12, unit: 'm' }, valueRupees: 5, lineValue: 7 };
+  expect(redactForRole('plant_head', line)).toEqual({ length: { value: 12, unit: 'm' } });
+});

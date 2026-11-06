@@ -2,6 +2,7 @@ import type { TargetFactory } from './harness.ts';
 import { register as auth } from './suites/auth.contract.ts';
 import { register as masters } from './suites/masters.contract.ts';
 import { register as me } from './suites/me.contract.ts';
+import { register as orders } from './suites/orders.contract.ts';
 import { register as org } from './suites/org.contract.ts';
 import { register as pipeline } from './suites/pipeline.contract.ts';
 import { register as settings } from './suites/settings.contract.ts';
@@ -18,6 +19,7 @@ export const CONTRACT_SUITES: readonly ((factory: TargetFactory) => void)[] = [
   me,
   settings,
   masters,
+  orders,
 ];
 
 /** Declares every contract suite against the target the factory builds. */

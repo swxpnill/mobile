@@ -25,6 +25,11 @@ export interface RouteConfig<B = unknown, Q = Record<string, string>> {
   public?: true;
   action?: Action;
   idempotent?: true;
+  /**
+   * All-or-nothing: if the handler throws, every change it made to the state is undone (a DB
+   * transaction in B2). Leave off where a refusal must still be recorded (OTP failures).
+   */
+  transactional?: true;
   body?: z.ZodType<B>;
   query?: z.ZodType<Q>;
   handler(ctx: HandlerCtx<B, Q>): Promise<HandlerResult>;

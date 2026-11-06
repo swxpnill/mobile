@@ -3,7 +3,7 @@ import type { Role } from './roles.ts';
 export const MONEY_KEYS: ReadonlySet<string> = new Set([
   'rate', 'basicRate', 'basicRateSnapshot', 'conversion', 'conversionSnapshot', 'conversionPerMt',
   'overpricePerMt', 'commissionPerMt', 'commissionPerMtSnapshot', 'defaultCommissionPerMt',
-  'value', 'lineValue', 'orderValue', 'amount', 'amountRupees', 'due', 'earned', 'paid',
+  'valueRupees', 'lineValue', 'orderValue', 'amount', 'amountRupees', 'due', 'earned', 'paid',
   'tdsRupees', 'billedRate', 'estimatedValue', 'brokerEarningEstimate',
 ]);
 

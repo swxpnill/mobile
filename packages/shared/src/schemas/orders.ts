@@ -195,7 +195,7 @@ export const subOrderSchema = z.object({
   totals: qtyTotalsSchema,
   openTrucks: z.array(openTruckSchema),
   dispatchedTrucks: z.number().int(),
-  value: money,
+  valueRupees: money,
   version: versionSchema,
 });
 export type SubOrder = z.infer<typeof subOrderSchema>;
@@ -288,7 +288,7 @@ export const homeSchema = z.object({
   ),
   agedOrders: z.number().int(),
   agedOrderDays: z.number().int(),
-  bookedToday: z.object({ kg: z.number().int(), orders: z.number().int(), value: money }),
+  bookedToday: z.object({ kg: z.number().int(), orders: z.number().int(), valueRupees: money }),
   dispatchedToday: z.object({ kg: z.number().int(), trucks: z.number().int() }),
   sentThisWeek: z.object({ kg: z.number().int(), changePct: z.number().int().nullable() }),
 });

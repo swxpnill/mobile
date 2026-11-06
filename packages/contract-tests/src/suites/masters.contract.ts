@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
   SAMPLE_MASTERS,
+  companySchema,
   partySchema,
   partySummarySchema,
   productSchema,
@@ -20,6 +21,7 @@ import {
   tokenFor,
   useTarget,
 } from '../harness.ts';
+import { createOrder } from './orders.contract.ts';
 
 const parties = z.array(partySummarySchema);
 const products = z.array(productSchema);
@@ -217,8 +219,24 @@ export function register(factory: TargetFactory): void {
         expectError(await call(t, 'GET', `/v1/products/${p.id}`, { token }), 404, 'NOT_FOUND');
       });
 
-      it.todo('a product used on an order line → 409 PRODUCT_IN_USE (enabled with orders, Task 6)');
-      it.todo('deactivating KRM with an open sub-order → 409 COMPANY_HAS_OPEN_ORDERS (Task 6)');
+      it('a product used on an order line → 409 PRODUCT_IN_USE', async () => {
+        const t = target();
+        const token = await tokenFor(t, PEOPLE.rajesh);
+        expect((await createOrder(t, token)).status).toBe(201);
+        expectError(await call(t, 'DELETE', `/v1/products/${SAMPLE_MASTERS.ids.products.tmt12}`, { token }), 409, 'PRODUCT_IN_USE');
+      });
+
+      it('deactivating KRM with an open sub-order → 409 COMPANY_HAS_OPEN_ORDERS', async () => {
+        const t = target();
+        const token = await tokenFor(t, PEOPLE.rajesh);
+        expect((await createOrder(t, token)).status).toBe(201);
+        const krm = expectOk(await call(t, 'GET', `/v1/companies/${COMPANY.KRM}`, { token }), companySchema);
+        expectError(
+          await call(t, 'PATCH', `/v1/companies/${COMPANY.KRM}`, { token, body: { version: krm.version, active: false } }),
+          409,
+          'COMPANY_HAS_OPEN_ORDERS',
+        );
+      });
     });
   });
 }

@@ -97,3 +97,42 @@ describe('pipeline order: auth → policy → validation', () => {
     expect(res.body).toMatchObject({ code: 'VALIDATION' });
   });
 });
+
+describe('transactional routes', () => {
+  it('a refusal half-way through undoes every change; a non-transactional route keeps them', async () => {
+    const clock = createFakeClock(Date.UTC(2026, 10, 3, 4, 30));
+    const store = await createStore({ storage: createMemoryStorage(), storageKey: 'k', clock });
+    const touch = (s: typeof store.state) => {
+      s.numberSeries.push({ tenantId: 't', key: 'order', fy: '2026-27', next: 2 });
+      s.parties[0]!.name = 'Changed';
+    };
+    const router = buildRouter([
+      route('POST', '/v1/tx', {
+        action: 'self.view',
+        transactional: true,
+        handler: async ({ state }) => {
+          touch(state);
+          throw new Error('refused after writing');
+        },
+      }),
+      route('POST', '/v1/plain', {
+        action: 'self.view',
+        handler: async ({ state }) => {
+          touch(state);
+          throw new Error('refused after writing');
+        },
+      }),
+    ]);
+    const { handle } = createPipeline({ router, store, clock });
+    const auth = { authorization: `Bearer ${issueTokens(store.state, SAMPLE_WORLD.ids.users.rajesh, 'd', clock.now()).accessToken}` };
+    const name = store.state.parties[0]!.name;
+
+    expect((await handle({ method: 'POST', path: '/v1/tx', headers: auth })).status).toBe(500);
+    expect(store.state.numberSeries).toEqual([]);
+    expect(store.state.parties[0]!.name).toBe(name);
+
+    expect((await handle({ method: 'POST', path: '/v1/plain', headers: auth })).status).toBe(500);
+    expect(store.state.numberSeries).toHaveLength(1);
+    expect(store.state.parties[0]!.name).toBe('Changed');
+  });
+});
