@@ -47,7 +47,7 @@ export function MoreScreen() {
               label="Transporters"
               onPress={() => router.push({ pathname: '/parties', params: { type: 'transporter' } })}
             />
-            <MenuRow icon="box" tone="vi" label="Products" comingSoon />
+            <MenuRow icon="box" tone="vi" label="Products" onPress={() => router.push('/products')} />
           </Group>
         </>
       ) : null}

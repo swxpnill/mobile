@@ -23,6 +23,7 @@ import {
   newShipTo,
   partyBodyFrom,
 } from '../../masters/partyForm';
+import { useDraft } from '../../masters/useDraft';
 import { useDiscardGuard } from '../../nav/discardGuard';
 import { useTheme } from '../../theme/ThemeProvider';
 import {
@@ -83,7 +84,7 @@ function PartyForm({ party, type: initialType }: { party: Party | undefined; typ
   /** The record as it was when editing started: saved with its version so others' edits are not overwritten. */
   const [base, setBase] = useState(party);
   const initial = useMemo(() => (party ? draftFromParty(party, basis) : emptyDraft(initialType)), [party, basis, initialType]);
-  const [d, setD] = useState<PartyDraft>(initial);
+  const [d, setD] = useDraft<PartyDraft>(initial, (x, y) => JSON.stringify(stripKeys(x)) === JSON.stringify(stripKeys(y)));
   const [errors, setErrors] = useState<FormErrors>({});
   const [formError, setFormError] = useState<string>();
   const [gstinOwner, setGstinOwner] = useState<{ partyId: string; name: string }>();
