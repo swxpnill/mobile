@@ -91,7 +91,7 @@ export function ShortCloseSheet({ order, visible, onClose }: { order: Order; vis
     const loading = trucks.some((x) => x.tareKg !== null);
     return (
       <Sheet visible={visible} title={`${trucks.length} ${trucks.length === 1 ? 'truck is' : 'trucks are'} still open`} onClose={onClose} busy={close.isPending}>
-        <Text color="tx2">Short closing cancels them. Their weighments stay on record.</Text>
+        <Text color="tx2">{trucks.length === 1 ? 'Short closing cancels it. Its weighments stay on record.' : 'Short closing cancels them. Their weighments stay on record.'}</Text>
         <Group>
           {trucks.map((x) => (
             <Row key={x.id}>

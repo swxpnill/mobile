@@ -84,7 +84,7 @@ describe('OrderDetailScreen', () => {
     expect(screen.getByText('Partly dispatched')).toBeOnTheScreen();
     expect(screen.getByLabelText('Dispatched 72.400 of 120.000 MT')).toBeOnTheScreen();
     expect(screen.getByLabelText('Pending, 47.600 MT')).toBeOnTheScreen();
-    expect(screen.getByLabelText('Trucks, 3 + 1 at the plant')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Trucks, 3 + 1 loading')).toBeOnTheScreen();
     expect(screen.getByText('TMT Fe500D · 16 mm · 12 m')).toBeOnTheScreen();
     expect(screen.getByText('28.400 of 40.000 MT · 11.600 pending')).toBeOnTheScreen();
     expect(screen.getByLabelText('CG 07 BR 8810, loading, tare 12.460 MT')).toBeOnTheScreen();

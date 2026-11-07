@@ -55,14 +55,20 @@ export function Avatar({
 }
 
 /** Round icon button for a header ("Add company"); filled with the brand colour. */
+/**
+ * Icon-only button with a 44 dp target. Plain (canvas header and row icons) by default;
+ * `filled` is the primary round button (e.g. "Add company").
+ */
 export function IconButton({
   icon,
   label,
   onPress,
+  filled,
 }: {
   icon: IconName;
   label: string;
   onPress(): void;
+  filled?: boolean;
 }) {
   const { t } = useTheme();
   return (
@@ -72,18 +78,19 @@ export function IconButton({
       onPress={onPress}
       hitSlop={4}
       style={({ pressed }) => [
-        styles.btn,
-        { backgroundColor: t.inv },
-        pressed ? { opacity: 0.85 } : null,
+        filled ? styles.btn : styles.plain,
+        filled ? { backgroundColor: t.inv } : null,
+        pressed ? (filled ? { opacity: 0.85 } : { backgroundColor: t.act }) : null,
       ]}
     >
-      <Icon name={icon} color={t.invtx} size={20} />
+      <Icon name={icon} color={filled ? t.invtx : t.tx2} size={filled ? 20 : 22} />
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   av: { alignItems: 'center', justifyContent: 'center' },
+  plain: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   btn: {
     width: 40,
     height: 40,

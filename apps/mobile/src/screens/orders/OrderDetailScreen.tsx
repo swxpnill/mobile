@@ -126,7 +126,9 @@ function Detail({ o, refetch, refreshing }: { o: Order; refetch(): void; refresh
   const kind =
     o.type === 'broker_only' ? `Broker order · ${o.broker?.name ?? ''}` : o.broker ? `Via ${o.broker.name}` : 'Direct order';
   const shipTo = o.shipTo ? ` · Ship to ${o.shipTo.label}, ${o.shipTo.address}` : '';
-  const trucksText = `${dispatchedTrucks}${openTrucks.length > 0 ? ` + ${openTrucks.length} at the plant` : ''}`;
+  // Canvas "3 + 1 loading"; "open" when some of them are not loading yet.
+  const openWord = openTrucks.every((x) => x.state === 'loading') ? 'loading' : 'open';
+  const trucksText = `${dispatchedTrucks}${openTrucks.length > 0 ? ` + ${openTrucks.length} ${openWord}` : ''}`;
 
   return (
     <Screen

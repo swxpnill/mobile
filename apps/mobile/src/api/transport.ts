@@ -7,13 +7,18 @@ export const API_MODE: 'mock' | 'http' =
   process.env.EXPO_PUBLIC_API_MODE === 'http' ? 'http' : 'mock';
 
 let override: Transport | null = null;
-let mockApi: Promise<MockApi> | null = null;
 let http: Transport | null = null;
+
+/**
+ * The single in-app mock lives on `globalThis`: Fast Refresh re-runs this module when files it
+ * depends on change, and a second mock would split reads and writes between two copies.
+ */
+const holder = globalThis as { __tonnageMockApi?: Promise<MockApi> | null };
 
 /** The single in-app mock, persisted to AsyncStorage so demo data survives restarts. */
 export function getMockApi(): Promise<MockApi> {
-  mockApi ??= createMockApi({ storage: AsyncStorage, seedOrders: true });
-  return mockApi;
+  holder.__tonnageMockApi ??= createMockApi({ storage: AsyncStorage, seedOrders: true });
+  return holder.__tonnageMockApi;
 }
 
 export async function getTransport(): Promise<Transport> {
@@ -25,7 +30,7 @@ export async function getTransport(): Promise<Transport> {
 
 /** Replaces the in-app mock (tests): its transport and its demo controls are then the same instance. */
 export function setMockApi(api: MockApi | null): void {
-  mockApi = api ? Promise.resolve(api) : null;
+  holder.__tonnageMockApi = api ? Promise.resolve(api) : null;
 }
 
 /** Replaces the transport (tests). `null` restores the default. */
