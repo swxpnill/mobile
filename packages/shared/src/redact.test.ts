@@ -31,3 +31,16 @@ it('passes Date and other non-plain objects through untouched', () => {
   expect(out.nested.d).toBe(d5);
   expect('rate' in out).toBe(false);
 });
+it('F2: order estimates are money; quantity totals are not', () => {
+  const order = {
+    estimatedValue: 3_864_200,
+    brokerEarningEstimate: { commission: 12_600, overprice: 22_200, total: 34_800 },
+    totals: { pendingKg: 84_000, total: 4 },
+  };
+  expect(redactForRole('plant_head', order)).toEqual({ totals: { pendingKg: 84_000, total: 4 } });
+});
+
+it('F2: generic names are not money — a line length keeps its value for plant heads', () => {
+  const line = { length: { value: 12, unit: 'm' }, valueRupees: 5, lineValue: 7 };
+  expect(redactForRole('plant_head', line)).toEqual({ length: { value: 12, unit: 'm' } });
+});
