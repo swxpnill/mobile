@@ -157,7 +157,18 @@ export function Row({
   disabled?: boolean;
 }) {
   const { t } = useTheme();
-  if (!onPress) return <View style={[styles.row, disabled ? styles.dim : null]}>{children}</View>;
+  if (!onPress) {
+    // Read-only rows with a label are read as one item by screen readers.
+    return (
+      <View
+        style={[styles.row, disabled ? styles.dim : null]}
+        accessible={accessibilityLabel !== undefined}
+        accessibilityLabel={accessibilityLabel}
+      >
+        {children}
+      </View>
+    );
+  }
   return (
     <Pressable
       accessibilityRole="button"
