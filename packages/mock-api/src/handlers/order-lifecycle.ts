@@ -225,7 +225,8 @@ export const orderLifecycleRoutes: RouteDef[] = [
       const c = ctxFor(ctx, a);
       const { sub, order } = findSubOrder(c, ctx.params.id);
       if (body.version !== sub.version) throw stale();
-      if (sub.closeKind !== null) throw new ApiError(409, 'ALREADY_CLOSED');
+      // Completed (nothing pending) is closed too: short closing it would rewrite history.
+      if (sub.closeKind !== null || isTerminal(c.math.subOrderStatus(sub))) throw new ApiError(409, 'ALREADY_CLOSED');
       const open = c.math.openTrucksOf(sub.id);
       if (open.length > 0 && !body.cancelOpenTrucks) throw new ApiError(409, 'OPEN_TRUCKS', { trucks: open });
 
@@ -349,7 +350,14 @@ export const orderLifecycleRoutes: RouteDef[] = [
         entityType: 'order',
         entityId: order.id,
         action: 'order.quantity_moved',
-        meta: { fromLineId: from.id, fromSuffix: fromSub.suffix, toSuffix: toSub.suffix, kg: body.kg },
+        meta: {
+          fromLineId: from.id,
+          fromSubOrderId: fromSub.id,
+          toSubOrderId: toSub.id,
+          fromSuffix: fromSub.suffix,
+          toSuffix: toSub.suffix,
+          kg: body.kg,
+        },
       });
       return { body: toOrder(ctxFor(ctx, a), order) };
     },
@@ -398,8 +406,14 @@ export const orderLifecycleRoutes: RouteDef[] = [
       const a = authed(ctx);
       const c = ctxFor(ctx, a);
       const order = findOrder(c, ctx.params.id);
+      // A plant head sees only their companies' sub-orders, so history about the others is left out too.
+      const hidden = new Set(
+        ctx.state.subOrders.filter((s) => s.orderId === order.id && !c.visibleCompanyIds.has(s.companyId)).map((s) => s.id),
+      );
+      const mentionsHidden = (meta: Record<string, unknown> | undefined) =>
+        meta !== undefined && ['subOrderId', 'fromSubOrderId', 'toSubOrderId'].some((k) => hidden.has(meta[k] as string));
       const entries: ActivityEntry[] = ctx.state.activity
-        .filter((e) => e.entityType === 'order' && e.entityId === order.id)
+        .filter((e) => e.entityType === 'order' && e.entityId === order.id && !mentionsHidden(e.meta))
         .map((e) => ({
           id: e.id,
           action: e.action,

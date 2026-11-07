@@ -210,6 +210,24 @@ export function register(factory: TargetFactory): void {
         expectError(await shortClose(t, rajesh, sub.id, s.version, true), 409, 'ALREADY_CLOSED');
       });
 
+      it('a completed sub-order (nothing pending) cannot be short closed', async () => {
+        const t = target();
+        const rajesh = await tokenFor(t, PEOPLE.rajesh);
+        const o = expectOk(await createOrder(t, rajesh, PATEL), orderSchema, 201);
+        const sub = o.subOrders[0]!;
+        await t.fixtures.addTruck({
+          subOrderId: sub.id,
+          state: 'dispatched',
+          vehicleNo: 'CG 04 PQ 7781',
+          tareKg: 12_020,
+          plan: sub.lines.map((l) => ({ orderLineId: l.id, plannedKg: l.orderedKg })),
+          allocations: sub.lines.map((l) => ({ orderLineId: l.id, netKg: l.orderedKg })),
+        });
+        const fresh = expectOk(await call(t, 'GET', `/v1/orders/${o.id}`, { token: rajesh }), orderSchema);
+        expect(fresh.subOrders[0]!.status).toBe('completed');
+        expectError(await shortClose(t, rajesh, sub.id, fresh.subOrders[0]!.version), 409, 'ALREADY_CLOSED');
+      });
+
       it('nothing dispatched → recorded as Cancelled, not Short closed', async () => {
         const t = target();
         const priya = await tokenFor(t, PEOPLE.priya);
@@ -285,6 +303,33 @@ export function register(factory: TargetFactory): void {
         expectError(await move(1_000, COMPANY.NAP), 409, 'PRODUCT_NOT_FOR_COMPANY');
         const ok = expectOk(await move(5_600, COMPANY.AIP), orderSchema);
         expect(ok.subOrders.map((s) => [s.suffix, s.companyCode])).toEqual([['A', 'KRM'], ['B', 'AIP']]);
+      });
+    });
+
+    describe('activity scope', () => {
+      it('a plant head sees no history about sub-orders outside their plants', async () => {
+        const t = target();
+        const rajesh = await tokenFor(t, PEOPLE.rajesh);
+        const o = expectOk(await createOrder(t, rajesh, CANVAS_ORDER), orderSchema, 201);
+        const aip = o.subOrders.find((s) => s.companyId === COMPANY.AIP)!;
+        const krm = o.subOrders.find((s) => s.companyId === COMPANY.KRM)!;
+        const moved = expectOk(
+          await call(t, 'POST', `/v1/orders/${o.id}/move-quantity`, {
+            token: rajesh,
+            body: { fromLineId: aip.lines[0]!.id, toCompanyId: COMPANY.KRM, kg: 1_000, version: o.version },
+          }),
+          orderSchema,
+        );
+        const krmNow = moved.subOrders.find((s) => s.id === krm.id)!;
+        expectOk(await shortClose(t, rajesh, krm.id, krmNow.version, true), orderSchema);
+        const all = expectOk(await call(t, 'GET', `/v1/orders/${o.id}/activity`, { token: rajesh }), z.array(activityEntrySchema));
+        const aboutKrm = (e: { meta?: Record<string, unknown> }) => e.meta?.subOrderId === krm.id || e.meta?.toSubOrderId === krm.id;
+        expect(all.filter(aboutKrm).map((e) => e.action)).toEqual(['order.sub_cancelled', 'order.quantity_moved']);
+        const kiran = await tokenFor(t, PEOPLE.kiran);
+        const seen = expectOk(await call(t, 'GET', `/v1/orders/${o.id}/activity`, { token: kiran }), z.array(activityEntrySchema));
+        expect(seen.map((e) => e.action)).toContain('order.created');
+        expect(seen.filter(aboutKrm)).toEqual([]);
+        expect(seen.map((e) => e.action)).not.toContain('order.quantity_moved');
       });
     });
 

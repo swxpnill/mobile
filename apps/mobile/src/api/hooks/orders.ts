@@ -22,7 +22,7 @@ import {
 import { z } from 'zod';
 import { useSession } from '../../auth/session';
 import { useUnitFilter } from '../../prefs/unitFilter';
-import { api } from '../client';
+import { ApiError, api } from '../client';
 import { currentIdentity, useSignedIn } from './cache';
 import { PARTIES_KEY, qs } from './masters';
 
@@ -120,6 +120,13 @@ function useOrderMutation<V>(run: (v: V) => Promise<z.infer<typeof orderSchema>>
       afterOrderChange(qc, identity, order);
       return order;
     },
+    onError: (e) => {
+      // Someone else changed it: fetch the latest so "Showing the latest" is true and the next try has its version.
+      if (e instanceof ApiError && e.code === 'STALE') {
+        void qc.invalidateQueries({ queryKey: ['order'] });
+        void qc.invalidateQueries({ queryKey: ['order-activity'] });
+      }
+    },
   });
 }
 
@@ -184,20 +191,25 @@ export function useDraft(id: string | undefined) {
 export function useDraftApi() {
   const qc = useQueryClient();
   const refresh = () => void qc.invalidateQueries({ queryKey: DRAFTS_KEY, exact: true });
+  // Keep the resume cache (staleTime Infinity) on the version the server has, or a resumed draft starts STALE.
+  const keep = (d: z.infer<typeof draftSchema>) => qc.setQueryData([...DRAFTS_KEY, d.id], d);
   return {
     create: async (payload: Record<string, unknown>, key: string) => {
       const d = await api('/v1/orders/drafts', { method: 'POST', body: { payload }, idempotencyKey: key, schema: draftSchema });
+      keep(d);
       refresh();
       return d;
     },
     save: async (id: string, payload: Record<string, unknown>, version: number) => {
       const d = await api(`/v1/orders/drafts/${id}`, { method: 'PUT', body: { payload, version }, schema: draftSchema });
+      keep(d);
       refresh();
       return d;
     },
     load: (id: string) => api(`/v1/orders/drafts/${id}`, { schema: draftSchema }),
     remove: async (id: string) => {
       await api(`/v1/orders/drafts/${id}`, { method: 'DELETE' });
+      qc.removeQueries({ queryKey: [...DRAFTS_KEY, id], exact: true });
       refresh();
     },
     duplicate: async (orderId: string, key: string) => {

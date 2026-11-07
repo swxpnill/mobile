@@ -14,6 +14,9 @@ import { setMockApi, setTransport } from '../src/api/transport';
 import { resetSessionForTests, useSession } from '../src/auth/session';
 import { resetUnitFilterForTests } from '../src/prefs/unitFilter';
 import { WizardScreen } from '../src/screens/new-order/WizardScreen';
+import { fromOrder, toUpdateBody } from '../src/screens/new-order/wizard';
+import { DRAFTS_KEY, useDraft, useDraftApi } from '../src/api/hooks/orders';
+import { renderHook } from '@testing-library/react-native';
 import { ThemeProvider } from '../src/theme/ThemeProvider';
 import { ToastHost } from '../src/ui';
 
@@ -126,5 +129,37 @@ describe('WizardScreen', () => {
     await fireEvent.press(await screen.findByRole('button', { name: /^TMT Fe500D · 16 mm 12 m/ }));
     expect(await screen.findByText('Locked · this line has dispatches')).toBeOnTheScreen();
     expect(screen.getByLabelText('Rate per MT').props.editable).toBe(false);
+  });
+
+  it('a STALE save reloads the order, and the next save goes through', async () => {
+    await signIn(ids.users.priya);
+    client.clear();
+    const id = (await api('/v1/orders?q=0141', { schema: orderListSchema })).items[0]!.id;
+    await wrap(<WizardScreen orderId={id} />);
+    expect(await screen.findByText('Step 2 of 3 · Items & pricing')).toBeOnTheScreen();
+    // Someone else saves the order meanwhile (same content, new version).
+    const now = await api(`/v1/orders/${id}`, { schema: orderSchema });
+    const built = toUpdateBody(fromOrder(now, 'mt'), 'mt');
+    if (!built.ok) throw new Error('body');
+    await api(`/v1/orders/${id}`, { method: 'PATCH', body: built.body, schema: orderSchema });
+    await fireEvent.press(screen.getByRole('button', { name: 'Continue' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(mockRouter.back).not.toHaveBeenCalled());
+    expect(await screen.findByText('Step 2 of 3 · Items & pricing')).toBeOnTheScreen(); // reloaded from the latest
+    await fireEvent.press(screen.getByRole('button', { name: 'Continue' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
+  });
+});
+
+describe('draft cache', () => {
+  it('a saved draft updates its cached copy, so resuming it shows the latest version', async () => {
+    const wrapper = ({ children }: { children: ReactElement }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    const apiHook = await renderHook(() => useDraftApi(), { wrapper });
+    const d = await apiHook.result.current.create({ step: 1 }, 'k-draft-cache');
+    const one = await renderHook(() => useDraft(d.id), { wrapper });
+    await waitFor(() => expect(one.result.current.data?.version).toBe(d.version));
+    const saved = await apiHook.result.current.save(d.id, { step: 2 }, d.version);
+    expect(client.getQueryData<{ version: number }>([...DRAFTS_KEY, d.id])?.version).toBe(saved.version);
   });
 });

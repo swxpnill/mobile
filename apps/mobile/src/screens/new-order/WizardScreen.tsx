@@ -10,7 +10,6 @@ import {
   toDisplayRate,
   unitLabel,
 } from '@tonnage/shared';
-import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
@@ -19,7 +18,7 @@ import { ApiError } from '../../api/client';
 import { byCode, useCompanies, usePlants } from '../../api/hooks/companies';
 import { useParty, useProducts } from '../../api/hooks/masters';
 import { useDisplayBasis, useMe } from '../../api/hooks/me';
-import { orderKey, useCreateOrder, useDraft, useOrder, useUpdateOrder } from '../../api/hooks/orders';
+import { useCreateOrder, useDraft, useOrder, useUpdateOrder } from '../../api/hooks/orders';
 import { useTenantSettings } from '../../api/hooks/settings';
 import { useSingleFlight, useSubmitKey } from '../../api/submitKey';
 import { useDiscardGuard } from '../../nav/discardGuard';
@@ -134,6 +133,10 @@ export function WizardScreen({
       order={order.data}
       inTab={inTab}
       onFinished={() => setRun((n) => n + 1)}
+      onReload={async () => {
+        await order.refetch();
+        setRun((n) => n + 1);
+      }}
     />
   );
 }
@@ -146,15 +149,17 @@ function Wizard({
   order,
   inTab,
   onFinished,
+  onReload,
 }: {
   initial: WizardState;
   initialDraft: { id: string; version: number } | null;
   order?: Order;
   inTab: boolean;
   onFinished(): void;
+  /** Edit mode: fetch the order again and start over from it (after STALE). */
+  onReload(): Promise<void>;
 }) {
   const router = useRouter();
-  const qc = useQueryClient();
   const basis = useDisplayBasis();
   const { data: me } = useMe();
   const [s, setS] = useState<WizardState>(initial);
@@ -199,9 +204,11 @@ function Wizard({
       } else if (loc.success && loc.data.lineIndex !== undefined) {
         setLineErrors({ [`${loc.data.subOrderIndex}.${loc.data.lineIndex}`]: msg });
       }
-      if (e.code === 'STALE' && isEdit && s.orderId) {
+      if (e.code === 'STALE' && isEdit) {
+        // Their change wins; reopen the editor on the latest order (the old version can never save).
         showToast(MSG.stale);
-        void qc.invalidateQueries({ queryKey: orderKey(s.orderId) });
+        void onReload();
+        return;
       }
       setError(e.code === 'VALIDATION' ? 'Some values are not valid. Check the marked lines.' : msg);
     } else setError(messageFor(e));
