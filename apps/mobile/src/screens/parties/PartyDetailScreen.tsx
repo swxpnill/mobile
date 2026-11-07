@@ -90,7 +90,7 @@ export function PartyDetailScreen({ id }: { id: string }) {
         <Action icon="phone" label="Call" disabled={!first} onPress={() => first && call(first.number)} />
         <Action icon="message" label="WhatsApp" disabled={!firstWa} onPress={() => firstWa && whatsapp(firstWa.number)} />
         {p.type !== 'transporter' ? (
-          <Action icon="plus" label="New order" onPress={() => router.push({ pathname: '/new', params: { partyId: p.id } })} />
+          <Action icon="plus" label="New order" onPress={() => router.push({ pathname: '/order-form', params: { partyId: p.id } })} />
         ) : null}
       </View>
 

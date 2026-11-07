@@ -143,7 +143,7 @@ export function OrdersScreen({ initialAged = false }: { initialAged?: boolean })
           </View>
           {myDrafts.length > 0 ? (
             <Group>
-              <Row onPress={() => router.push({ pathname: '/new', params: { draftId: myDrafts[0]!.id } })} accessibilityLabel={`Drafts, ${myDrafts.length} — continue the latest`}>
+              <Row onPress={() => router.push({ pathname: '/order-form', params: { draftId: myDrafts[0]!.id } })} accessibilityLabel={`Drafts, ${myDrafts.length} — continue the latest`}>
                 <Icon name="pencil" size={18} color={t.brt} />
                 <Text weight="medium" style={styles.fill}>{`Drafts · ${myDrafts.length}`}</Text>
                 <Text variant="caption">Continue the latest</Text>

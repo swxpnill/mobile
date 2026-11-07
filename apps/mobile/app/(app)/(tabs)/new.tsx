@@ -1,12 +1,10 @@
-import { Placeholder } from '../../../src/screens/Placeholder';
+import { RequireAction } from '../../../src/nav/guard';
+import { WizardScreen } from '../../../src/screens/new-order/WizardScreen';
 
-export default function NewOrderTab() {
+export default function NewTab() {
   return (
-    <Placeholder
-      title="New order"
-      icon="plus"
-      milestone="M2"
-      body="Book an order in three steps: parties, items and pricing, review."
-    />
+    <RequireAction action="order.create">
+      <WizardScreen inTab />
+    </RequireAction>
   );
 }

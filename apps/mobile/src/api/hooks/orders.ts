@@ -195,6 +195,7 @@ export function useDraftApi() {
       refresh();
       return d;
     },
+    load: (id: string) => api(`/v1/orders/drafts/${id}`, { schema: draftSchema }),
     remove: async (id: string) => {
       await api(`/v1/orders/drafts/${id}`, { method: 'DELETE' });
       refresh();

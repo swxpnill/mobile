@@ -90,7 +90,7 @@ function Detail({ o, refetch, refreshing }: { o: Order; refetch(): void; refresh
     try {
       const d = await drafts.duplicate(o.id, dupKey.key());
       dupKey.settle();
-      router.push({ pathname: '/new', params: { draftId: d.id } });
+      router.push({ pathname: '/order-form', params: { draftId: d.id } });
     } catch (e) {
       dupKey.settle(e);
       showToast(messageFor(e));
@@ -99,7 +99,7 @@ function Detail({ o, refetch, refreshing }: { o: Order; refetch(): void; refresh
 
   const actions: OrderAction[] = [
     ...(may('order.edit') && open.length > 0
-      ? [{ key: 'edit', icon: 'pencil' as const, title: 'Edit order', detail: 'Lines, rates, broker, ship-to', onPress: () => router.push({ pathname: '/new', params: { orderId: o.id } }) }]
+      ? [{ key: 'edit', icon: 'pencil' as const, title: 'Edit order', detail: 'Lines, rates, broker, ship-to', onPress: () => router.push({ pathname: '/order-form', params: { orderId: o.id } }) }]
       : []),
     ...(may('truck.assign') && open.length > 0
       ? [{ key: 'assign', icon: 'truck' as const, title: 'Assign vehicle', detail: 'Send a truck to a plant', onPress: () => showToast('Assigning vehicles arrives in the next update') }]
