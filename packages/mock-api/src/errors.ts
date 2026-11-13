@@ -51,6 +51,11 @@ const MESSAGES: Record<ErrorCode, string> = {
   INVALID_STATE: 'This vehicle is not in the right step for that',
 };
 
+/** The user-facing message for an error code (also used for sync rejections, which are not thrown). */
+export function errorMessage(code: ErrorCode): string {
+  return MESSAGES[code];
+}
+
 /** Thrown by the pipeline and handlers; turned into `{ code, message, details? }`. */
 export class ApiError extends Error {
   readonly status: number;

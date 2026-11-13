@@ -77,7 +77,8 @@ describe('orderMath', () => {
       START,
     );
     const q = orderMath(s).lineQty(line);
-    expect(q).toEqual({ orderedKg: 24_000, dispatchedKg: 8_100, closedKg: 0, reservedKg: 5_000 });
+    // The seeded loading truck CG 04 MK 2291 already plans 24,000 kg on this line.
+    expect(q).toEqual({ orderedKg: 24_000, dispatchedKg: 8_100, closedKg: 0, reservedKg: 29_000 });
   });
 
   it('nextNumber restarts each financial year (1 Apr IST)', () => {
@@ -116,6 +117,6 @@ describe('createMockApi seedOrders and snapshots', () => {
     await expect(
       api.controls.addTruck({ subOrderId: SAMPLE_MASTERS.ids.products.tmt12, state: 'assigned', vehicleNo: 'X', plan: [] }),
     ).rejects.toThrow(/sub-order/i);
-    expect((await api.controls.stats()).trucks).toBe(8);
+    expect((await api.controls.stats()).trucks).toBe(11);
   });
 });
