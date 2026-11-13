@@ -50,3 +50,11 @@ export function subOrderSuffix(index: number): string {
 export function subOrderNumber(orderNumber: string, suffix: string): string {
   return `${orderNumber}-${suffix}`;
 }
+
+/** Loading slip number `LS-<company code>-YYMM-0001` (IST year and month), issued only by the server (§5.3). */
+export function formatLoadingSlip(companyCode: string, at: string | number, seq: number): string {
+  if (!Number.isSafeInteger(seq) || seq < 1) throw new RangeError(`sequence must be ≥ 1, got ${seq}`);
+  const { year, month } = istDateParts(at);
+  const yymm = `${String(year % 100).padStart(2, '0')}${String(month).padStart(2, '0')}`;
+  return `LS-${companyCode}-${yymm}-${String(seq).padStart(MIN_SEQ_WIDTH, '0')}`;
+}

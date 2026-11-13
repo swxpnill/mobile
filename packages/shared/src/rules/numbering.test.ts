@@ -5,6 +5,7 @@ import {
   formatOrderNumber,
   istDateParts,
   subOrderNumber,
+  formatLoadingSlip,
   subOrderSuffix,
 } from './numbering.ts';
 
@@ -68,5 +69,17 @@ describe('sub-order suffixes', () => {
 
   it('SO-2611-0141 + A → SO-2611-0141-A', () => {
     expect(subOrderNumber('SO-2611-0141', 'A')).toBe('SO-2611-0141-A');
+  });
+});
+
+describe('formatLoadingSlip', () => {
+  it('LS-KRM-2611-0007 for 3 Nov 2026', () => {
+    expect(formatLoadingSlip('KRM', '2026-11-03T04:30:00Z', 7)).toBe('LS-KRM-2611-0007');
+  });
+  it('31 Mar 23:50 IST is month 2603', () => {
+    expect(formatLoadingSlip('KRM', '2026-03-31T18:20:00Z', 12)).toBe('LS-KRM-2603-0012');
+  });
+  it('rejects a sequence below 1', () => {
+    expect(() => formatLoadingSlip('KRM', 0, 0)).toThrow(RangeError);
   });
 });
