@@ -1,6 +1,13 @@
 import {
+  type CloseKind,
   DEFAULT_TENANT_SETTINGS,
+  type Length,
+  type OrderType,
+  type PartyType,
+  type PricingMethod,
+  SAMPLE_MASTERS,
   SAMPLE_WORLD,
+  type TruckState,
   type Role,
   type TenantSettings,
   type TokenPair,
@@ -9,7 +16,7 @@ import {
 import { type Clock, toIso } from './clock.ts';
 
 /** Bump when the shape of `MockState` changes; older snapshots are discarded for the seed. */
-export const SNAPSHOT_VERSION = 1;
+export const SNAPSHOT_VERSION = 3;
 export const DEFAULT_STORAGE_KEY = 'tonnage.mockState';
 const PERSIST_DEBOUNCE_MS = 250;
 
@@ -101,6 +108,131 @@ export interface ActivityRec {
   at: string;
 }
 
+export interface PartyRec {
+  id: string;
+  tenantId: string;
+  type: PartyType;
+  name: string;
+  gstin: string | null;
+  city: string;
+  defaultCommissionPerMt: number | null;
+  paymentTermsText: string;
+  isSelfTransporter: boolean;
+  contacts: {
+    id: string;
+    name: string;
+    roleLabel: string;
+    numbers: { id: string; number: string; label: string; whatsapp: boolean }[];
+  }[];
+  addresses: { id: string; kind: 'bill_to' | 'ship_to'; label: string; address: string; isDefault: boolean }[];
+  active: boolean;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface ProductRec {
+  id: string;
+  tenantId: string;
+  category: string;
+  grade: string;
+  sizeLabel: string;
+  conversionPerMt: number;
+  standardLengths: Length[];
+  companyIds: string[];
+  active: boolean;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface OrderRec {
+  id: string;
+  tenantId: string;
+  number: string;
+  type: OrderType;
+  customerId: string | null;
+  brokerId: string | null;
+  /** Broker commission fixed at booking (§5.4); null without a broker. */
+  commissionPerMtSnapshot: number | null;
+  billToId: string | null;
+  shipToId: string | null;
+  pricingMethod: PricingMethod;
+  basicRate: number | null;
+  notify: { customer: boolean; broker: boolean };
+  /** How many sub-order suffixes were ever handed out (A = 1); removed ones are not reused. */
+  suffixesUsed: number;
+  createdBy: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface SubOrderRec {
+  id: string;
+  tenantId: string;
+  orderId: string;
+  companyId: string;
+  /** "A", "B" … in the order companies were added; never reused within an order. */
+  suffix: string;
+  closeKind: CloseKind | null;
+  closeReason: string | null;
+  closeNote: string | null;
+  closedAt: string | null;
+  closedBy: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface OrderLineRec {
+  id: string;
+  tenantId: string;
+  subOrderId: string;
+  productId: string;
+  length: Length;
+  orderedKg: number;
+  basicRateSnapshot: number | null;
+  conversionSnapshot: number;
+  rate: number;
+  rateEdited: boolean;
+  overpricePerMt: number;
+  closedKg: number;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+/** Minimal truck (F2): created by fixtures and the demo seed; F3 adds assignment and weighing. */
+export interface TruckRec {
+  id: string;
+  tenantId: string;
+  subOrderId: string;
+  plantId: string;
+  vehicleNo: string;
+  state: TruckState;
+  tareKg: number | null;
+  plan: { orderLineId: string; plannedKg: number }[];
+  allocations: { orderLineId: string; netKg: number }[];
+  dispatchedAt: string | null;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface DraftRec {
+  id: string;
+  tenantId: string;
+  createdBy: string;
+  payload: Record<string, unknown>;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+/** Row-locked counter in B2 (number_series); keyed per tenant, series and financial year. */
+export interface NumberSeriesRec {
+  tenantId: string;
+  key: string;
+  fy: string;
+  next: number;
+}
+
 export interface MockState {
   schemaVersion: number;
   tenants: TenantRec[];
@@ -113,6 +245,14 @@ export interface MockState {
   /** Keyed by `${userId}:${idempotencyKey}`. */
   idempotency: Record<string, IdempotencyRec>;
   activity: ActivityRec[];
+  parties: PartyRec[];
+  products: ProductRec[];
+  orders: OrderRec[];
+  subOrders: SubOrderRec[];
+  orderLines: OrderLineRec[];
+  trucks: TruckRec[];
+  drafts: DraftRec[];
+  numberSeries: NumberSeriesRec[];
 }
 
 export function emptyState(): MockState {
@@ -127,6 +267,14 @@ export function emptyState(): MockState {
     refreshTokens: {},
     idempotency: {},
     activity: [],
+    parties: [],
+    products: [],
+    orders: [],
+    subOrders: [],
+    orderLines: [],
+    trucks: [],
+    drafts: [],
+    numberSeries: [],
   };
 }
 
@@ -165,7 +313,33 @@ export function seedState(clock: Clock): MockState {
       updatedAt: now,
     });
   }
+  seedMasters(s, tenantId, now);
   return s;
+}
+
+function seedMasters(s: MockState, tenantId: string, now: string): void {
+  const companyIdByCode = new Map(SAMPLE_WORLD.companies.map((c) => [c.code, c.id]));
+  const stamp = { tenantId, active: true, version: 1, createdAt: now, updatedAt: now };
+  for (const p of SAMPLE_MASTERS.parties) {
+    s.parties.push({
+      ...stamp,
+      ...p,
+      contacts: p.contacts.map((c) => ({ ...c, numbers: c.numbers.map((n) => ({ ...n })) })),
+      addresses: p.addresses.map((a) => ({ ...a })),
+    });
+  }
+  for (const { companyCodes, ...p } of SAMPLE_MASTERS.products) {
+    s.products.push({
+      ...stamp,
+      ...p,
+      standardLengths: p.standardLengths.map((l) => ({ ...l })),
+      companyIds: companyCodes.map((code) => {
+        const id = companyIdByCode.get(code);
+        if (!id) throw new Error(`unknown company code in sample products: ${code}`);
+        return id;
+      }),
+    });
+  }
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> =>
@@ -181,7 +355,21 @@ export function parseSnapshot(raw: string | null): MockState | null {
     return null;
   }
   if (!isObj(v) || v.schemaVersion !== SNAPSHOT_VERSION) return null;
-  const arrays = ['tenants', 'companies', 'plants', 'users', 'activity'] as const;
+  const arrays = [
+    'tenants',
+    'companies',
+    'plants',
+    'users',
+    'activity',
+    'parties',
+    'products',
+    'orders',
+    'subOrders',
+    'orderLines',
+    'trucks',
+    'drafts',
+    'numberSeries',
+  ] as const;
   const maps = ['otp', 'accessTokens', 'refreshTokens', 'idempotency'] as const;
   if (!arrays.every((k) => Array.isArray(v[k])) || !maps.every((k) => isObj(v[k]))) return null;
   const users = v.users as unknown[];
@@ -216,15 +404,18 @@ export async function createStore(opts: {
   storage: StorageAdapter;
   storageKey: string;
   clock: Clock;
+  /** Builds a fresh state (initial load without a snapshot, and Reset). Default: `seedState`. */
+  seed?: (clock: Clock) => MockState;
 }): Promise<Store> {
   const { storage, storageKey, clock } = opts;
+  const seed = opts.seed ?? seedState;
   let raw: string | null = null;
   try {
     raw = await storage.getItem(storageKey);
   } catch {
     raw = null;
   }
-  let state = parseSnapshot(raw) ?? seedState(clock);
+  let state = parseSnapshot(raw) ?? seed(clock);
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   const write = async () => {
@@ -255,7 +446,7 @@ export async function createStore(opts: {
       await write();
     },
     async reset() {
-      state = seedState(clock);
+      state = seed(clock);
       cancel();
       await write();
     },

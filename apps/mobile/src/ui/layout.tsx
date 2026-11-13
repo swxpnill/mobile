@@ -8,6 +8,7 @@ import {
   StyleSheet,
   View,
   type ViewStyle,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeProvider';
@@ -25,6 +26,7 @@ export function Screen({
   keyboard,
   edges = ['top', 'bottom'],
   footer,
+  refresh,
 }: {
   children: ReactNode;
   /** Large page title; scrolls away with the content, as in the canvas. */
@@ -43,6 +45,8 @@ export function Screen({
   edges?: ('top' | 'bottom')[];
   /** Pinned under the scrolling content (e.g. "Send invite"); rides above the keyboard. */
   footer?: ReactNode;
+  /** Pull to refresh (scrolling screens only). */
+  refresh?: { refreshing: boolean; onRefresh(): void };
 }) {
   const { t, scheme } = useTheme();
   // flexGrow lets a `<View style={{ flex: 1 }} />` spacer push a footer to the bottom.
@@ -57,6 +61,11 @@ export function Screen({
       testID="screen-scroll"
       contentContainerStyle={body}
       keyboardShouldPersistTaps="handled"
+      refreshControl={
+        refresh ? (
+          <RefreshControl refreshing={refresh.refreshing} onRefresh={refresh.onRefresh} tintColor={t.br} colors={[t.br]} />
+        ) : undefined
+      }
     >
       {heading}
       {children}
@@ -148,7 +157,18 @@ export function Row({
   disabled?: boolean;
 }) {
   const { t } = useTheme();
-  if (!onPress) return <View style={[styles.row, disabled ? styles.dim : null]}>{children}</View>;
+  if (!onPress) {
+    // Read-only rows with a label are read as one item by screen readers.
+    return (
+      <View
+        style={[styles.row, disabled ? styles.dim : null]}
+        accessible={accessibilityLabel !== undefined}
+        accessibilityLabel={accessibilityLabel}
+      >
+        {children}
+      </View>
+    );
+  }
   return (
     <Pressable
       accessibilityRole="button"

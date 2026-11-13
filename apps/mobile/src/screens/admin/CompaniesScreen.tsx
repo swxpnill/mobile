@@ -38,7 +38,7 @@ export function CompaniesScreen() {
   return (
     <Screen
       title="Companies & units"
-      header={<BackHeader right={<IconButton icon="plus" label="Add company" onPress={add} />} />}
+      header={<BackHeader right={<IconButton icon="plus" label="Add company" onPress={add} filled />} />}
     >
       <Text variant="caption" style={styles.sub}>
         Each company has its own GSTIN and bills separately in Tally

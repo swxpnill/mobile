@@ -218,7 +218,8 @@ describe('Next request fails with', () => {
     await expect(
       api('/v1/settings', { method: 'PATCH', body: { agedOrderDays: 12 } }),
     ).rejects.toMatchObject({ code: 'STALE' });
-    await waitFor(() => expect(screen.getByRole('radio', { name: /^None/ })).toBeChecked());
+    // The screen polls the armed state every second; waitFor's default 1 s races it on slow CI.
+    await waitFor(() => expect(screen.getByRole('radio', { name: /^None/ })).toBeChecked(), { timeout: 3000 });
   });
 
   it('Connection drops makes the next request fail like a lost signal', async () => {

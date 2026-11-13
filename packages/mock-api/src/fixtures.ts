@@ -2,6 +2,7 @@ import { DEFAULT_TENANT_SETTINGS } from '@tonnage/shared';
 import { type Clock, toIso } from './clock.ts';
 import type { Enqueue } from './controls.ts';
 import type { Store } from './store.ts';
+import { type AddTruckInput, addTruck } from './trucks.ts';
 import { newId } from './views.ts';
 
 export interface MockFixtures {
@@ -9,6 +10,8 @@ export interface MockFixtures {
   createTenant(
     name: string,
   ): Promise<{ tenantId: string; ownerMobile: string; companyId: string; plantId: string }>;
+  /** A truck in any state on an existing sub-order (dispatched ones carry allocations). */
+  addTruck(input: AddTruckInput): Promise<{ truckId: string }>;
 }
 
 export function createFixtures(deps: {
@@ -18,6 +21,12 @@ export function createFixtures(deps: {
 }): MockFixtures {
   const { store, clock, enqueue } = deps;
   return {
+    addTruck: (input) =>
+      enqueue(async () => {
+        const truckId = addTruck(store.state, input, clock.now());
+        store.schedulePersist();
+        return { truckId };
+      }),
     createTenant: (name) =>
       enqueue(async () => {
         const s = store.state;

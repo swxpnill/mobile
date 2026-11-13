@@ -3,7 +3,7 @@
 // suite never compares headers it does not own, and that every suite releases its target.
 import { afterAll, expect } from 'vitest';
 import { createFakeClock, createMockApi } from '@tonnage/mock-api';
-import { registerAll } from './index.ts';
+import { CONTRACT_SUITES, registerAll } from './index.ts';
 let n = 0;
 let closed = 0;
 registerAll(async () => {
@@ -25,4 +25,4 @@ registerAll(async () => {
     },
   };
 });
-afterAll(() => expect(closed).toBe(6));
+afterAll(() => expect(closed).toBe(CONTRACT_SUITES.length));

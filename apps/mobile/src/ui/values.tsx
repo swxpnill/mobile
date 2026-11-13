@@ -20,12 +20,17 @@ export function QtyText({
   );
 }
 
-/** Integer rupees, Indian grouping (₹55,80,000) or short (₹55.80 L). */
+/**
+ * Integer rupees, Indian grouping (₹55,80,000) or short (₹55.80 L). Renders nothing when the
+ * amount is missing: the server omits money for plant heads and supervisors (spec §5.5), so
+ * screens pass the field through without checking roles.
+ */
 export function MoneyText({
   rupees,
   short,
   ...rest
-}: { rupees: number; short?: boolean } & Omit<TextProps, 'children'>) {
+}: { rupees: number | undefined; short?: boolean } & Omit<TextProps, 'children'>) {
+  if (rupees === undefined) return null;
   return (
     <Text numeric {...rest}>
       {short ? formatRupeesShort(rupees) : formatRupees(rupees)}

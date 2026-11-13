@@ -8,10 +8,10 @@ export const USERS_KEY = ['users'] as const;
 const usersSchema = z.array(userSchema);
 
 /** Everyone in the business (owner only; `users.manage`). */
-export function useUsers() {
+export function useUsers(enabled = true) {
   return useQuery({
     queryKey: USERS_KEY,
-    enabled: useSignedIn(),
+    enabled: useSignedIn() && enabled,
     queryFn: () => api('/v1/users', { schema: usersSchema }),
   });
 }

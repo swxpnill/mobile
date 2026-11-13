@@ -147,7 +147,7 @@ export const fontFamily: Record<FontWeight, string> = {
   semibold: 'Inter_600SemiBold',
 };
 
-export const radius = { group: 16, button: 14, chip: 18, badge: 6, control: 10, tag: 5 } as const;
+export const radius = { group: 16, button: 14, chip: 18, badge: 6, control: 10, tag: 5, input: 12 } as const;
 
 /**
  * Cap on the phone font-size multiplier for text inside small pills (badge, unit tag, chip, compact

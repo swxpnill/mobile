@@ -8,6 +8,7 @@ import {
   type TransportRequest,
   type TransportResponse,
 } from '@tonnage/shared';
+import { type AddTruckInput, addTruck } from './trucks.ts';
 import { type Clock, toIso } from './clock.ts';
 import { errorBody } from './errors.ts';
 import { issueTokens } from './sessions.ts';
@@ -54,6 +55,10 @@ export interface MockControls {
   revokeRefreshToken(refreshToken: string): Promise<void>;
   /** Demo quick-switch: a token pair for the user without the OTP flow. */
   signInAs(userId: string, deviceId: string): Promise<TokenPair>;
+  /** Insert a truck in any state (until F3 builds assignment and weighing). */
+  addTruck(input: AddTruckInput): Promise<{ truckId: string }>;
+  /** Record counts, for demo screens and tests. */
+  stats(): Promise<{ orders: number; trucks: number; parties: number; products: number }>;
 }
 
 export interface ControlState {
@@ -137,6 +142,22 @@ export function createControls(deps: {
     clearFailNext() {
       cs.failNext = null;
     },
+    addTruck: (input) =>
+      enqueue(async () => {
+        const truckId = addTruck(store.state, input, clock.now());
+        store.schedulePersist();
+        return { truckId };
+      }),
+    stats: () =>
+      enqueue(async () => {
+        const s = store.state;
+        return {
+          orders: s.orders.length,
+          trucks: s.trucks.length,
+          parties: s.parties.length,
+          products: s.products.length,
+        };
+      }),
     getState: () => ({
       offline: cs.offline,
       latencyMs: cs.latencyMs,

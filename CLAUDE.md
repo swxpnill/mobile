@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Tonnage**: an Android-first order and dispatch app for a group of steel companies (one owner, several companies each with its own GSTIN, plants under each company). Flow: order → sub-order per company → truck assignment → plant weighment (tare/gross, net = dispatched) → broker commission ledger.
 
-Delivery is **frontend first**: the whole app (milestones F1–F5) runs on an in-app mock API, then the real backend (B1–B5) is built to the same contract. F1 (app foundation: sign-in, app shell, admin screens, demo tools) is done.
+Delivery is **frontend first**: the whole app (milestones F1–F5) runs on an in-app mock API, then the real backend (B1–B5) is built to the same contract. Done: F1 (app foundation: sign-in, app shell, admin screens, demo tools) and F2 (masters and orders: customers/brokers/transporters, products, Home, Orders, order detail, the new-order wizard, the order lifecycle).
 
 ## Commands
 
@@ -36,7 +36,7 @@ npx expo start             # scan the QR code with Expo Go on a phone on the sam
 npx expo start --android   # or open it in a running Android emulator
 ```
 
-Do not set `CI=1` while developing: Metro then disables reloads. For the emulator, `npx expo start --localhost` plus `adb reverse tcp:8081 tcp:8081` and opening `exp://127.0.0.1:8081` survives Wi-Fi address changes. When driving the emulator with `adb shell input text`, focus a real `EditText` first: keys typed with nothing focused reach Expo's dev shortcuts (`r r` reloads, `i` opens the inspector).
+Do not set `CI=1` while developing: Metro then disables reloads. If Metro answers 500 with `Unable to resolve` for a file that exists (new files on Windows), restart it with `--clear`. For the emulator, `npx expo start --localhost` plus `adb reverse tcp:8081 tcp:8081` and opening `exp://127.0.0.1:8081` survives Wi-Fi address changes. When driving the emulator with `adb shell input text`, focus a real `EditText` first: keys typed with nothing focused reach Expo's dev shortcuts (`r r` reloads, `i` opens the inspector).
 
 ## Architecture
 
@@ -54,6 +54,9 @@ packages/contract-tests ── one HTTP-level suite run against any Transport
 - `packages/shared` and `packages/mock-api` import nothing from React Native or Expo.
 - **Numbers.** Quantities are integer kg; money is integer rupees; rates are whole ₹ per MT. No floats in stored values or in arithmetic on them. Unit basis (`mt` | `kg`, per user, `preferences.unitBasis`) only changes display and input: MT shows 3 decimals, kg whole numbers. Use the formatters in `packages/shared/src/units.ts` / `format.ts`; never format quantities by hand. Business time zone is `Asia/Kolkata`.
 - **Roles:** `owner | city_staff | plant_head | supervisor`. A supervisor has exactly one plant, a plant head one or more, owner and city staff none (they see all). Money fields are omitted (not null) for plant head and supervisor. Tabs per role live in `apps/mobile/src/nav/tabs.ts`.
+- **Business rules are pure functions** in `packages/shared/src/rules/` (pricing and rounding, quantities, derived status, numbering by IST financial year, edit limits). The mock uses them now, B2 will, and the app uses them for previews; the server's numbers win. Status is derived, never stored.
+- **Mock writes are all-or-nothing:** routes marked `transactional: true` (every order write) are rolled back if the handler throws, like a DB transaction in B2. Auth/OTP routes are not, because refusals must be recorded.
+- **Trucks before F3:** `TruckRec` exists so dispatched/reserved kg and short close with open trucks are real; trucks are created only by `fixtures.addTruck` / `controls.addTruck` and the demo seed.
 - **Expo Go only.** No custom native modules; anything that needs a dev client is out until the plan says otherwise.
 
 ### Mobile layout (`apps/mobile`)
@@ -63,8 +66,10 @@ packages/contract-tests ── one HTTP-level suite run against any Transport
 - `src/auth/`: session (SecureStore tokens) and fingerprint lock (after 15 min idle).
 - `src/ui/`: primitives built on `src/theme/tokens.ts`. Colours, copy and spacing come from the design canvas; use tokens, never raw hex.
 - `src/screens/`: screen components; route files in `app/` stay thin.
+- `src/screens/new-order/`: the wizard. `wizard.ts` holds its pure state (draft ↔ request body ↔ order, preview totals); `useDraftAutosave` keeps server-side drafts. New tab = fresh order; `/order-form?orderId|draftId|partyId` = edit, resume, start for a party.
+- `src/prefs/unitFilter.ts`: the unit switcher's choice, per person on this phone; order and Home query keys include it.
 - `src/nav/`: role tabs (`tabs.ts`), route guards, and `freshStart.ts` (a person switch resets the signed-in stack so no tabs or history carry over; this expo-router only accepts a complete state on RESET).
-- `test/`: jest + React Native Testing Library; `test/router.test.tsx` runs the real tabs layout under `expo-router/testing-library`. In RNTL 14 `unmount()` is async: always `await` it, and use `advanceTimersByTimeAsync` with fake timers.
+- `test/`: jest + React Native Testing Library; `test/router.test.tsx` runs the real tabs layout under `expo-router/testing-library`. In RNTL 14 `unmount()` and `fireEvent.*` are async: always `await` them (an un-awaited `changeText` races the next press), and use `advanceTimersByTimeAsync` with fake timers. Jest fake timers block debounced search; pin time with `jest.spyOn(Date, 'now')` instead. Seeded demo orders: `createMockApi({ seedOrders: true })` (the app does this; contract tests do not).
 
 ## Signing in (mock mode)
 
@@ -83,6 +88,7 @@ packages/contract-tests ── one HTTP-level suite run against any Transport
 | Deepak Sahu | Supervisor (invited) | 98261 00017 | Tilda |
 
 - "Sign in as a sample person" on the Sign in screen skips the code.
+- Demo data also has the canvas customers, brokers, transporters and products (`packages/shared/src/fixtures/sample-masters.ts`) and five demo orders dated relative to now (`packages/mock-api/src/seed-orders.ts`). Money fields are named explicitly (`valueRupees`, `estimatedValue`, …): never call a money field a generic name like `value`, or redaction strips unrelated fields for plant heads.
 
 ## Demo tools
 
@@ -91,7 +97,7 @@ More → Demo tools. Shown only in mock mode in dev builds, or when a client dem
 ## Where decisions live
 
 - Spec (binding): `docs/superpowers/specs/2026-11-04-tonnage-design.md`
-- Plans: `docs/superpowers/plans/` (`2026-11-04-f1-app-foundation.md`, `2026-11-04-b1-api-foundation.md`; F2+ to be written)
+- Plans: `docs/superpowers/plans/` (`2026-11-04-f1-app-foundation.md`, `2026-11-06-f2-masters-orders.md`, `2026-11-04-b1-api-foundation.md`; F3+ to be written). The F2 plan's Rulings list open client questions: sub-order numbers ignore the company order prefix, GSTIN verify is offline, ingot lines carry a length.
 - Business rules, "Decisions Needed to Build" doc (source of truth for rules; open client questions use the doc's Default): https://claude.ai/artifact/7f2fd784-5809-4ac7-ba0f-42a25abdba23
 - Design canvas (source of truth for UI and copy): https://claude.ai/artifact/1cf17fda-d3a4-498b-b46d-c67fdc49f795. Its older role names lose to the decisions doc: Owner, City staff, Plant head, Supervisor.
 - Task tracker (Notion "Tonnage Tasks"): https://app.notion.com/p/40e2c11ff0af81b391b2d7b4ac03b04f

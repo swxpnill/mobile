@@ -1,6 +1,7 @@
-import { createCompanyBodySchema, updateCompanyBodySchema } from '@tonnage/shared';
+import { createCompanyBodySchema, isTerminal, updateCompanyBodySchema } from '@tonnage/shared';
 import { toIso } from '../clock.ts';
-import { stale, validationError } from '../errors.ts';
+import { ApiError, stale, validationError } from '../errors.ts';
+import { orderMath } from '../orders-math.ts';
 import { route, type RouteDef } from '../router.ts';
 import type { CompanyRec, MockState } from '../store.ts';
 import { authed, findCompany, logActivity, newId, toCompany, visibleCompanies } from '../views.ts';
@@ -15,13 +16,13 @@ function assertCodeFree(state: MockState, tenantId: string, code: string, except
   }
 }
 
-/**
- * Hook called when a company goes active → inactive. No orders exist in M1, so it always passes;
- * F2 adds the "no non-terminal sub-orders" check here (spec §5.3).
- */
+/** A company with open or partly dispatched sub-orders cannot be deactivated (spec §5.3). */
 export function assertCompanyDeactivatable(state: MockState, company: CompanyRec): void {
-  void state;
-  void company;
+  const subs = state.subOrders.filter((s) => s.companyId === company.id);
+  if (subs.length === 0) return;
+  const math = orderMath(state);
+  const open = subs.filter((s) => !isTerminal(math.subOrderStatus(s)));
+  if (open.length > 0) throw new ApiError(409, 'COMPANY_HAS_OPEN_ORDERS', { openSubOrders: open.length });
 }
 
 export const companyRoutes: RouteDef[] = [
