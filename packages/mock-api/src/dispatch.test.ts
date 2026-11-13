@@ -10,11 +10,14 @@ import {
 } from '@tonnage/shared';
 import { createFakeClock, MINUTE, toIso } from './clock.ts';
 import { applyEvent, reverseEarning, writeEarning } from './dispatch.ts';
-import { createMockApi } from './index.ts';
+import { ALL_ROUTES, createMockApi } from './index.ts';
 import { orderCtx } from './order-views.ts';
 import { orderMath } from './orders-math.ts';
+import { createPipeline } from './pipeline.ts';
+import { buildRouter } from './router.ts';
 import { seedDemoOrders } from './seed-orders.ts';
-import { type MockState, type TruckRec, createMemoryStorage, seedState } from './store.ts';
+import { issueTokens } from './sessions.ts';
+import { type MockState, type TruckRec, createMemoryStorage, createStore, seedState } from './store.ts';
 import { toTask, toTruck } from './truck-views.ts';
 import { addTruck } from './trucks.ts';
 import { type Authed, newId } from './views.ts';
@@ -162,6 +165,49 @@ describe('applyEvent: TARE then GROSS on the seeded loading truck (Siltara, CG 0
     expect(applyEvent(s, ctxFor(s, U.ravi), ev)).toEqual({ status: 'duplicate', eventId: ev.eventId });
     expect(applyEvent(s, ctxFor(s, U.ravi), bad)).toEqual({ status: 'duplicate', eventId: bad.eventId });
     expect(JSON.stringify(s)).toBe(snapshot);
+  });
+
+  it('an applied event is kept as its truck and outcome only (no names, phones or weights)', () => {
+    const s = world();
+    const truck = truckBy(s, 'CG 04 MK 2291');
+    const ok = gross(truck.id, 36_640, [{ orderLineId: truck.plan[0]!.orderLineId, netKg: 24_180 }]);
+    const conflict = tare(truckBy(s, 'CG 04 MK 2291').id, 12_000);
+    expect(applyEvent(s, ctxFor(s, U.ravi, 'phone-x-00000001'), conflict)).toMatchObject({ code: 'TARE_CONFLICT' });
+    expect(applyEvent(s, ctxFor(s, U.ravi), ok).status).toBe('accepted');
+    expect(s.appliedEvents[conflict.eventId]).toEqual({ truckId: truck.id, status: 'rejected' });
+    expect(s.appliedEvents[ok.eventId]).toEqual({ truckId: truck.id, status: 'accepted' });
+    expect(JSON.stringify(s.appliedEvents)).not.toMatch(/Ramesh|Ravi|Shubham|\+91|12460|CG 04/);
+  });
+});
+
+describe('hard delete', () => {
+  it('purges the deleted order’s applied sync events with its trucks, weighments and ledger', async () => {
+    const s = world();
+    const truck = truckBy(s, 'CG 04 MK 2291');
+    const other = truckBy(s, 'CG 07 BR 8810'); // order 0141, kept
+    const ev = gross(truck.id, 36_640, [{ orderLineId: truck.plan[0]!.orderLineId, netKg: 24_180 }]);
+    expect(applyEvent(s, ctxFor(s, U.ravi), ev).status).toBe('accepted');
+    const keep = atGate(other.id);
+    expect(applyEvent(s, ctxFor(s, U.sanjay), keep).status).toBe('accepted');
+
+    const clock = createFakeClock(NOW);
+    const store = await createStore({ storage: createMemoryStorage(), storageKey: 'k', clock, seed: () => s });
+    const pipeline = createPipeline({ router: buildRouter(ALL_ROUTES), store, clock });
+    const { accessToken } = issueTokens(s, U.rajesh, 'phone-of-rajesh-01', NOW);
+    const order = s.orders.find((o) => o.id === truck.orderId)!;
+    const res = await pipeline.handle({
+      method: 'DELETE',
+      path: `/v1/orders/${order.id}`,
+      headers: { authorization: `Bearer ${accessToken}`, 'idempotency-key': 'del-1' },
+      body: { confirmNumber: order.number },
+    });
+    expect(res.status).toBe(204);
+    const st = store.state;
+    expect(st.trucks.some((t) => t.id === truck.id)).toBe(false);
+    expect(st.weighments.some((w) => w.truckId === truck.id)).toBe(false);
+    expect(st.brokerLedger.some((r) => r.truckId === truck.id)).toBe(false);
+    expect(Object.values(st.appliedEvents).some((e) => e.truckId === truck.id)).toBe(false);
+    expect(st.appliedEvents[keep.eventId]).toEqual({ truckId: other.id, status: 'accepted' });
   });
 });
 

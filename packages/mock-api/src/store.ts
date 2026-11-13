@@ -9,7 +9,6 @@ import {
   SAMPLE_WORLD,
   type SyncEvent,
   type SyncRejectCode,
-  type SyncResult,
   type TruckState,
   type Role,
   type TenantSettings,
@@ -270,6 +269,11 @@ export interface RejectionRec {
   resolvedAt: string | null;
   resolutionNote: string | null;
 }
+/** What de-duplication of a sync event needs, and nothing else (no names, weights or payloads). */
+export interface AppliedEventRec {
+  truckId: string;
+  status: 'accepted' | 'rejected';
+}
 /** Append-only broker ledger (§5.4): earnings positive, a reversal is the exact negation. F4 adds payments. */
 export interface BrokerLedgerRec {
   id: string;
@@ -321,8 +325,8 @@ export interface MockState {
   weighments: WeighmentRec[];
   rejections: RejectionRec[];
   brokerLedger: BrokerLedgerRec[];
-  /** Outcome of every sync event by `clientEventId` (accepted or rejected): a replay is `duplicate`. */
-  appliedEvents: Record<string, SyncResult>;
+  /** Every sync event seen, by `clientEventId`: only its truck and outcome, so a replay is `duplicate` and hard delete can purge it. */
+  appliedEvents: Record<string, AppliedEventRec>;
   drafts: DraftRec[];
   numberSeries: NumberSeriesRec[];
 }
