@@ -35,6 +35,20 @@ const MESSAGES: Record<ErrorCode, string> = {
   MOVE_EXCEEDS_AVAILABLE: 'More than the quantity available to move',
   DRAFT_INCOMPLETE: 'This draft is not complete yet',
   LINE_NOT_ON_ORDER: 'This line is not on the order',
+  PLANT_REQUIRED: 'Choose a plant for this vehicle',
+  PLANT_INACTIVE: 'This plant is inactive',
+  CUSTOMER_REQUIRED: 'Add a customer to this order before assigning a vehicle',
+  TRUCK_LOCKED: 'This vehicle can no longer be changed',
+  TRUCK_CANCELLED: 'This vehicle was cancelled',
+  ALREADY_RESOLVED: 'This was already resolved',
+  PLANT_SCOPE: 'This vehicle is not at your plant',
+  TARE_CONFLICT: 'Another tare weight was already recorded for this vehicle',
+  INVALID_WEIGHT: 'This weight is not valid',
+  ALLOC_MISMATCH: 'The split does not add up to the net weight',
+  LINE_REMOVED: 'A line on this vehicle was removed from the order',
+  TARE_REQUIRED: 'Record the tare weight first',
+  ALREADY_DISPATCHED: 'This vehicle is already dispatched',
+  INVALID_STATE: 'This vehicle is not in the right step for that',
 };
 
 /** Thrown by the pipeline and handlers; turned into `{ code, message, details? }`. */

@@ -7,6 +7,7 @@ import {
   billedRate,
   brokerEarningEstimate,
   isTerminal,
+  overToleranceKg,
   lineValue,
   orderStatus,
   pending,
@@ -133,6 +134,10 @@ function toSubOrder(c: OrderCtx, order: OrderRec, s: SubOrderRec): SubOrder {
     }),
     totals: c.math.subOrderTotals(s),
     openTrucks: c.math.openTrucksOf(s.id),
+    overToleranceKg: overToleranceKg(
+      lines.map(c.math.lineQty),
+      c.a.tenant.settings.completionToleranceKg ?? 1000,
+    ),
     dispatchedTrucks: c.math.trucksOf(s.id).filter((t) => t.state === 'dispatched').length,
     valueRupees: lines.reduce((sum, l) => sum + lineValueOf(l), 0),
     version: s.version,

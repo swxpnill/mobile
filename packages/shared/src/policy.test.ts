@@ -42,3 +42,6 @@ it('plantScope: owner/city_staff → all; plant roles → a copy of their plants
     plantIds: ['a', 'b'],
   });
 });
+it('rejections.manage is owner only', () => {
+  expect(ROLES.filter((r) => can(r, 'rejections.manage'))).toEqual(['owner']);
+});

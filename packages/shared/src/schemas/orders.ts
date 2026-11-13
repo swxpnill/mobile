@@ -194,6 +194,7 @@ export const subOrderSchema = z.object({
   lines: z.array(orderLineSchema),
   totals: qtyTotalsSchema,
   openTrucks: z.array(openTruckSchema),
+  overToleranceKg: z.number().int(),
   dispatchedTrucks: z.number().int(),
   valueRupees: money,
   version: versionSchema,
