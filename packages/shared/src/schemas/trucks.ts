@@ -124,6 +124,22 @@ export const truckSchema = z.object({
 });
 export type Truck = z.infer<typeof truckSchema>;
 
+export const DISPATCH_STATES = ['open', 'assigned', 'at_gate', 'loading', 'dispatched_today'] as const;
+export const dispatchQuerySchema = z.object({
+  companyId: idSchema.optional(),
+  state: z.enum(DISPATCH_STATES).default('open'),
+  q: z.string().trim().max(60).optional(),
+});
+export type DispatchQuery = z.infer<typeof dispatchQuerySchema>;
+
+export const recentVehicleSchema = z.object({
+  vehicleNo: z.string(),
+  transporterId: idSchema.nullable(),
+  driverName: z.string(),
+  driverPhone: z.string(),
+});
+export type RecentVehicle = z.infer<typeof recentVehicleSchema>;
+
 export const dispatchBoardSchema = z.object({
   counts: z.object({
     assigned: z.number().int(),

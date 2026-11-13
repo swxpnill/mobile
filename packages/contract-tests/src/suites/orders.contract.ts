@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
-  MONEY_KEYS,
   SAMPLE_MASTERS,
   companySchema,
   createOrderBodySchema,
@@ -20,6 +19,7 @@ import {
   call,
   expectError,
   expectOk,
+  moneyKeysIn,
   newKey,
   tokenFor,
   useTarget,
@@ -86,19 +86,6 @@ export const createOrder = async (t: ContractTarget, token: string, body: object
 
 const paths = (body: unknown) =>
   validationDetailsSchema.parse((body as { details: unknown }).details).map((d) => d.path);
-
-/** Every key anywhere in a JSON value. */
-function keysDeep(v: unknown, out = new Set<string>()): Set<string> {
-  if (Array.isArray(v)) v.forEach((x) => keysDeep(x, out));
-  else if (v && typeof v === 'object') {
-    for (const [k, x] of Object.entries(v)) {
-      out.add(k);
-      keysDeep(x, out);
-    }
-  }
-  return out;
-}
-const moneyKeysIn = (v: unknown) => [...keysDeep(v)].filter((k) => MONEY_KEYS.has(k));
 
 const drafts = z.array(draftSchema);
 

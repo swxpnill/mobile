@@ -30,7 +30,7 @@ function ctxFor(ctx: { state: MockState; now: number }, a: Authed): OrderCtx {
 }
 
 /** Sub-order by id in tenant and scope; 404 otherwise. Returns it with its order. */
-function findSubOrder(c: OrderCtx, id: string | undefined): { sub: SubOrderRec; order: OrderRec } {
+export function findSubOrder(c: OrderCtx, id: string | undefined): { sub: SubOrderRec; order: OrderRec } {
   const sub = c.state.subOrders.find((s) => s.id === id && s.tenantId === c.a.user.tenantId);
   if (!sub || !c.visibleCompanyIds.has(sub.companyId)) throw notFound();
   const order = c.state.orders.find((o) => o.id === sub.orderId);

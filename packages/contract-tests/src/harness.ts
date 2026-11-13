@@ -4,6 +4,7 @@ import {
   type ApiErrorBody,
   type ErrorCode,
   type HttpMethod,
+  MONEY_KEYS,
   SAMPLE_WORLD,
   type TokenPair,
   type Transport,
@@ -196,3 +197,18 @@ export async function signIn(
 export async function tokenFor(t: ContractTarget, who: { mobile: string }): Promise<string> {
   return (await signIn(t, who.mobile)).accessToken;
 }
+
+/** Every key anywhere in a JSON value. */
+export function keysDeep(v: unknown, out = new Set<string>()): Set<string> {
+  if (Array.isArray(v)) v.forEach((x) => keysDeep(x, out));
+  else if (v && typeof v === 'object') {
+    for (const [k, x] of Object.entries(v)) {
+      out.add(k);
+      keysDeep(x, out);
+    }
+  }
+  return out;
+}
+
+/** Money keys found anywhere in a response; must be empty for plant roles. */
+export const moneyKeysIn = (v: unknown) => [...keysDeep(v)].filter((k) => MONEY_KEYS.has(k));

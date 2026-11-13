@@ -20,6 +20,7 @@ import { productRoutes } from './handlers/products.ts';
 import { metaRoutes } from './handlers/meta.ts';
 import { plantRoutes } from './handlers/plants.ts';
 import { settingsRoutes } from './handlers/settings.ts';
+import { truckRoutes } from './handlers/trucks.ts';
 import { userRoutes } from './handlers/users.ts';
 import { createPipeline } from './pipeline.ts';
 import { buildRouter } from './router.ts';
@@ -77,6 +78,7 @@ export const ALL_ROUTES = [
   ...draftRoutes,
   ...orderRoutes,
   ...orderLifecycleRoutes,
+  ...truckRoutes,
   ...homeRoutes,
 ];
 

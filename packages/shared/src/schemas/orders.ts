@@ -292,6 +292,16 @@ export const homeSchema = z.object({
   bookedToday: z.object({ kg: z.number().int(), orders: z.number().int(), valueRupees: money }),
   dispatchedToday: z.object({ kg: z.number().int(), trucks: z.number().int() }),
   sentThisWeek: z.object({ kg: z.number().int(), changePct: z.number().int().nullable() }),
+  /** Trucks open at the plants now (assigned, at the gate, loading), within the caller's scope. */
+  inPlant: z.array(
+    z.object({
+      truckId: idSchema,
+      vehicleNo: z.string(),
+      companyCode: z.string(),
+      state: truckStateSchema,
+      plannedKg: z.number().int(),
+    }),
+  ),
 });
 export type Home = z.infer<typeof homeSchema>;
 

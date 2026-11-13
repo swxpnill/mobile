@@ -3,6 +3,7 @@ import {
   type PartyBody,
   type PartySummary,
   financialYear,
+  istDateParts,
   isTerminal,
   partyBodySchema,
   partyListQuerySchema,
@@ -70,9 +71,27 @@ function statsFor(state: MockState, tenantId: string, math: OrderMath, now: numb
   return out;
 }
 
+/** A transporter's trip figures: trucks assigned this IST month, distinct vehicles ever, latest vehicles. */
+function transporterTrips(state: MockState, p: PartyRec, now: number) {
+  if (p.type !== 'transporter') return undefined;
+  const mine = state.trucks.filter((t) => t.tenantId === p.tenantId && t.transporterId === p.id && t.state !== 'cancelled');
+  const thisMonth = istDateParts(now);
+  const tripsThisMonth = mine.filter((t) => {
+    const d = istDateParts(t.assignedAt);
+    return d.year === thisMonth.year && d.month === thisMonth.month;
+  }).length;
+  const newestFirst = mine.map((t, i) => ({ t, i })).sort((x, y) => (x.t.assignedAt === y.t.assignedAt ? y.i - x.i : x.t.assignedAt < y.t.assignedAt ? 1 : -1));
+  const vehicles = [...new Set(newestFirst.map((x) => x.t.vehicleNo))];
+  return { tripsThisMonth, vehiclesSeen: vehicles.length, recentVehicles: vehicles.slice(0, 5) };
+}
+
 const NO_STATS: PartyStats = { openOrders: 0, pendingKg: 0, fyDispatchedKg: 0 };
 
-export function toParty(p: PartyRec, stats: PartyStats = NO_STATS): Party {
+export function toParty(
+  p: PartyRec,
+  stats: PartyStats = NO_STATS,
+  trips?: Pick<NonNullable<Party['stats']>, 'tripsThisMonth' | 'vehiclesSeen' | 'recentVehicles'>,
+): Party {
   return {
     id: p.id,
     type: p.type,
@@ -86,7 +105,7 @@ export function toParty(p: PartyRec, stats: PartyStats = NO_STATS): Party {
     addresses: p.addresses.map((a) => ({ ...a })),
     active: p.active,
     version: p.version,
-    stats: { ...stats },
+    stats: { ...stats, ...trips },
   };
 }
 
@@ -174,7 +193,7 @@ export const partyRoutes: RouteDef[] = [
       const a = authed(ctx);
       const p = findParty(ctx.state, a, ctx.params.id);
       const stats = statsFor(ctx.state, a.user.tenantId, orderMath(ctx.state), ctx.now);
-      return { body: toParty(p, stats.get(p.id)) };
+      return { body: toParty(p, stats.get(p.id), transporterTrips(ctx.state, p, ctx.now)) };
     },
   }),
 
@@ -244,7 +263,7 @@ export const partyRoutes: RouteDef[] = [
       });
       logActivity(state, a, now, { entityType: 'party', entityId: p.id, action: 'party.updated' });
       const stats = statsFor(state, a.user.tenantId, orderMath(state), now);
-      return { body: toParty(p, stats.get(p.id)) };
+      return { body: toParty(p, stats.get(p.id), transporterTrips(state, p, now)) };
     },
   }),
 ];

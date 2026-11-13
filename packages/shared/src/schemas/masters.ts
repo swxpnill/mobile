@@ -146,6 +146,10 @@ export const partySchema = z.object({
     openOrders: z.number().int(),
     pendingKg: z.number().int(),
     fyDispatchedKg: z.number().int(),
+    /** Transporters only. */
+    tripsThisMonth: z.number().int().optional(),
+    vehiclesSeen: z.number().int().optional(),
+    recentVehicles: z.array(z.string()).optional(),
   }),
 });
 export type Party = z.infer<typeof partySchema>;
