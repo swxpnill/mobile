@@ -13,6 +13,7 @@ import { toIso } from '../clock.ts';
 import { ApiError, notFound, stale, validationError } from '../errors.ts';
 import { orderMath, type OrderMath } from '../orders-math.ts';
 import { route, type RouteDef } from '../router.ts';
+import { newestFirst, vehicleKey } from '../truck-views.ts';
 import type { MockState, PartyRec } from '../store.ts';
 import { type Authed, authed, logActivity, newId } from '../views.ts';
 
@@ -71,18 +72,21 @@ function statsFor(state: MockState, tenantId: string, math: OrderMath, now: numb
   return out;
 }
 
-/** A transporter's trip figures: trucks assigned this IST month, distinct vehicles ever, latest vehicles. */
+/** A transporter's figures: trucks dispatched this IST month, distinct vehicles seen, latest vehicles. */
 function transporterTrips(state: MockState, p: PartyRec, now: number) {
   if (p.type !== 'transporter') return undefined;
   const mine = state.trucks.filter((t) => t.tenantId === p.tenantId && t.transporterId === p.id && t.state !== 'cancelled');
   const thisMonth = istDateParts(now);
   const tripsThisMonth = mine.filter((t) => {
-    const d = istDateParts(t.assignedAt);
+    if (t.state !== 'dispatched' || t.dispatchedAt === null) return false;
+    const d = istDateParts(t.dispatchedAt);
     return d.year === thisMonth.year && d.month === thisMonth.month;
   }).length;
-  const newestFirst = mine.map((t, i) => ({ t, i })).sort((x, y) => (x.t.assignedAt === y.t.assignedAt ? y.i - x.i : x.t.assignedAt < y.t.assignedAt ? 1 : -1));
-  const vehicles = [...new Set(newestFirst.map((x) => x.t.vehicleNo))];
-  return { tripsThisMonth, vehiclesSeen: vehicles.length, recentVehicles: vehicles.slice(0, 5) };
+  const vehicles = new Map<string, string>();
+  for (const t of [...mine].sort(newestFirst)) {
+    if (!vehicles.has(vehicleKey(t.vehicleNo))) vehicles.set(vehicleKey(t.vehicleNo), t.vehicleNo);
+  }
+  return { tripsThisMonth, vehiclesSeen: vehicles.size, recentVehicles: [...vehicles.values()].slice(0, 5) };
 }
 
 const NO_STATS: PartyStats = { openOrders: 0, pendingKg: 0, fyDispatchedKg: 0 };

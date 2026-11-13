@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   type Order,
   SAMPLE_MASTERS,
+  activityEntrySchema,
   dispatchBoardSchema,
   homeSchema,
   orderSchema,
@@ -11,6 +12,7 @@ import {
   truckSchema,
 } from '@tonnage/shared';
 import {
+  DAY,
   PEOPLE,
   RANDOM_ID,
   type ContractTarget,
@@ -237,6 +239,41 @@ export function register(factory: TargetFactory): void {
         expect(edited.warnings).toEqual(['VEHICLE_BUSY']);
       });
 
+      it('assign, edit and cancel each log activity on the order with the sub-order id', async () => {
+        const t = target();
+        const { owner, order, a, aLine } = await canvas(t);
+        const truck = expectOk(await assign(t, owner, a.id, assignBody(aLine.id, 1_000)), truckSchema, 201);
+        expectOk(await call(t, 'PATCH', `/v1/trucks/${truck.id}`, { token: owner, body: { driverName: 'S', version: 1 } }), truckSchema);
+        expectOk(
+          await call(t, 'POST', `/v1/trucks/${truck.id}/cancel`, { token: owner, body: { reason: 'Other', note: '', version: 2 } }),
+          truckSchema,
+        );
+        const log = expectOk(await call(t, 'GET', `/v1/orders/${order.id}/activity`, { token: owner }), z.array(activityEntrySchema));
+        for (const action of ['truck.assigned', 'truck.edited', 'truck.cancelled']) {
+          const e = log.find((x) => x.action === action);
+          expect(e?.meta?.subOrderId, action).toBe(a.id);
+        }
+      });
+
+      it('cancelling a loading truck keeps its tare weighment', async () => {
+        const t = target();
+        const { owner, a, aLine } = await canvas(t);
+        const { truckId } = await t.fixtures.addTruck({
+          subOrderId: a.id,
+          state: 'loading',
+          vehicleNo: 'CG 04 BB 2222',
+          tareKg: 12_460,
+          plan: planOf(aLine.id, 5_000),
+        });
+        expectOk(
+          await call(t, 'POST', `/v1/trucks/${truckId}/cancel`, { token: owner, body: { reason: 'Other', note: '', version: 1 } }),
+          truckSchema,
+        );
+        const truck = expectOk(await call(t, 'GET', `/v1/trucks/${truckId}`, { token: owner }), truckSchema);
+        expect(truck.state).toBe('cancelled');
+        expect(truck.weighments.map((w) => [w.kind, w.kg])).toEqual([['tare', 12_460]]);
+      });
+
       it('a dispatched truck only takes an LR number and cannot be cancelled', async () => {
         const t = target();
         const { owner, a, aLine } = await canvas(t);
@@ -333,6 +370,26 @@ export function register(factory: TargetFactory): void {
         expect(ownerHome.inPlant.map((x) => x.truckId).sort()).toEqual([siltara.id, borai].sort());
       });
 
+      it('positive control: the owner sees earningRupees on a dispatched broker-order truck', async () => {
+        const t = target();
+        const { owner, a, aLine } = await canvas(t);
+        const { truckId } = await t.fixtures.addTruck({
+          subOrderId: a.id,
+          state: 'dispatched',
+          vehicleNo: 'CG 04 ZZ 0001',
+          tareKg: 12_000,
+          plan: planOf(aLine.id, 10_000),
+          allocations: [{ orderLineId: aLine.id, netKg: 10_000 }],
+        });
+        const detail = await call(t, 'GET', `/v1/trucks/${truckId}`, { token: owner });
+        expect(expectOk(detail, truckSchema).earningRupees).toBeGreaterThan(0);
+        expect(moneyKeysIn(detail.body)).toContain('earningRupees');
+        const board = await call(t, 'GET', '/v1/dispatch?state=dispatched_today', { token: owner });
+        expect(moneyKeysIn(board.body)).toContain('earningRupees');
+        const kiran = await call(t, 'GET', `/v1/trucks/${truckId}`, { token: await tokenFor(t, PEOPLE.kiran) });
+        expect(moneyKeysIn(kiran.body)).toEqual([]);
+      });
+
       it('detail carries weighments; an unknown id is 404', async () => {
         const t = target();
         const { owner, a, aLine } = await canvas(t);
@@ -377,15 +434,39 @@ export function register(factory: TargetFactory): void {
         expectError(await call(t, 'GET', '/v1/trucks/recent-vehicles', { token: await tokenFor(t, PEOPLE.kiran) }), 403, 'FORBIDDEN');
       });
 
-      it('a transporter detail has trip stats; other party types do not', async () => {
+      it('trips are trucks dispatched this IST month; vehicles are de-duplicated ignoring spaces', async () => {
         const t = target();
         const { owner, a, aLine } = await canvas(t);
         const transporterId = P.shreeGanesh;
+        const stats = async (token: string) =>
+          expectOk(await call(t, 'GET', `/v1/parties/${transporterId}`, { token }), partySchema).stats;
         expectOk(await assign(t, owner, a.id, assignBody(aLine.id, 1_000, { transporterId })), truckSchema, 201);
-        const tp = expectOk(await call(t, 'GET', `/v1/parties/${transporterId}`, { token: owner }), partySchema);
-        expect(tp.stats).toMatchObject({ tripsThisMonth: 1, vehiclesSeen: 1, recentVehicles: ['CG 04 MK 2291'] });
+        expectOk(
+          await assign(t, owner, a.id, assignBody(aLine.id, 1_000, { transporterId, vehicleNo: 'CG04MK2291' })),
+          truckSchema,
+          201,
+        );
+        expect(await stats(owner)).toMatchObject({ tripsThisMonth: 0, vehiclesSeen: 1 });
+        expect((await stats(owner)).recentVehicles).toHaveLength(1);
+        await t.fixtures.addTruck({
+          subOrderId: a.id,
+          state: 'dispatched',
+          vehicleNo: 'CG 04 ZZ 0001',
+          transporterId,
+          tareKg: 12_000,
+          plan: planOf(aLine.id, 1_000),
+          allocations: [{ orderLineId: aLine.id, netKg: 1_000 }],
+        });
+        expect(await stats(owner)).toMatchObject({ tripsThisMonth: 1, vehiclesSeen: 2 });
         const cust = expectOk(await call(t, 'GET', `/v1/parties/${P.shubham}`, { token: owner }), partySchema);
         expect(cust.stats.tripsThisMonth).toBeUndefined();
+
+        t.clock.advance(40 * DAY);
+        try {
+          expect(await stats(await tokenFor(t, PEOPLE.rajesh))).toMatchObject({ tripsThisMonth: 0, vehiclesSeen: 2 });
+        } finally {
+          t.clock.advance(-40 * DAY);
+        }
       });
     });
   });

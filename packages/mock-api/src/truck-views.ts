@@ -2,6 +2,35 @@ import { type Task, type Truck, formatLength, productDisplayName, subOrderNumber
 import type { OrderCtx } from './order-views.ts';
 import type { MockState, TruckRec } from './store.ts';
 
+/** One vehicle however it was typed: "CG 04 MK 2291" and "cg04mk2291" are the same truck. */
+export const vehicleKey = (vehicleNo: string): string => vehicleNo.replace(/\s+/g, '').toLowerCase();
+
+/** Newest assignment first; ties by id so the order is total. */
+export function newestFirst(x: { assignedAt: string; id: string }, y: { assignedAt: string; id: string }): number {
+  if (x.assignedAt !== y.assignedAt) return x.assignedAt < y.assignedAt ? 1 : -1;
+  return x.id < y.id ? 1 : x.id > y.id ? -1 : 0;
+}
+
+/** Board order: loading, at gate, assigned, then dispatched. */
+export const OPEN_STATE_RANK: Record<string, number> = { loading: 0, at_gate: 1, assigned: 2, dispatched: 3 };
+
+/** Loading first; waiting trucks oldest first, dispatched ones newest first; ties by id. */
+export function boardOrder(
+  x: Pick<TruckRec, 'id' | 'state' | 'assignedAt' | 'dispatchedAt'>,
+  y: Pick<TruckRec, 'id' | 'state' | 'assignedAt' | 'dispatchedAt'>,
+): number {
+  const r = (OPEN_STATE_RANK[x.state] ?? 9) - (OPEN_STATE_RANK[y.state] ?? 9);
+  if (r !== 0) return r;
+  if (x.state === 'dispatched') {
+    const dx = x.dispatchedAt ?? '';
+    const dy = y.dispatchedAt ?? '';
+    if (dx !== dy) return dx < dy ? 1 : -1;
+  } else if (x.assignedAt !== y.assignedAt) {
+    return x.assignedAt < y.assignedAt ? -1 : 1;
+  }
+  return x.id < y.id ? -1 : x.id > y.id ? 1 : 0;
+}
+
 // Serializers build fresh plain objects (never state references), so responses can't alias state.
 
 function parentsOf(state: MockState, t: TruckRec) {

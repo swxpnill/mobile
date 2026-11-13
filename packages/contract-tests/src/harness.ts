@@ -30,6 +30,7 @@ export interface ContractFixtures {
     subOrderId: string;
     state: 'assigned' | 'at_gate' | 'loading' | 'dispatched' | 'cancelled';
     vehicleNo: string;
+    transporterId?: string | null;
     tareKg?: number;
     plan: { orderLineId: string; plannedKg: number }[];
     allocations?: { orderLineId: string; netKg: number }[];

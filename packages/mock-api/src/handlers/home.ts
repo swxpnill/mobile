@@ -4,7 +4,8 @@ import { notFound } from '../errors.ts';
 import { ageDays, orderCtx, visibleSubOrders } from '../order-views.ts';
 import { isOpenTruck, orderMath } from '../orders-math.ts';
 import { route, type RouteDef } from '../router.ts';
-import { authed } from '../views.ts';
+import { boardOrder } from '../truck-views.ts';
+import { authed, plantInScope } from '../views.ts';
 
 const IST_OFFSET_MS = (5 * 60 + 30) * 60_000;
 
@@ -92,15 +93,14 @@ export const homeRoutes: RouteDef[] = [
         }
       }
 
-      const rank = { loading: 0, at_gate: 1, assigned: 2 } as const;
       home.inPlant = state.trucks
         .filter((t) => {
           if (t.tenantId !== a.user.tenantId || !isOpenTruck(t)) return false;
-          if (a.scope.kind !== 'all' && !a.scope.plantIds.includes(t.plantId)) return false;
+          if (!plantInScope(a.scope, t.plantId)) return false;
           const sub = state.subOrders.find((x) => x.id === t.subOrderId);
           return sub !== undefined && c.visibleCompanyIds.has(sub.companyId) && inFilter(sub.companyId);
         })
-        .sort((x, y) => (rank[x.state as keyof typeof rank] ?? 9) - (rank[y.state as keyof typeof rank] ?? 9) || (x.assignedAt < y.assignedAt ? -1 : 1))
+        .sort(boardOrder)
         .map((t) => {
           const sub = state.subOrders.find((x) => x.id === t.subOrderId);
           return {

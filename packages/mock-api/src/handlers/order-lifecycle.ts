@@ -15,19 +15,15 @@ import {
 } from '@tonnage/shared';
 import { toIso } from '../clock.ts';
 import { ApiError, notFound, stale, validationError } from '../errors.ts';
-import { type OrderCtx, findOrder, orderCtx, toOrder } from '../order-views.ts';
-import { type OrderMath, isOpenTruck, orderMath } from '../orders-math.ts';
+import { type OrderCtx, ctxFor, findOrder, toOrder } from '../order-views.ts';
+import { type OrderMath, isOpenTruck } from '../orders-math.ts';
 import { route, type RouteDef } from '../router.ts';
 import type { MockState, OrderLineRec, OrderRec, SubOrderRec } from '../store.ts';
-import { type Authed, authed, logActivity, newId } from '../views.ts';
+import { authed, logActivity, newId } from '../views.ts';
 import { newLineRec, newSubOrderRec, validateOrderRefs } from './orders.ts';
 
 const keyOf = (productId: string, length: { value: number; unit: string }) =>
   `${productId}|${length.value}${length.unit}`;
-
-function ctxFor(ctx: { state: MockState; now: number }, a: Authed): OrderCtx {
-  return orderCtx(ctx.state, orderMath(ctx.state), a, ctx.now);
-}
 
 /** Sub-order by id in tenant and scope; 404 otherwise. Returns it with its order. */
 export function findSubOrder(c: OrderCtx, id: string | undefined): { sub: SubOrderRec; order: OrderRec } {

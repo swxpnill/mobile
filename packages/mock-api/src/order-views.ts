@@ -18,7 +18,7 @@ import {
 } from '@tonnage/shared';
 import { DAY, fromIso } from './clock.ts';
 import { notFound } from './errors.ts';
-import type { OrderMath } from './orders-math.ts';
+import { type OrderMath, orderMath } from './orders-math.ts';
 import type { MockState, OrderLineRec, OrderRec, SubOrderRec } from './store.ts';
 import { type Authed, visibleCompanies } from './views.ts';
 
@@ -55,6 +55,11 @@ export function orderCtx(state: MockState, math: OrderMath, a: Authed, now: numb
     partyById: new Map(state.parties.filter((p) => p.tenantId === tenantId).map((p) => [p.id, p])),
     userNameById: new Map(state.users.filter((u) => u.tenantId === tenantId).map((u) => [u.id, u.name])),
   };
+}
+
+/** The order context for one request: fresh math over the current state. */
+export function ctxFor(ctx: { state: MockState; now: number }, a: Authed): OrderCtx {
+  return orderCtx(ctx.state, orderMath(ctx.state), a, ctx.now);
 }
 
 /** Sub-orders of an order the caller may see, in suffix order. */

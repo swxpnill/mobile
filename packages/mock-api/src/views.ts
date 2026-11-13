@@ -75,7 +75,7 @@ export function authed(ctx: HandlerCtx<unknown, unknown>): Authed {
   return { user, scope, tenant };
 }
 
-const plantInScope = (scope: PlantScope, plantId: string) =>
+export const plantInScope = (scope: PlantScope, plantId: string) =>
   scope.kind === 'all' || scope.plantIds.includes(plantId);
 
 /** Plants of the user's tenant within scope, in creation order. */

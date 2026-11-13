@@ -14,23 +14,17 @@ import {
 } from '@tonnage/shared';
 import { toIso } from '../clock.ts';
 import { ApiError, notFound, stale, validationError } from '../errors.ts';
-import { type OrderCtx, orderCtx } from '../order-views.ts';
-import { isOpenTruck, orderMath } from '../orders-math.ts';
+import { type OrderCtx, ctxFor } from '../order-views.ts';
+import { isOpenTruck } from '../orders-math.ts';
 import { route, type RouteDef } from '../router.ts';
 import type { MockState, SubOrderRec, TruckRec } from '../store.ts';
-import { toTruck } from '../truck-views.ts';
-import { type Authed, authed, logActivity, newId } from '../views.ts';
+import { boardOrder, newestFirst, toTruck, vehicleKey } from '../truck-views.ts';
+import { type Authed, authed, logActivity, newId, plantInScope as inScope } from '../views.ts';
 import { findSubOrder } from './order-lifecycle.ts';
 
 type Warning = NonNullable<Truck['warnings']>[number];
 
-const compact = (s: string) => s.replace(/\s+/g, '').toLowerCase();
-
-function ctxFor(ctx: { state: MockState; now: number }, a: Authed): OrderCtx {
-  return orderCtx(ctx.state, orderMath(ctx.state), a, ctx.now);
-}
-
-const plantInScope = (a: Authed, plantId: string) => a.scope.kind === 'all' || a.scope.plantIds.includes(plantId);
+const plantInScope = (a: Authed, plantId: string) => inScope(a.scope, plantId);
 
 /** Truck by id in tenant and plant scope; 404 otherwise (identical for missing and out of scope). */
 function findTruck(c: OrderCtx, id: string | undefined): TruckRec {
@@ -46,9 +40,9 @@ const withWarnings = (truck: Truck, warnings: Warning[]): Truck =>
 
 /** Another open truck of the tenant with the same vehicle number. */
 function vehicleBusy(state: MockState, tenantId: string, vehicleNo: string, exceptId?: string): boolean {
-  const key = compact(vehicleNo);
+  const key = vehicleKey(vehicleNo);
   return state.trucks.some(
-    (t) => t.tenantId === tenantId && t.id !== exceptId && isOpenTruck(t) && compact(t.vehicleNo) === key,
+    (t) => t.tenantId === tenantId && t.id !== exceptId && isOpenTruck(t) && vehicleKey(t.vehicleNo) === key,
   );
 }
 
@@ -82,8 +76,6 @@ function checkTransporter(state: MockState, a: Authed, id: string | null | undef
     throw validationError([{ path: ['transporterId'], message: 'Choose an active transporter' }]);
   }
 }
-
-const STATE_RANK: Record<string, number> = { loading: 0, at_gate: 1, assigned: 2, dispatched: 3 };
 
 function sameIstDay(a: string | number, b: string | number): boolean {
   const x = istDateParts(a);
@@ -246,14 +238,11 @@ export const truckRoutes: RouteDef[] = [
     action: 'truck.assign',
     async handler(ctx) {
       const a = authed(ctx);
-      const mine = ctx.state.trucks
-        .map((t, i) => ({ t, i }))
-        .filter((x) => x.t.tenantId === a.user.tenantId)
-        .sort((x, y) => (x.t.assignedAt === y.t.assignedAt ? y.i - x.i : x.t.assignedAt < y.t.assignedAt ? 1 : -1));
+      const mine = ctx.state.trucks.filter((t) => t.tenantId === a.user.tenantId).sort(newestFirst);
       const seen = new Set<string>();
       const out: RecentVehicle[] = [];
-      for (const { t } of mine) {
-        const key = compact(t.vehicleNo);
+      for (const t of mine) {
+        const key = vehicleKey(t.vehicleNo);
         if (seen.has(key)) continue;
         seen.add(key);
         out.push({
@@ -311,12 +300,12 @@ export const truckRoutes: RouteDef[] = [
         const customer = order?.customerId ? (c.partyById.get(order.customerId)?.name ?? '') : '';
         const hay = [
           t.vehicleNo.toLowerCase(),
-          compact(t.vehicleNo),
+          vehicleKey(t.vehicleNo),
           (order?.number ?? '').toLowerCase(),
           subOrderNumber(order?.number ?? '', sub.suffix).toLowerCase(),
           customer.toLowerCase(),
         ];
-        return hay.some((h) => h.includes(needle) || h.includes(compact(needle)));
+        return hay.some((h) => h.includes(needle) || h.includes(vehicleKey(needle)));
       };
       const wanted = (t: TruckRec): boolean => {
         if (query.state === 'dispatched_today') return isToday(t);
@@ -325,12 +314,7 @@ export const truckRoutes: RouteDef[] = [
       };
       const items = inScope
         .filter((t) => wanted(t) && matches(t))
-        .sort((x, y) => {
-          const r = (STATE_RANK[x.state] ?? 9) - (STATE_RANK[y.state] ?? 9);
-          if (r !== 0) return r;
-          if (x.state === 'dispatched') return (y.dispatchedAt ?? '') < (x.dispatchedAt ?? '') ? -1 : 1;
-          return x.assignedAt < y.assignedAt ? -1 : x.assignedAt > y.assignedAt ? 1 : 0;
-        })
+        .sort(boardOrder)
         .map((t) => {
           const full = toTruck(c, t, { withWeighments: false }) as Partial<Truck>;
           delete full.weighments;
