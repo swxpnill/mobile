@@ -1,9 +1,16 @@
-import { type Task, type Truck, formatLength, productDisplayName, subOrderNumber } from '@tonnage/shared';
+import { type Task, type Truck, formatLength, istDateParts, productDisplayName, subOrderNumber } from '@tonnage/shared';
 import type { OrderCtx } from './order-views.ts';
 import type { MockState, TruckRec } from './store.ts';
 
 /** One vehicle however it was typed: "CG 04 MK 2291" and "cg04mk2291" are the same truck. */
 export const vehicleKey = (vehicleNo: string): string => vehicleNo.replace(/\s+/g, '').toLowerCase();
+
+/** Same calendar day in IST (business time zone). */
+export function sameIstDay(a: string | number, b: string | number): boolean {
+  const x = istDateParts(a);
+  const y = istDateParts(b);
+  return x.year === y.year && x.month === y.month && x.day === y.day;
+}
 
 /** Newest assignment first; ties by id so the order is total. */
 export function newestFirst(x: { assignedAt: string; id: string }, y: { assignedAt: string; id: string }): number {

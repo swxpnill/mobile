@@ -51,7 +51,7 @@ const PATEL = {
 };
 
 /** The PATCH body that leaves the order exactly as it is. */
-function editBody(o: Order) {
+export function editBody(o: Order) {
   return {
     type: o.type,
     customerId: o.customer?.id ?? null,

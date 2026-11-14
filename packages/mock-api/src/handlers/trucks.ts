@@ -8,7 +8,6 @@ import {
   dispatchQuerySchema,
   editTruckBodySchema,
   isTerminal,
-  istDateParts,
   nextTruckState,
   subOrderNumber,
 } from '@tonnage/shared';
@@ -18,7 +17,7 @@ import { type OrderCtx, ctxFor } from '../order-views.ts';
 import { isOpenTruck } from '../orders-math.ts';
 import { route, type RouteDef } from '../router.ts';
 import type { MockState, SubOrderRec, TruckRec } from '../store.ts';
-import { boardOrder, newestFirst, toTruck, vehicleKey } from '../truck-views.ts';
+import { boardOrder, newestFirst, sameIstDay, toTruck, vehicleKey } from '../truck-views.ts';
 import { type Authed, authed, logActivity, newId, plantInScope as inScope } from '../views.ts';
 import { findSubOrder } from './order-lifecycle.ts';
 
@@ -75,12 +74,6 @@ function checkTransporter(state: MockState, a: Authed, id: string | null | undef
   if (!p || p.type !== 'transporter' || !p.active) {
     throw validationError([{ path: ['transporterId'], message: 'Choose an active transporter' }]);
   }
-}
-
-function sameIstDay(a: string | number, b: string | number): boolean {
-  const x = istDateParts(a);
-  const y = istDateParts(b);
-  return x.year === y.year && x.month === y.month && x.day === y.day;
 }
 
 const blankToNull = (v: string | null): string | null => (v === null || v === '' ? null : v);

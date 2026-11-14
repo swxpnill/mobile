@@ -58,12 +58,6 @@ function purgeIdempotency(state: MockState, userId: string, now: number): void {
   }
 }
 
-/**
- * The request pipeline, in the same order as B1's Fastify app (onRequest auth before validation):
- * route match (404) → bearer auth (401) → policy (403) → zod query/body (422) → idempotency
- * → handler (scoped) → money redaction → persist. Unauthenticated callers never see schema errors.
- * Controls (offline/latency/failNext) wrap this in `controls.ts`.
- */
 /** Puts every top-level collection back as it was (the state object itself is shared with the store). */
 function restore(state: MockState, snapshot: string): void {
   const before = JSON.parse(snapshot) as MockState;
@@ -71,6 +65,28 @@ function restore(state: MockState, snapshot: string): void {
   for (const key of Object.keys(target)) delete target[key];
   Object.assign(target, before);
 }
+
+/**
+ * Runs `fn` as one transaction inside a request: if it throws, every change it made to the state
+ * is undone and the error goes on. For routes that commit piece by piece (each sync event on its
+ * own, like a DB transaction per event in B3) instead of the whole route being `transactional`.
+ */
+export function runEventTransaction<T>(state: MockState, fn: () => T): T {
+  const snapshot = JSON.stringify(state);
+  try {
+    return fn();
+  } catch (e) {
+    restore(state, snapshot);
+    throw e;
+  }
+}
+
+/**
+ * The request pipeline, in the same order as B1's Fastify app (onRequest auth before validation):
+ * route match (404) → bearer auth (401) → policy (403) → zod query/body (422) → idempotency
+ * → handler (scoped) → money redaction → persist. Unauthenticated callers never see schema errors.
+ * Controls (offline/latency/failNext) wrap this in `controls.ts`.
+ */
 
 export function createPipeline(deps: { router: Router; store: Store; clock: Clock }) {
   const { router, store, clock } = deps;
@@ -117,7 +133,7 @@ export function createPipeline(deps: { router: Router; store: Store; clock: Cloc
     let result;
     const snapshot = r.transactional ? JSON.stringify(state) : null;
     try {
-      result = await r.handler({ user, scope, params: match.params, query, body, state, now });
+      result = await r.handler({ user, scope, params: match.params, query, body, headers, state, now });
     } catch (e) {
       if (snapshot !== null) restore(state, snapshot);
       throw e;

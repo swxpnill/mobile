@@ -84,12 +84,19 @@ const isSave = (req: TransportRequest) => req.method !== 'GET' && !req.path.star
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/** Every answer carries the server's time (RFC 7231), like a real server: the phone estimates its clock offset from it. */
+const dated = (res: TransportResponse, now: number): TransportResponse => ({
+  ...res,
+  headers: { ...res.headers, date: new Date(now).toUTCString() },
+});
+
 export function createTransport(deps: {
   controls: ControlState;
   enqueue: Enqueue;
+  clock: Clock;
   handle(req: TransportRequest): Promise<TransportResponse>;
 }): Transport {
-  const { controls: cs, enqueue, handle } = deps;
+  const { controls: cs, enqueue, clock, handle } = deps;
   return {
     async request(req) {
       if (cs.offline) throw new NetworkError('Offline (simulated)');
@@ -100,13 +107,13 @@ export function createTransport(deps: {
         if (fail && (!fail.writesOnly || isSave(req))) {
           cs.failNext = null;
           if (fail.kind === 'network') throw new NetworkError('Connection dropped (simulated)');
-          return {
-            status: fail.status,
-            headers: { 'content-type': 'application/json' },
-            body: errorBody(fail.code),
-          };
+          return dated(
+            { status: fail.status, headers: { 'content-type': 'application/json' }, body: errorBody(fail.code) },
+            clock.now(),
+          );
         }
-        return handle(req);
+        const res = await handle(req);
+        return dated(res, clock.now());
       });
     },
   };

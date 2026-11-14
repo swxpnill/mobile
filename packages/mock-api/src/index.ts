@@ -20,6 +20,7 @@ import { productRoutes } from './handlers/products.ts';
 import { metaRoutes } from './handlers/meta.ts';
 import { plantRoutes } from './handlers/plants.ts';
 import { settingsRoutes } from './handlers/settings.ts';
+import { supervisorRoutes } from './handlers/supervisor.ts';
 import { truckRoutes } from './handlers/trucks.ts';
 import { userRoutes } from './handlers/users.ts';
 import { createPipeline } from './pipeline.ts';
@@ -79,6 +80,7 @@ export const ALL_ROUTES = [
   ...orderRoutes,
   ...orderLifecycleRoutes,
   ...truckRoutes,
+  ...supervisorRoutes,
   ...homeRoutes,
 ];
 
@@ -100,7 +102,7 @@ export async function createMockApi(opts: CreateMockApiOptions = {}): Promise<Mo
   const enqueue = createQueue();
   const pipeline = createPipeline({ router, store, clock });
   return {
-    transport: createTransport({ controls: cs, enqueue, handle: pipeline.handle }),
+    transport: createTransport({ controls: cs, enqueue, clock, handle: pipeline.handle }),
     controls: createControls({ controls: cs, enqueue, store, clock }),
     fixtures: createFixtures({ store, clock, enqueue }),
   };
