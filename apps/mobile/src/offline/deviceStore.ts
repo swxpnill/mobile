@@ -45,6 +45,9 @@ export interface SyncMeta {
   deviceId: string;
 }
 
+/** The meta fields the sync engine may write. */
+export type MetaPatch = Partial<Pick<SyncMeta, 'cursor' | 'clockOffsetMs' | 'lastSyncAt'>>;
+
 /**
  * Everything the supervisor's phone keeps for offline weighment (spec §6.2), one store per
  * signed-in user. Implementations: `createMemoryDeviceStore` (tests, web) and
@@ -82,7 +85,11 @@ export interface DeviceStore {
   /** Deletes accepted rows accepted before `now - olderThanMs`; returns how many. */
   purgeAccepted(olderThanMs: number, now: number): Promise<number>;
   meta(): Promise<SyncMeta>;
-  setMeta(m: Partial<SyncMeta>): Promise<void>;
+  /**
+   * Changes only the given fields. `nextDeviceSeq` (moved by `saveCapture` alone) and `deviceId`
+   * (made once) are not writable: a meta write racing a save must never move the counter back.
+   */
+  setMeta(m: MetaPatch): Promise<void>;
   /** Empties tasks, outbox and done today; keeps `deviceId` and `nextDeviceSeq`. */
   clear(): Promise<void>;
 }
@@ -305,7 +312,9 @@ export function createMemoryDeviceStore(opts: DeviceStoreOptions = {}): DeviceSt
     },
 
     async setMeta(m) {
-      s.meta = { ...s.meta, ...m };
+      if (m.cursor !== undefined) s.meta.cursor = m.cursor;
+      if (m.clockOffsetMs !== undefined) s.meta.clockOffsetMs = m.clockOffsetMs;
+      if (m.lastSyncAt !== undefined) s.meta.lastSyncAt = m.lastSyncAt;
     },
 
     async clear() {

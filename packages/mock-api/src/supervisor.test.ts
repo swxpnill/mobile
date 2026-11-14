@@ -68,9 +68,18 @@ describe('weighment sync: rejections for Needs attention', () => {
       { clientEventId: events[0]!.eventId, code: 'TRUCK_CANCELLED', serverState: 'cancelled', status: 'open', userId: U.ravi, deviceId: PHONE, event: events[0] },
       { clientEventId: events[1]!.eventId, code: 'INVALID_STATE', serverState: 'cancelled', status: 'open', event: events[1] },
     ]);
-    expect(store.state.appliedEvents[events[1]!.eventId]).toEqual({ truckId: t.id, status: 'rejected' });
+    expect(store.state.appliedEvents[events[1]!.eventId]).toEqual({
+      truckId: t.id,
+      status: 'rejected',
+      code: 'INVALID_STATE',
+      message: 'Blocked by an earlier rejected weight',
+    });
 
-    expect((await sync(U.ravi, events)).map((r) => r.status)).toEqual(['duplicate', 'duplicate']);
+    // Replayed: refused again the same way, no second row.
+    const again = await sync(U.ravi, events);
+    expect(again.map((r) => (r.status === 'rejected' ? [r.code, r.message, r.server] : r.status))).toEqual(
+      results.map((r) => (r.status === 'rejected' ? [r.code, r.message, undefined] : r.status)),
+    );
     expect(rows()).toHaveLength(2);
   });
 

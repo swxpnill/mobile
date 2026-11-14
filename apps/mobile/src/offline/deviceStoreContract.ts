@@ -363,6 +363,36 @@ export const deviceStoreContract: DeviceStoreCase[] = [
     },
   },
   {
+    name: 'setMeta racing saveCapture never moves deviceSeq back: the next save still succeeds',
+    async run(makeStore) {
+      const store = await seeded(makeStore);
+      await store.saveCapture(atGate(TRUCK_A));
+      // The engine writes meta after every push and pull while the supervisor keeps saving.
+      const writing = store.setMeta({
+        clockOffsetMs: 1_000,
+        lastSyncAt: new Date(T0).toISOString(),
+      });
+      const second = await store.saveCapture(atGate(TRUCK_B));
+      await writing;
+      await store.setMeta({ cursor: '2026-11-13T06:00:00.000Z' });
+      const third = await store.saveCapture(atGate(TRUCK_C));
+      eq([second.deviceSeq, third.deviceSeq], [1, 2], 'deviceSeq');
+      eq((await store.meta()).nextDeviceSeq, 3, 'nextDeviceSeq');
+      eq((await store.outbox()).length, 3, 'rows');
+      // Only saveCapture moves the counter and nothing changes the device id.
+      void (() =>
+        store.setMeta({
+          // @ts-expect-error nextDeviceSeq is owned by saveCapture
+          nextDeviceSeq: 0,
+        }));
+      void (() =>
+        store.setMeta({
+          // @ts-expect-error deviceId is made once per store
+          deviceId: 'x',
+        }));
+    },
+  },
+  {
     name: 'meta: a stable device id, partial updates',
     async run(makeStore) {
       const store = await makeStore({ now: () => T0 });

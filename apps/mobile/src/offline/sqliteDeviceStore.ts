@@ -16,6 +16,7 @@ import {
 /** Spec §6.2. JSON columns hold server shapes; no prices are ever stored on the device. */
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
+PRAGMA busy_timeout = 5000;
 CREATE TABLE IF NOT EXISTS tasks (
   truck_id TEXT PRIMARY KEY NOT NULL,
   ord INTEGER NOT NULL,
@@ -279,16 +280,23 @@ export async function createSqliteDeviceStore(
     meta: () => readMeta(db),
 
     async setMeta(patch) {
-      const next = { ...(await readMeta(db)), ...patch };
-      await db.runAsync(
-        `UPDATE sync_meta SET cursor = ?, clock_offset_ms = ?, last_sync_at = ?, next_device_seq = ?, device_id = ?
-         WHERE id = 1`,
-        next.cursor,
-        next.clockOffsetMs,
-        next.lastSyncAt,
-        next.nextDeviceSeq,
-        next.deviceId,
-      );
+      // Only the patched columns, in one statement: no read-modify-write that could undo a save.
+      const sets: string[] = [];
+      const values: (string | number | null)[] = [];
+      if (patch.cursor !== undefined) {
+        sets.push('cursor = ?');
+        values.push(patch.cursor);
+      }
+      if (patch.clockOffsetMs !== undefined) {
+        sets.push('clock_offset_ms = ?');
+        values.push(patch.clockOffsetMs);
+      }
+      if (patch.lastSyncAt !== undefined) {
+        sets.push('last_sync_at = ?');
+        values.push(patch.lastSyncAt);
+      }
+      if (sets.length === 0) return;
+      await db.runAsync(`UPDATE sync_meta SET ${sets.join(', ')} WHERE id = 1`, ...values);
     },
 
     async clear() {

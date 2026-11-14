@@ -7,7 +7,7 @@ import {
 } from '@tonnage/shared';
 import { ApiError } from '../api/client';
 import { backoff } from './backoff';
-import { type DeviceStore, toSyncEvent } from './deviceStore';
+import { type DeviceStore, type MetaPatch, toSyncEvent } from './deviceStore';
 
 /** At most this many events per `POST /v1/weighments/sync` (the shared body allows 100). */
 export const SYNC_BATCH = 100;
@@ -106,7 +106,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       await store.replaceTasks(page);
       await store.setDoneToday(await deps.pullDoneToday());
       const at = deps.now();
-      const meta: Parameters<DeviceStore['setMeta']>[0] = {
+      const meta: MetaPatch = {
         lastSyncAt: new Date(at).toISOString(),
       };
       if (!pushed) {

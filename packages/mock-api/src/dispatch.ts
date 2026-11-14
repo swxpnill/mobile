@@ -41,13 +41,33 @@ const bump = (t: { version: number; updatedAt: string }, at: string) => {
  * refusals come back as `rejected` (never thrown); the caller runs each event in its own
  * snapshot/rollback and copies rejections into `state.rejections` (Task 5). Every outcome is kept,
  * as its truck and status only,
- * in `appliedEvents`, so a replay of the same `eventId` is answered `duplicate` and changes nothing.
+ * in `appliedEvents`, so a replay of the same `eventId` gets the same answer and changes nothing
+ * (`duplicate` when it was accepted, the same refusal when it was rejected).
  */
 export function applyEvent(state: MockState, ctx: DispatchCtx, event: SyncEvent): SyncResult {
-  if (state.appliedEvents[event.eventId]) return { status: 'duplicate', eventId: event.eventId };
+  const seen = replayed(state, event.eventId);
+  if (seen) return seen;
   const result = decide(state, ctx, event);
-  if (result.status !== 'duplicate') state.appliedEvents[event.eventId] = { truckId: event.truckId, status: result.status };
+  remember(state, event, result);
   return result;
+}
+
+/**
+ * The answer to an event id seen before, or null: `duplicate` for an accepted event; a rejected
+ * one is refused again with the same code and message (no new rejection row, no state change).
+ */
+export function replayed(state: MockState, eventId: string): SyncResult | null {
+  const seen = state.appliedEvents[eventId];
+  if (!seen) return null;
+  if (seen.status === 'accepted') return { status: 'duplicate', eventId };
+  return { status: 'rejected', eventId, code: seen.code, message: seen.message };
+}
+
+/** Keeps an outcome in `appliedEvents`: truck and status, plus a refusal's code and message. */
+export function remember(state: MockState, event: SyncEvent, result: SyncResult): void {
+  if (result.status === 'accepted') state.appliedEvents[event.eventId] = { truckId: event.truckId, status: 'accepted' };
+  else if (result.status === 'rejected')
+    state.appliedEvents[event.eventId] = { truckId: event.truckId, status: 'rejected', code: result.code, message: result.message };
 }
 
 function decide(state: MockState, ctx: DispatchCtx, event: SyncEvent): SyncResult {

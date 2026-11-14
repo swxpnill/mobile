@@ -14,7 +14,7 @@ import { useMe } from '../api/hooks/me';
 import { useSession } from '../auth/session';
 import type { DeviceStore } from './deviceStore';
 import { openDeviceStore } from './sqliteDeviceStore';
-import { type SyncEngine, createSyncEngine } from './syncEngine';
+import { type SyncEngine, type SyncOutcome, createSyncEngine } from './syncEngine';
 
 /** Sync every minute while the app is open (plan Ruling 5). */
 export const SYNC_INTERVAL_MS = 60_000;
@@ -78,21 +78,38 @@ export function startSyncLoop(engine: SyncEngine, store: DeviceStore): SyncLoop 
   let failures = 0;
   let retry: ReturnType<typeof setTimeout> | undefined;
 
-  async function tick(): Promise<void> {
-    if (stopped) return;
+  let inFlight: Promise<void> | null = null;
+
+  /** Triggers that arrive while a run is out share it; only that run handles its outcome. */
+  function tick(): Promise<void> {
+    if (stopped) return Promise.resolve();
+    inFlight ??= run().finally(() => {
+      inFlight = null;
+    });
+    return inFlight;
+  }
+
+  async function run(): Promise<void> {
     clearTimeout(retry);
     retry = undefined;
-    useSyncStatus.setState({ ...(await publishCounts(store)), syncing: true });
-    const out = await engine.syncNow();
-    if (stopped) return;
-    useSyncStatus.setState({
-      ...(await publishCounts(store)),
-      online: out.error !== 'network',
-      syncing: false,
-    });
+    let out: SyncOutcome | null = null;
+    try {
+      useSyncStatus.setState({ syncing: true });
+      useSyncStatus.setState(await publishCounts(store));
+      out = await engine.syncNow();
+      if (stopped) return;
+      useSyncStatus.setState({ online: out.error !== 'network' });
+      useSyncStatus.setState(await publishCounts(store));
+    } catch {
+      // The store could not be read: the counts stay as they were; the next trigger tries again.
+    } finally {
+      if (!stopped) useSyncStatus.setState({ syncing: false });
+    }
+    if (stopped || !out) return;
     if (out.ok) {
       failures = 0;
     } else if (out.error !== 'auth') {
+      clearTimeout(retry);
       retry = setTimeout(() => void tick(), engine.nextDelayMs(failures));
       failures += 1;
     }

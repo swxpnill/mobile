@@ -154,16 +154,22 @@ describe('applyEvent: TARE then GROSS on the seeded loading truck (Siltara, CG 0
     expect(JSON.stringify({ t: truck, w: s.weighments, l: s.brokerLedger, n: s.numberSeries })).toBe(before);
   });
 
-  it('a replay of the same event (accepted or rejected) is a duplicate and changes nothing', () => {
+  it('a replay changes nothing: an accepted event is a duplicate, a rejected one is rejected again the same way', () => {
     const s = world();
     const truck = truckBy(s, 'CG 07 KL 3304');
     const ev = atGate(truck.id);
     expect(applyEvent(s, ctxFor(s, U.ravi), ev).status).toBe('accepted');
     const bad = gross(truck.id, 30_000, [{ orderLineId: truck.plan[0]!.orderLineId, netKg: 1 }]);
-    expect(applyEvent(s, ctxFor(s, U.ravi), bad)).toMatchObject({ status: 'rejected', code: 'TARE_REQUIRED' });
+    const refused = applyEvent(s, ctxFor(s, U.ravi), bad);
+    expect(refused).toMatchObject({ status: 'rejected', code: 'TARE_REQUIRED' });
     const snapshot = JSON.stringify(s);
     expect(applyEvent(s, ctxFor(s, U.ravi), ev)).toEqual({ status: 'duplicate', eventId: ev.eventId });
-    expect(applyEvent(s, ctxFor(s, U.ravi), bad)).toEqual({ status: 'duplicate', eventId: bad.eventId });
+    expect(applyEvent(s, ctxFor(s, U.ravi), bad)).toEqual({
+      status: 'rejected',
+      eventId: bad.eventId,
+      code: 'TARE_REQUIRED',
+      message: (refused as { message: string }).message,
+    });
     expect(JSON.stringify(s)).toBe(snapshot);
   });
 
@@ -174,7 +180,12 @@ describe('applyEvent: TARE then GROSS on the seeded loading truck (Siltara, CG 0
     const conflict = tare(truckBy(s, 'CG 04 MK 2291').id, 12_000);
     expect(applyEvent(s, ctxFor(s, U.ravi, 'phone-x-00000001'), conflict)).toMatchObject({ code: 'TARE_CONFLICT' });
     expect(applyEvent(s, ctxFor(s, U.ravi), ok).status).toBe('accepted');
-    expect(s.appliedEvents[conflict.eventId]).toEqual({ truckId: truck.id, status: 'rejected' });
+    expect(s.appliedEvents[conflict.eventId]).toEqual({
+      truckId: truck.id,
+      status: 'rejected',
+      code: 'TARE_CONFLICT',
+      message: expect.any(String),
+    });
     expect(s.appliedEvents[ok.eventId]).toEqual({ truckId: truck.id, status: 'accepted' });
     expect(JSON.stringify(s.appliedEvents)).not.toMatch(/Ramesh|Ravi|Shubham|\+91|12460|CG 04/);
   });

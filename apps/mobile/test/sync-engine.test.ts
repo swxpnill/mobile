@@ -5,6 +5,7 @@ import {
   type TasksPage,
   NetworkError,
 } from '@tonnage/shared';
+import { AppState, type AppStateStatus } from 'react-native';
 import { ApiError } from '../src/api/client';
 import { backoff } from '../src/offline/backoff';
 import { type DeviceStore, createMemoryDeviceStore } from '../src/offline/deviceStore';
@@ -195,6 +196,39 @@ describe('sync engine', () => {
     expect(pushes[0]?.events.map((e) => e.eventId)).toEqual([row.eventId]);
   });
 
+  it('a stale "sending" TARE replayed: duplicate ends accepted; rejected ends rejected and blocks the later GROSS', async () => {
+    const done = await store.saveCapture(tare(TRUCK_A));
+    await store.markSending([done.eventId]);
+    push = acceptAll((id) => ({ status: 'duplicate', eventId: id }));
+    expect(await engine().syncNow()).toMatchObject({ ok: true, sent: 1, pendingLeft: 0 });
+    expect((await store.outbox())[0]?.status).toBe('accepted');
+
+    // The server had refused it before the crash; the replay is refused the same way.
+    const refused = await store.saveCapture(tare(TRUCK_B));
+    await store.markSending([refused.eventId]);
+    let grossB = '';
+    push = async (body) => {
+      grossB = (await store.saveCapture(gross(TRUCK_B))).eventId; // weighed while it is out
+      return acceptAll(() => ({
+        status: 'rejected',
+        eventId: refused.eventId,
+        code: 'TRUCK_CANCELLED',
+        message: 'Truck was cancelled',
+      }))(body);
+    };
+
+    const out = await engine().syncNow();
+
+    expect(out).toMatchObject({ ok: true, rejected: 1, pendingLeft: 0 });
+    const rows = await store.outbox();
+    expect(rows.map((r) => [r.eventId, r.status])).toEqual([
+      [done.eventId, 'accepted'],
+      [refused.eventId, 'rejected'],
+      [grossB, 'blocked'],
+    ]);
+    expect(pushes.flatMap((b) => b.events.map((e) => e.eventId))).not.toContain(grossB);
+  });
+
   it('treats duplicate as accepted', async () => {
     await store.saveCapture(atGate(TRUCK_A));
     push = acceptAll((id) => ({ status: 'duplicate', eventId: id }));
@@ -314,6 +348,67 @@ describe('backoff', () => {
 describe('sync loop', () => {
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  it('concurrent triggers (interval, kick, foreground) share one run and count its failure once', async () => {
+    jest.useFakeTimers();
+    let foreground: ((s: AppStateStatus) => void) | undefined;
+    const original = AppState.addEventListener;
+    AppState.addEventListener = ((_type: string, handler: (s: AppStateStatus) => void) => {
+      foreground = handler;
+      return { remove: () => undefined };
+    }) as unknown as typeof AppState.addEventListener;
+    await store.saveCapture(atGate(TRUCK_A));
+    let release: () => void = () => undefined;
+    push = () =>
+      new Promise((_, reject) => {
+        release = () => reject(new NetworkError());
+      });
+    const real = engine();
+    const delays: number[] = [];
+    const counted: SyncEngine = {
+      syncNow: () => real.syncNow(),
+      nextDelayMs: (f) => {
+        delays.push(f);
+        return real.nextDelayMs(f);
+      },
+    };
+
+    const loop = startSyncLoop(counted, store);
+    await jest.advanceTimersByTimeAsync(60_000); // interval tick while the first run is out
+    loop.kick();
+    foreground?.('active');
+    await jest.advanceTimersByTimeAsync(0);
+    release();
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(pushes).toHaveLength(1);
+    expect(delays).toEqual([0]); // one failure, one retry timer
+    expect(useSyncStatus.getState()).toMatchObject({ online: false, syncing: false, pending: 1 });
+
+    loop.stop();
+    AppState.addEventListener = original;
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('a store error during a run is caught and syncing goes back to false', async () => {
+    jest.useFakeTimers();
+    const broken: DeviceStore = {
+      ...store,
+      outbox: async () => {
+        throw new Error('disk full');
+      },
+    };
+    const fake: SyncEngine = {
+      syncNow: async () => ({ ok: true, sent: 0, rejected: 0, pendingLeft: 0 }),
+      nextDelayMs: () => 2_000,
+    };
+
+    const loop = startSyncLoop(fake, broken);
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(useSyncStatus.getState().syncing).toBe(false);
+    loop.stop();
   });
 
   it('runs at once, retries a failure with backoff, then every 60 s; stop ends it', async () => {

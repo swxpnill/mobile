@@ -8,7 +8,7 @@ import {
 } from '@tonnage/shared';
 import { z } from 'zod';
 import { fromIso, toIso } from '../clock.ts';
-import { applyEvent } from '../dispatch.ts';
+import { applyEvent, remember, replayed } from '../dispatch.ts';
 import { isOpenTruck } from '../orders-math.ts';
 import { runEventTransaction } from '../pipeline.ts';
 import { route, type RouteDef } from '../router.ts';
@@ -141,7 +141,12 @@ export const supervisorRoutes: RouteDef[] = [
       const blocked = new Set<string>();
       const results: SyncResult[] = body.events.map((event) =>
         runEventTransaction(state, (): SyncResult => {
-          if (state.appliedEvents[event.eventId]) return { status: 'duplicate', eventId: event.eventId };
+          // Seen before: the same answer again (a replayed refusal still blocks the truck's later events).
+          const seen = replayed(state, event.eventId);
+          if (seen) {
+            if (seen.status === 'rejected') blocked.add(event.truckId);
+            return seen;
+          }
           let r: SyncResult;
           if (blocked.has(event.truckId)) {
             // Only a truck the caller may see reports its state (a PLANT_SCOPE truck stays opaque).
@@ -153,7 +158,7 @@ export const supervisorRoutes: RouteDef[] = [
               message: BLOCKED_MESSAGE,
               ...(truck ? { server: { state: truck.state } } : {}),
             };
-            state.appliedEvents[event.eventId] = { truckId: event.truckId, status: 'rejected' };
+            remember(state, event, r);
           } else {
             r = applyEvent(state, dispatchCtx, event);
           }

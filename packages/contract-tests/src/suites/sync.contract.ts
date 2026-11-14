@@ -5,10 +5,12 @@ import {
   type TransportResponse,
   doneTodaySchema,
   orderSchema,
+  rejectionSchema,
   syncResponseSchema,
   tasksPageSchema,
   truckSchema,
 } from '@tonnage/shared';
+import { z } from 'zod';
 import {
   COMPANY,
   DEVICE_A,
@@ -251,11 +253,37 @@ export function register(factory: TargetFactory): void {
           code: 'INVALID_STATE',
           message: 'Blocked by an earlier rejected weight',
         });
-        // Replayed, both are duplicates (no second rejection).
-        expect((await synced(sync(t, ravi, events))).map((r) => r.status)).toEqual(['duplicate', 'duplicate']);
+        // Replayed (the phone never saw the answer): the same refusals again, no second rejection row.
+        const replay = await synced(sync(t, ravi, events));
+        expect(replay).toEqual(
+          results.map((r) => (r.status === 'rejected' ? { status: 'rejected', eventId: r.eventId, code: r.code, message: r.message } : r)),
+        );
+        const rows = expectOk(await call(t, 'GET', '/v1/weighment-rejections?status=all', { token: owner }), z.array(rejectionSchema));
+        expect(rows.filter((r) => r.truckId === truck.id)).toHaveLength(2);
         const detail = await getTruck(t, owner, truck.id);
         expect(detail.state).toBe('cancelled');
         expect(detail.weighments).toEqual([]);
+      });
+
+      it('a rejected TARE replayed is rejected again with the same code: one rejection row, truck unchanged', async () => {
+        const t = target();
+        const { owner, truck } = await canvasWithTruck(t);
+        const ravi = await tokenFor(t, PEOPLE.ravi);
+        // Another phone's tare wins first.
+        await synced(sync(t, ravi, [phone(truck.id, () => t.clock.now()).tare(12_000)]));
+        const mine = [phone(truck.id, () => t.clock.now()).tare(12_460)];
+        const first = await synced(sync(t, ravi, mine, { deviceId: DEVICE_B }));
+        expect(first[0]).toMatchObject({ status: 'rejected', code: 'TARE_CONFLICT' });
+        const before = await getTruck(t, owner, truck.id);
+
+        const again = await synced(sync(t, ravi, mine, { deviceId: DEVICE_B }));
+
+        expect(again).toEqual([
+          { status: 'rejected', eventId: mine[0]!.eventId, code: 'TARE_CONFLICT', message: (first[0] as { message: string }).message },
+        ]);
+        const rows = expectOk(await call(t, 'GET', '/v1/weighment-rejections?status=all', { token: owner }), z.array(rejectionSchema));
+        expect(rows.filter((r) => r.truckId === truck.id)).toHaveLength(1);
+        expect(await getTruck(t, owner, truck.id)).toEqual(before);
       });
 
       it('a blocked truck does not block another truck in the same batch', async () => {

@@ -279,10 +279,13 @@ export interface TruckTombstoneRec {
   removedAt: string;
 }
 /** What de-duplication of a sync event needs, and nothing else (no names, weights or payloads). */
-export interface AppliedEventRec {
-  truckId: string;
-  status: 'accepted' | 'rejected';
-}
+/**
+ * A sync event already seen. A rejected one keeps its code and generic message (never names,
+ * phones or weights), so a replay is refused again the same way instead of reading `duplicate`.
+ */
+export type AppliedEventRec =
+  | { truckId: string; status: 'accepted' }
+  | { truckId: string; status: 'rejected'; code: SyncRejectCode; message: string };
 /** Append-only broker ledger (§5.4): earnings positive, a reversal is the exact negation. F4 adds payments. */
 export interface BrokerLedgerRec {
   id: string;
@@ -334,7 +337,7 @@ export interface MockState {
   weighments: WeighmentRec[];
   rejections: RejectionRec[];
   brokerLedger: BrokerLedgerRec[];
-  /** Every sync event seen, by `clientEventId`: only its truck and outcome, so a replay is `duplicate` and hard delete can purge it. */
+  /** Every sync event seen, by `clientEventId`: its truck and outcome (a refusal's code and message), so a replay gets the same answer and hard delete can purge it. */
   appliedEvents: Record<string, AppliedEventRec>;
   truckTombstones: TruckTombstoneRec[];
   drafts: DraftRec[];
