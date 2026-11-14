@@ -38,7 +38,14 @@ function deviceOffsetMs(headers: Record<string, string>, now: number): number {
 type Rejected = Extract<SyncResult, { status: 'rejected' }>;
 
 /** Keeps a refused event for Needs attention (§6.5), when its truck exists in the caller's tenant. */
-function recordRejection(state: MockState, a: Authed, deviceId: string, event: SyncEvent, r: Rejected, now: number): void {
+function recordRejection(
+  state: MockState,
+  a: Authed,
+  device: { deviceId: string; offsetMs: number },
+  event: SyncEvent,
+  r: Rejected,
+  now: number,
+): void {
   const truck = state.trucks.find((t) => t.id === event.truckId && t.tenantId === a.user.tenantId);
   if (!truck) return; // an id from nowhere: nothing to restore, nothing to show
   state.rejections.push({
@@ -47,7 +54,8 @@ function recordRejection(state: MockState, a: Authed, deviceId: string, event: S
     clientEventId: event.eventId,
     truckId: truck.id,
     userId: a.user.id,
-    deviceId,
+    deviceId: device.deviceId,
+    offsetMs: device.offsetMs,
     event,
     code: r.code,
     serverState: truck.state,
@@ -151,7 +159,7 @@ export const supervisorRoutes: RouteDef[] = [
           }
           if (r.status === 'rejected') {
             blocked.add(event.truckId);
-            recordRejection(state, a, body.deviceId, event, r, now);
+            recordRejection(state, a, dispatchCtx, event, r, now);
           }
           return r;
         }),

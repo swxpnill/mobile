@@ -268,6 +268,16 @@ export const rejectionSchema = z.object({
 });
 export type Rejection = z.infer<typeof rejectionSchema>;
 
+export const rejectionsQuerySchema = z.object({ status: z.enum(['open', 'all']).default('open') });
+export type RejectionsQuery = z.infer<typeof rejectionsQuerySchema>;
+
+export const rejectionCountSchema = z.object({ open: z.number().int().min(0) });
+export type RejectionCount = z.infer<typeof rejectionCountSchema>;
+
+/** `POST /weighment-rejections/:id/restore`: the restored rejection and its truck afterwards. */
+export const restoreRejectionResultSchema = z.object({ rejection: rejectionSchema, truck: truckSchema });
+export type RestoreRejectionResult = z.infer<typeof restoreRejectionResultSchema>;
+
 export const dismissRejectionBodySchema = z.object({ reason: z.string().trim().min(3).max(200) }).strict();
 export type DismissRejectionBody = z.infer<typeof dismissRejectionBodySchema>;
 

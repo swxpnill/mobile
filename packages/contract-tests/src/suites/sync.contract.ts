@@ -38,7 +38,7 @@ function eventId(): string {
 type Alloc = { orderLineId: string; netKg: number };
 
 /** A phone's events for one truck; `at` is the phone's own clock. */
-function phone(truckId: string, at: () => number) {
+export function phone(truckId: string, at: () => number) {
   let seq = 0;
   const base = () => ({ eventId: eventId(), truckId, deviceSeq: seq++, capturedAtDevice: new Date(at()).toISOString() });
   return {
@@ -49,7 +49,7 @@ function phone(truckId: string, at: () => number) {
 }
 
 /** `POST /v1/weighments/sync`, optionally with the phone's clock in `X-Device-Time`. */
-function sync(
+export function sync(
   t: ContractTarget,
   token: string,
   events: SyncEvent[],
@@ -69,7 +69,7 @@ function sync(
   });
 }
 
-const synced = async (res: Promise<TransportResponse>) => expectOk(await res, syncResponseSchema).results;
+export const synced = async (res: Promise<TransportResponse>) => expectOk(await res, syncResponseSchema).results;
 
 const assignBody = (lineId: string, kg: number, vehicleNo = 'CG 04 MK 2291') => ({
   vehicleNo,
@@ -80,7 +80,7 @@ const assignBody = (lineId: string, kg: number, vehicleNo = 'CG 04 MK 2291') => 
   plan: [{ orderLineId: lineId, plannedKg: kg }],
 });
 
-async function assign(t: ContractTarget, token: string, subId: string, lineId: string, kg: number, vehicleNo?: string) {
+export async function assign(t: ContractTarget, token: string, subId: string, lineId: string, kg: number, vehicleNo?: string) {
   const res = await call(t, 'POST', `/v1/sub-orders/${subId}/trucks`, {
     token,
     idempotencyKey: newKey(),
@@ -90,7 +90,7 @@ async function assign(t: ContractTarget, token: string, subId: string, lineId: s
 }
 
 /** The canvas order (AIP at Siltara = A, KRM at Borai = B) and one truck on A's first line. */
-async function canvasWithTruck(t: ContractTarget) {
+export async function canvasWithTruck(t: ContractTarget) {
   const owner = await tokenFor(t, PEOPLE.rajesh);
   const order = expectOk(await createOrder(t, owner), orderSchema, 201);
   const a = order.subOrders[0]!;
@@ -100,11 +100,11 @@ async function canvasWithTruck(t: ContractTarget) {
   return { owner, order, a, b, aLine, truck };
 }
 
-const getOrder = async (t: ContractTarget, token: string, id: string) =>
+export const getOrder = async (t: ContractTarget, token: string, id: string) =>
   expectOk(await call(t, 'GET', `/v1/orders/${id}`, { token }), orderSchema);
-const getTruck = async (t: ContractTarget, token: string, id: string) =>
+export const getTruck = async (t: ContractTarget, token: string, id: string) =>
   expectOk(await call(t, 'GET', `/v1/trucks/${id}`, { token }), truckSchema);
-const lineIn = (o: Order, lineId: string) => o.subOrders.flatMap((s) => s.lines).find((l) => l.id === lineId)!;
+export const lineIn = (o: Order, lineId: string) => o.subOrders.flatMap((s) => s.lines).find((l) => l.id === lineId)!;
 
 export function register(factory: TargetFactory): void {
   describe('contract: supervisor tasks and weighment sync', () => {

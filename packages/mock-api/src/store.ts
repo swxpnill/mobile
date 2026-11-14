@@ -260,6 +260,8 @@ export interface RejectionRec {
   truckId: string;
   userId: string;
   deviceId: string;
+  /** The sending phone's clock offset (server − device), so a restore keeps the event's business time. Absent in older snapshots: 0. */
+  offsetMs?: number;
   event: SyncEvent;
   code: SyncRejectCode;
   serverState: TruckState;

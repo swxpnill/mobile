@@ -9,7 +9,7 @@ import {
   truckSchema,
 } from '@tonnage/shared';
 import { createFakeClock, MINUTE, toIso } from './clock.ts';
-import { applyEvent, reverseEarning, writeEarning } from './dispatch.ts';
+import { applyEvent, reverseEarning, rewriteEarning, writeEarning } from './dispatch.ts';
 import { ALL_ROUTES, createMockApi } from './index.ts';
 import { orderCtx } from './order-views.ts';
 import { orderMath } from './orders-math.ts';
@@ -370,6 +370,29 @@ describe('earnings and views', () => {
     const patel = truckBy(s, 'CG 04 AB 1123');
     writeEarning(s, patel, toIso(NOW), U.rajesh);
     expect(s.brokerLedger.some((x) => x.truckId === patel.id)).toBe(false);
+  });
+
+  it('rewriteEarning: earning, its exact reversal, a new earning at the rates at dispatch; Σ = new earning', () => {
+    const s = world();
+    const gupta = s.trucks.find((t) => t.vehicleNo === 'CG 04 NB 5510')!;
+    const [first] = s.brokerLedger.filter((x) => x.truckId === gupta.id);
+    expect(first!.amountRupees).toBe(2_265); // 15.100 MT × ₹150
+    // Rates changed after dispatch do not apply to this truck.
+    const order = s.orders.find((o) => o.id === gupta.orderId)!;
+    order.commissionPerMtSnapshot = 400;
+    for (const l of s.orderLines.filter((x) => x.subOrderId === gupta.subOrderId)) l.overpricePerMt = 999;
+    gupta.allocations = [{ orderLineId: gupta.allocations[0]!.orderLineId, netKg: 14_000 }];
+
+    rewriteEarning(s, gupta, toIso(NOW), U.rajesh);
+    const rows = s.brokerLedger.filter((x) => x.truckId === gupta.id);
+    expect(rows.map((x) => [x.kind, x.amountRupees, x.reversesId])).toEqual([
+      ['earning', 2_265, null],
+      ['reversal', -2_265, first!.id],
+      ['earning', 2_100, null], // 14.000 MT × ₹150
+    ]);
+    expect(rows[1]!.breakdown).toEqual(first!.breakdown.map((b) => ({ ...b, netKg: -b.netKg })));
+    expect(rows[2]!.breakdown).toEqual([{ orderLineId: gupta.allocations[0]!.orderLineId, netKg: 14_000, perMt: 150 }]);
+    expect(rows.reduce((n, x) => n + x.amountRupees, 0)).toBe(2_100);
   });
 
   it('toTruck carries the earning only on broker orders; toTask carries no money', () => {

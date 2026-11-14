@@ -13,7 +13,7 @@ import {
 import { toIso } from './clock.ts';
 import { errorMessage } from './errors.ts';
 import { nextNumber, orderMath } from './orders-math.ts';
-import type { MockState, TruckRec, WeighmentRec } from './store.ts';
+import type { BrokerLedgerRec, MockState, TruckRec, WeighmentRec } from './store.ts';
 import { toTask } from './truck-views.ts';
 import { type Authed, logActivity, newId } from './views.ts';
 
@@ -193,7 +193,7 @@ export function issueLoadingSlip(state: MockState, truck: TruckRec, at: string):
  * §5.1 tolerance in the dispatch transaction: when pending is within the tenant's tolerance and
  * nothing else is open on the sub-order, close the rest; flag a sub-order over by more than it.
  */
-function closeWithinTolerance(state: MockState, ctx: DispatchCtx, truck: TruckRec, at: string): void {
+export function closeWithinTolerance(state: MockState, ctx: DispatchCtx, truck: TruckRec, at: string): void {
   const sub = state.subOrders.find((s) => s.id === truck.subOrderId);
   if (!sub) throw new Error(`truck ${truck.id} has no sub-order`);
   const toleranceKg = ctx.user.tenant.settings.completionToleranceKg;
@@ -226,6 +226,22 @@ function closeWithinTolerance(state: MockState, ctx: DispatchCtx, truck: TruckRe
 }
 
 /**
+ * Undoes a tolerance close of the truck's sub-order (a weight correction re-evaluates it): the
+ * lines' closed kg go back to 0 and the sub-order is open again. Nothing for other close kinds.
+ */
+export function undoToleranceClose(state: MockState, truck: TruckRec, at: string): void {
+  const sub = state.subOrders.find((s) => s.id === truck.subOrderId);
+  if (!sub || sub.closeKind !== 'tolerance') return;
+  for (const l of state.orderLines) {
+    if (l.subOrderId !== sub.id || l.closedKg === 0) continue;
+    l.closedKg = 0;
+    bump(l, at);
+  }
+  Object.assign(sub, { closeKind: null, closeReason: null, closeNote: null, closedAt: null, closedBy: null });
+  bump(sub, at);
+}
+
+/**
  * Appends the truck's broker earning (§5.4) from its allocations, at the order's commission
  * snapshot plus each line's overprice. Nothing when the order has no broker.
  */
@@ -234,11 +250,45 @@ export function writeEarning(state: MockState, truck: TruckRec, at: string, acto
   if (!order) throw new Error(`truck ${truck.id} has no order`);
   if (order.brokerId === null) return;
   const lines = new Map(state.orderLines.filter((l) => l.subOrderId === truck.subOrderId).map((l) => [l.id, l]));
-  const { earningRupees, breakdown } = truckEarning(truck.allocations, lines, order.commissionPerMtSnapshot ?? 0);
+  pushEarning(state, truck, order.brokerId, truckEarning(truck.allocations, lines, order.commissionPerMtSnapshot ?? 0), at, actorId);
+}
+
+/**
+ * A weight correction's earning (§5.2): reverses the current earning, then writes a new one for
+ * the truck's new allocations at the reversed earning's per-MT rates (the rates at dispatch).
+ * A line the old earning did not cover takes the order's snapshot commission plus its overprice.
+ */
+export function rewriteEarning(state: MockState, truck: TruckRec, at: string, actorId: string): void {
+  const old = reverseEarning(state, truck, at, actorId);
+  if (!old) {
+    writeEarning(state, truck, at, actorId);
+    return;
+  }
+  const order = state.orders.find((o) => o.id === truck.orderId);
+  if (!order) throw new Error(`truck ${truck.id} has no order`);
+  const atDispatch = new Map(old.breakdown.map((b) => [b.orderLineId, b.perMt]));
+  const commission = order.commissionPerMtSnapshot ?? 0;
+  // Each line's whole per-MT rate as its "overprice", over a zero commission.
+  const rates = new Map(
+    state.orderLines
+      .filter((l) => l.subOrderId === truck.subOrderId)
+      .map((l) => [l.id, { overpricePerMt: atDispatch.get(l.id) ?? commission + l.overpricePerMt }]),
+  );
+  pushEarning(state, truck, old.brokerId, truckEarning(truck.allocations, rates, 0), at, actorId);
+}
+
+function pushEarning(
+  state: MockState,
+  truck: TruckRec,
+  brokerId: string,
+  { earningRupees, breakdown }: ReturnType<typeof truckEarning>,
+  at: string,
+  actorId: string,
+): void {
   state.brokerLedger.push({
     id: newId(),
     tenantId: truck.tenantId,
-    brokerId: order.brokerId,
+    brokerId,
     kind: 'earning',
     truckId: truck.id,
     amountRupees: earningRupees,
@@ -249,12 +299,15 @@ export function writeEarning(state: MockState, truck: TruckRec, at: string, acto
   });
 }
 
-/** Appends the exact negation of the truck's latest earning not yet reversed; nothing if none. */
-export function reverseEarning(state: MockState, truck: TruckRec, at: string, actorId: string): void {
+/**
+ * Appends the exact negation of the truck's latest earning not yet reversed and returns that
+ * earning; nothing (undefined) if there is none.
+ */
+export function reverseEarning(state: MockState, truck: TruckRec, at: string, actorId: string): BrokerLedgerRec | undefined {
   const rows = state.brokerLedger.filter((r) => r.truckId === truck.id);
   const reversed = new Set(rows.map((r) => r.reversesId).filter((x): x is string => x !== null));
   const earning = lastOf(rows, (r) => r.kind === 'earning' && !reversed.has(r.id));
-  if (!earning) return;
+  if (!earning) return undefined;
   state.brokerLedger.push({
     id: newId(),
     tenantId: earning.tenantId,
@@ -267,6 +320,7 @@ export function reverseEarning(state: MockState, truck: TruckRec, at: string, ac
     createdAt: at,
     createdBy: actorId,
   });
+  return earning;
 }
 
 /** `Array.prototype.findLast` (ES2023, outside this package's lib). */

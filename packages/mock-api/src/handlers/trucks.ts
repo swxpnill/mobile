@@ -5,18 +5,22 @@ import {
   assignTruckBodySchema,
   assignable,
   cancelTruckBodySchema,
+  checkAllocations,
+  correctWeightBodySchema,
   dispatchQuerySchema,
   editTruckBodySchema,
   isTerminal,
+  netKg,
   nextTruckState,
   subOrderNumber,
 } from '@tonnage/shared';
 import { toIso } from '../clock.ts';
+import { closeWithinTolerance, currentWeighment, rewriteEarning, undoToleranceClose } from '../dispatch.ts';
 import { ApiError, notFound, stale, validationError } from '../errors.ts';
 import { type OrderCtx, ctxFor } from '../order-views.ts';
 import { isOpenTruck } from '../orders-math.ts';
 import { route, type RouteDef } from '../router.ts';
-import type { MockState, SubOrderRec, TruckRec } from '../store.ts';
+import type { MockState, SubOrderRec, TruckRec, WeighmentRec } from '../store.ts';
 import { boardOrder, newestFirst, sameIstDay, toTruck, vehicleKey } from '../truck-views.ts';
 import { type Authed, authed, logActivity, newId, plantInScope as inScope } from '../views.ts';
 import { findSubOrder } from './order-lifecycle.ts';
@@ -222,6 +226,66 @@ export const truckRoutes: RouteDef[] = [
         action: 'truck.cancelled',
         meta: { subOrderId: t.subOrderId, truckId: t.id, vehicleNo: t.vehicleNo, reason: body.reason },
       });
+      return { body: toTruck(ctxFor(ctx, a), t, { withWeighments: true }) };
+    },
+  }),
+
+  // Owner only, after dispatch (§5.2): new weights replace the old ones, which stay as superseded.
+  route('POST', '/v1/trucks/:id/correct-weight', {
+    action: 'weighment.correctAfterDispatch',
+    transactional: true,
+    body: correctWeightBodySchema,
+    async handler(ctx) {
+      const a = authed(ctx);
+      const { body, state, now } = ctx;
+      const c = ctxFor(ctx, a);
+      const t = findTruck(c, ctx.params.id);
+      if (body.version !== t.version) throw stale();
+      if (t.state !== 'dispatched' || t.tareKg === null || t.grossKg === null) throw new ApiError(409, 'TRUCK_LOCKED');
+      const net = netKg(body.grossKg, body.tareKg);
+      const lineIds = new Set(c.math.linesOf(t.subOrderId).map((l) => l.id));
+      const check = checkAllocations(net, body.allocations, lineIds);
+      if (check !== 'ok') throw new ApiError(409, check);
+
+      const at = toIso(now);
+      const oldNetKg = netKg(t.grossKg, t.tareKg);
+      const reweigh = (kind: WeighmentRec['kind'], kg: number) => {
+        const rec: WeighmentRec = {
+          id: newId(),
+          tenantId: t.tenantId,
+          truckId: t.id,
+          kind,
+          kg,
+          enteredBy: a.user.id,
+          deviceId: 'server',
+          clientEventId: newId(),
+          capturedAtDevice: at,
+          capturedAt: at,
+          receivedAt: at,
+          clockSkewFlag: false,
+          supersededBy: null,
+        };
+        const previous = currentWeighment(state, t.id, kind);
+        if (previous) previous.supersededBy = rec.id;
+        state.weighments.push(rec);
+      };
+      reweigh('tare', body.tareKg);
+      reweigh('gross', body.grossKg);
+      t.tareKg = body.tareKg;
+      t.grossKg = body.grossKg;
+      t.allocations = body.allocations.map((x) => ({ orderLineId: x.orderLineId, netKg: x.netKg }));
+      t.version += 1;
+      t.updatedAt = at;
+      rewriteEarning(state, t, at, a.user.id);
+      logActivity(state, a, now, {
+        entityType: 'order',
+        entityId: t.orderId,
+        action: 'truck.weight_corrected',
+        meta: { subOrderId: t.subOrderId, truckId: t.id, vehicleNo: t.vehicleNo, oldNetKg, newNetKg: net, reason: body.reason },
+      });
+      // Tolerance again from scratch: undone, then closed only if still within it with nothing open.
+      undoToleranceClose(state, t, at);
+      closeWithinTolerance(state, { user: a, deviceId: 'server', now, offsetMs: 0 }, t, at);
       return { body: toTruck(ctxFor(ctx, a), t, { withWeighments: true }) };
     },
   }),
