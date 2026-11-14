@@ -39,6 +39,14 @@ export interface ApiInit<T> {
   schema?: ZodType<T>;
   /** Send the access token (default). Public routes such as `/v1/meta` pass `false`. */
   auth?: boolean;
+  /** Send `X-Device-Time` (this phone's clock at send time) so the server can measure its offset. */
+  deviceTime?: boolean;
+}
+
+/** A 2xx body with the response's `Date` header (null when the server sent none). */
+export interface ApiResult<T> {
+  body: T;
+  date: string | null;
 }
 
 /**
@@ -47,7 +55,23 @@ export interface ApiInit<T> {
  * never does (the phone may simply be offline).
  */
 export async function api<T = unknown>(path: string, init: ApiInit<T> = {}): Promise<T> {
-  const { method = 'GET', body, idempotent, idempotencyKey, schema, auth = true } = init;
+  return (await apiWithDate(path, init)).body;
+}
+
+/** `api()`, also returning the response's `Date` header (for the device clock offset, §6.6). */
+export async function apiWithDate<T = unknown>(
+  path: string,
+  init: ApiInit<T> = {},
+): Promise<ApiResult<T>> {
+  const {
+    method = 'GET',
+    body,
+    idempotent,
+    idempotencyKey,
+    schema,
+    auth = true,
+    deviceTime,
+  } = init;
   const key = idempotencyKey ?? (idempotent ? Crypto.randomUUID() : undefined);
 
   let sentWith: string | undefined;
@@ -56,6 +80,7 @@ export async function api<T = unknown>(path: string, init: ApiInit<T> = {}): Pro
     sentWith = useSession.getState().accessToken;
     if (auth && sentWith) headers.authorization = `Bearer ${sentWith}`;
     if (key) headers['idempotency-key'] = key;
+    if (deviceTime) headers['x-device-time'] = new Date().toISOString();
     return timed((await getTransport()).request({ method, path, headers, body }));
   };
 
@@ -75,7 +100,10 @@ export async function api<T = unknown>(path: string, init: ApiInit<T> = {}): Pro
     }
   }
   if (res.status < 200 || res.status >= 300) throw toApiError(res);
-  return (schema ? schema.parse(res.body) : res.body) as T;
+  return {
+    body: (schema ? schema.parse(res.body) : res.body) as T,
+    date: res.headers.date ?? null,
+  };
 }
 
 function toApiError(res: TransportResponse): ApiError {
