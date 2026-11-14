@@ -42,6 +42,7 @@ export function MenuRow({
   onPress,
   comingSoon,
   danger,
+  accessibilityLabel,
 }: {
   icon: IconName;
   tone: Tone;
@@ -50,13 +51,15 @@ export function MenuRow({
   onPress?: () => void;
   comingSoon?: boolean;
   danger?: boolean;
+  /** Spoken name when the label alone is not enough (e.g. "Sign out, 2 weights not sent yet"). */
+  accessibilityLabel?: string;
 }) {
   const { t } = useTheme();
   return (
     <Row
       onPress={onPress ?? (() => undefined)}
       disabled={comingSoon}
-      accessibilityLabel={comingSoon ? `${label}, coming soon` : label}
+      accessibilityLabel={accessibilityLabel ?? (comingSoon ? `${label}, coming soon` : label)}
     >
       <IconTile icon={icon} tone={tone} />
       <Text weight="medium" color={danger ? 'dgt' : 'tx'} style={styles.fill} numberOfLines={1}>

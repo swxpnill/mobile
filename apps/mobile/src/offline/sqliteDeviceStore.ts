@@ -333,3 +333,8 @@ export function openDeviceStore(userId: string): Promise<DeviceStore> {
   }
   return store;
 }
+
+/** Tests: forget the stores opened so far, so each test starts with empty memory stores. */
+export function resetDeviceStoresForTests(): void {
+  opened.clear();
+}

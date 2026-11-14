@@ -411,6 +411,65 @@ describe('sync loop', () => {
     loop.stop();
   });
 
+  it('a kick during a run (e.g. its pull) schedules exactly one follow-up run, not a 60 s wait', async () => {
+    jest.useFakeTimers();
+    const OK: SyncOutcome = { ok: true, sent: 0, rejected: 0, pendingLeft: 0 };
+    let runs = 0;
+    let release: () => void = () => undefined;
+    const fake: SyncEngine = {
+      syncNow: () => {
+        runs += 1;
+        if (runs > 1) return Promise.resolve(OK);
+        return new Promise((resolve) => {
+          release = () => resolve(OK);
+        });
+      },
+      nextDelayMs: () => 2_000,
+    };
+
+    const loop = startSyncLoop(fake, store);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(runs).toBe(1);
+
+    const followUp = loop.kick(); // a capture saved while the first run is out
+    void loop.kick(); // and another: still one follow-up
+    await jest.advanceTimersByTimeAsync(0);
+    expect(runs).toBe(1);
+
+    release();
+    await followUp;
+    expect(runs).toBe(2);
+    await jest.advanceTimersByTimeAsync(1_000);
+    expect(runs).toBe(2);
+
+    loop.stop();
+  });
+
+  it('a kick during a run that fails leaves the retry to backoff (no immediate rerun)', async () => {
+    jest.useFakeTimers();
+    let runs = 0;
+    let release: () => void = () => undefined;
+    const fake: SyncEngine = {
+      syncNow: () => {
+        runs += 1;
+        return new Promise((resolve) => {
+          release = () => resolve({ ok: false, sent: 0, rejected: 0, pendingLeft: 1, error: 'network' });
+        });
+      },
+      nextDelayMs: () => 2_000,
+    };
+
+    const loop = startSyncLoop(fake, store);
+    await jest.advanceTimersByTimeAsync(0);
+    const followUp = loop.kick();
+    release();
+    await followUp;
+    expect(runs).toBe(1);
+    await jest.advanceTimersByTimeAsync(2_000);
+    expect(runs).toBe(2);
+    loop.stop();
+  });
+
   it('runs at once, retries a failure with backoff, then every 60 s; stop ends it', async () => {
     jest.useFakeTimers();
     const outcomes: SyncOutcome[] = [

@@ -1,0 +1,339 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import * as SecureStore from 'expo-secure-store';
+import type { ReactElement } from 'react';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SAMPLE_WORLD, dispatchBoardSchema } from '@tonnage/shared';
+import { createFakeClock, createMockApi, type MockApi } from '@tonnage/mock-api';
+import { api } from '../src/api/client';
+import { UnitBasisProvider } from '../src/api/hooks/me';
+import { setMockApi, setTransport } from '../src/api/transport';
+import { resetSessionForTests, useSession } from '../src/auth/session';
+import { openDeviceStore, resetDeviceStoresForTests } from '../src/offline/sqliteDeviceStore';
+import { syncNow, useSync, useSyncStatus } from '../src/offline/useSync';
+import { DemoToolsScreen } from '../src/screens/DemoToolsScreen';
+import { ProfileScreen } from '../src/screens/ProfileScreen';
+import { WeighTruckScreen } from '../src/screens/supervisor/CaptureScreen';
+import { DispatchedScreen } from '../src/screens/supervisor/DispatchedScreen';
+import { DoneTodayScreen } from '../src/screens/supervisor/DoneTodayScreen';
+import { TasksScreen } from '../src/screens/supervisor/TasksScreen';
+import { ThemeProvider } from '../src/theme/ThemeProvider';
+import { ToastHost } from '../src/ui';
+
+const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), canGoBack: () => true };
+const mockNavigation = { getState: () => undefined, dispatch: jest.fn() };
+jest.mock('expo-router', () => {
+  const { Text } = jest.requireActual('react-native');
+  return {
+    useRouter: () => mockRouter,
+    useNavigation: () => mockNavigation,
+    Redirect: ({ href }: { href: string }) => <Text testID="redirect">{href}</Text>,
+  };
+});
+
+const { ids } = SAMPLE_WORLD;
+const NOW = Date.UTC(2026, 10, 14, 5, 0); // 10:30 in India
+
+let mock: MockApi;
+let client: QueryClient;
+
+async function signIn(userId: string) {
+  const deviceId = await useSession.getState().ensureDeviceId();
+  await useSession.getState().signIn(await mock.controls.signInAs(userId, deviceId));
+}
+
+/** The signed-in layout's sync loop, as `app/(app)/_layout.tsx` mounts it. */
+function SyncHost() {
+  useSync();
+  return null;
+}
+
+const wrap = (ui: ReactElement) =>
+  render(
+    <SafeAreaProvider
+      initialMetrics={{
+        frame: { x: 0, y: 0, width: 390, height: 844 },
+        insets: { top: 0, left: 0, right: 0, bottom: 0 },
+      }}
+    >
+      <QueryClientProvider client={client}>
+        <ThemeProvider>
+          <UnitBasisProvider>
+            <SyncHost />
+            {ui}
+            <ToastHost />
+          </UnitBasisProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
+    </SafeAreaProvider>,
+  );
+
+const press = (name: string | RegExp) => fireEvent.press(screen.getByRole('button', { name }));
+const typeWeight = async (keys: string) => {
+  for (const k of keys) await press(k === '.' ? 'Decimal point' : k);
+};
+const ravisStore = () => openDeviceStore(ids.users.ravi);
+
+/** The truck id of a vehicle on the owner's dispatch board, with its plan lines. */
+async function boardTruck(vehicleNo: string) {
+  const board = await api('/v1/dispatch', { schema: dispatchBoardSchema });
+  const truck = board.items.find((t) => t.vehicleNo === vehicleNo);
+  if (!truck) throw new Error(`no ${vehicleNo}`);
+  return truck;
+}
+
+/** Opens a task from My tasks the way the supervisor does; returns its truck id. */
+async function openTask(action: 'Capture gross weight' | 'Capture tare weight', vehicleNo: string) {
+  const view = await wrap(<TasksScreen />);
+  const card = await screen.findByLabelText(new RegExp(`^${vehicleNo}`));
+  await fireEvent.press(within(card).getByRole('button', { name: action }));
+  const href = mockRouter.push.mock.calls.at(-1)?.[0] as string;
+  await view.unmount();
+  return href.replace('/weigh/', '');
+}
+
+beforeEach(async () => {
+  jest.clearAllMocks();
+  await AsyncStorage.clear();
+  (SecureStore as unknown as { __reset(): void }).__reset();
+  resetSessionForTests();
+  resetDeviceStoresForTests();
+  mock = await createMockApi({ clock: createFakeClock(NOW), seedOrders: true });
+  setTransport(null);
+  setMockApi(mock);
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { gcTime: Infinity } },
+  });
+  await signIn(ids.users.ravi);
+});
+
+afterEach(() => {
+  client.clear();
+  setMockApi(null);
+});
+
+describe('My tasks', () => {
+  it('shows the plant, the counts and Siltara’s trucks with their state and next action', async () => {
+    const view = await wrap(<TasksScreen />);
+
+    const card = await screen.findByLabelText(/^CG 04 MK 2291/);
+    expect(within(card).getByText('Tare 12.460 t')).toBeOnTheScreen();
+    expect(within(card).getByText('Load TMT Fe500D · 12 mm · 12 m')).toBeOnTheScreen();
+    expect(within(card).getByText('24.000 MT')).toBeOnTheScreen();
+    expect(within(card).getByRole('button', { name: 'Capture gross weight' })).toBeOnTheScreen();
+    expect(
+      within(screen.getByLabelText(/^CG 07 KL 3304/)).getByRole('button', {
+        name: 'Capture tare weight',
+      }),
+    ).toBeOnTheScreen();
+    expect(
+      within(screen.getByLabelText(/^CG 10 GH 4471/)).getByRole('button', { name: 'At gate' }),
+    ).toBeOnTheScreen();
+    expect(await screen.findByText('Aarav Ispat Pvt Ltd · Siltara')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Need tare, 2')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Need gross, 1')).toBeOnTheScreen();
+    expect(screen.queryByText('No network')).toBeNull(); // all synced: no banner
+    await view.unmount();
+  });
+
+  it('At gate saves an event on this phone and moves the truck to At gate', async () => {
+    const view = await wrap(<TasksScreen />);
+    const card = await screen.findByLabelText(/^CG 10 GH 4471/);
+    await fireEvent.press(within(card).getByRole('button', { name: 'At gate' }));
+    expect(await screen.findByText('Saved on this phone')).toBeOnTheScreen();
+    const rows = await (await ravisStore()).outbox();
+    expect(rows.map((r) => r.type)).toEqual(['AT_GATE']);
+    await waitFor(() =>
+      expect(
+        within(screen.getByLabelText(/^CG 10 GH 4471/)).getByRole('button', {
+          name: 'Capture tare weight',
+        }),
+      ).toBeOnTheScreen(),
+    );
+    await view.unmount();
+  });
+});
+
+describe('Capture', () => {
+  it('tare: violet screen, saves a TARE row, then back to My tasks', async () => {
+    const truckId = await openTask('Capture tare weight', 'CG 07 KL 3304');
+    const view = await wrap(<WeighTruckScreen truckId={truckId} />);
+    await screen.findByText('Tare weight');
+    expect(screen.getByText('After tare, load')).toBeOnTheScreen();
+    await typeWeight('11.98');
+    expect(screen.getByTestId('weight-readout')).toHaveTextContent(/^11\.98/);
+    await press('Save tare · start loading');
+    expect(await screen.findByText('Saved on this phone')).toBeOnTheScreen();
+    const rows = await (await ravisStore()).outbox();
+    expect(rows.map((r) => [r.type, r.payload.tareKg])).toEqual([['TARE', 11_980]]);
+    expect(mockRouter.back).toHaveBeenCalled();
+    await view.unmount();
+  });
+
+  it('gross 36.640 over tare 12.460: net 24.180, +0.180 over; offline save, banner, then the slip once synced', async () => {
+    const truckId = await openTask('Capture gross weight', 'CG 04 MK 2291');
+    let view = await wrap(<WeighTruckScreen truckId={truckId} />);
+    await screen.findByText('Gross weight');
+    expect(screen.getByText('Planned 24.000 MT')).toBeOnTheScreen();
+    expect(screen.getByText(/^Tare · weighed \d\d:\d\d$/)).toBeOnTheScreen();
+    expect(screen.getByText('− 12.460')).toBeOnTheScreen();
+
+    await typeWeight('36.640');
+    expect(screen.getByText('24.180 MT')).toBeOnTheScreen();
+    expect(screen.getByText('+0.180 over · allowed')).toBeOnTheScreen();
+
+    mock.controls.setOffline(true); // Demo tools → Offline
+    await press('Save gross · mark dispatched');
+    expect(await screen.findByText('Saved on this phone')).toBeOnTheScreen();
+    const rows = await (await ravisStore()).outbox();
+    expect(rows.map((r) => r.type)).toEqual(['GROSS']);
+    expect(rows[0]?.payload).toEqual({
+      grossKg: 36_640,
+      allocations: [{ orderLineId: expect.any(String), netKg: 24_180 }],
+    });
+    expect(mockRouter.replace).toHaveBeenCalledWith(`/dispatched/${truckId}`);
+    await view.unmount();
+
+    // The banner on My tasks; the dispatched truck is off the list.
+    view = await wrap(<TasksScreen />);
+    expect(await screen.findByText('No network')).toBeOnTheScreen();
+    expect(
+      screen.getByText('1 weight saved on this phone · they sync automatically'),
+    ).toBeOnTheScreen();
+    await screen.findByLabelText(/^CG 07 KL 3304/);
+    expect(screen.queryByLabelText(/^CG 04 MK 2291/)).toBeNull();
+    await view.unmount();
+
+    view = await wrap(<DispatchedScreen truckId={truckId} />);
+    expect(await screen.findByText('Dispatched')).toBeOnTheScreen();
+    expect(screen.getByText('24.180')).toBeOnTheScreen();
+    expect(await screen.findByText('Waiting for network')).toBeOnTheScreen();
+
+    mock.controls.setOffline(false);
+    await act(() => syncNow());
+    expect(await screen.findByText(/^LS-AIP-/)).toBeOnTheScreen();
+    expect(screen.queryByText('Waiting for network')).toBeNull();
+    expect(useSyncStatus.getState()).toMatchObject({ pending: 0, online: true });
+    await view.unmount();
+
+    view = await wrap(<DoneTodayScreen />);
+    const done = await screen.findByLabelText(/^CG 04 MK 2291/);
+    expect(within(done).getByText('24.180')).toBeOnTheScreen();
+    await view.unmount();
+  });
+
+  it('an implausible net (10 t of a 24 t plan) asks before saving', async () => {
+    const truckId = await openTask('Capture gross weight', 'CG 04 MK 2291');
+    const view = await wrap(<WeighTruckScreen truckId={truckId} />);
+    await screen.findByText('Gross weight');
+    await typeWeight('22.460');
+    expect(screen.getByText('10.000 MT')).toBeOnTheScreen();
+    expect(screen.getByText('−14.000 under · allowed')).toBeOnTheScreen();
+    await press('Save gross · mark dispatched');
+    expect(await screen.findByText('Net is 42 % of the plan. Save anyway?')).toBeOnTheScreen();
+    expect(await (await ravisStore()).outbox()).toEqual([]);
+    await press('Save anyway');
+    expect(await screen.findByText('Saved on this phone')).toBeOnTheScreen();
+    expect((await (await ravisStore()).outbox()).map((r) => r.payload.grossKg)).toEqual([22_460]);
+    await view.unmount();
+  });
+
+  it('net at or below zero cannot be saved', async () => {
+    const truckId = await openTask('Capture gross weight', 'CG 04 MK 2291');
+    const view = await wrap(<WeighTruckScreen truckId={truckId} />);
+    await screen.findByText('Gross weight');
+    await typeWeight('12.4');
+    expect(screen.getByText('Gross must be more than the tare')).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Save gross · mark dispatched' })).toBeDisabled();
+    await view.unmount();
+  });
+
+  it('two plan lines: split step prefilled pro rata; Save only while the split sums to net', async () => {
+    await signIn(ids.users.rajesh);
+    const mk = await boardTruck('CG 04 MK 2291');
+    const kl = await boardTruck('CG 07 KL 3304');
+    const a = mk.plan[0]!.orderLineId;
+    const b = kl.plan[0]!.orderLineId;
+    const { truckId } = await mock.fixtures.addTruck({
+      subOrderId: mk.subOrderId,
+      state: 'loading',
+      vehicleNo: 'CG 04 TT 1001',
+      tareKg: 12_000,
+      plan: [
+        { orderLineId: a, plannedKg: 10_000 },
+        { orderLineId: b, plannedKg: 10_000 },
+      ],
+    });
+    await signIn(ids.users.ravi);
+
+    const view = await wrap(<WeighTruckScreen truckId={truckId} />);
+    await screen.findByText('Gross weight');
+    await typeWeight('32.001');
+    await press('Save gross · mark dispatched');
+
+    const first = await screen.findByLabelText('TMT Fe500D · 12 mm · 12 m');
+    const second = screen.getByLabelText('TMT Fe500D · 12 mm · 6 m');
+    expect(first.props.value).toBe('10.001'); // largest remainder goes to the first line
+    expect(second.props.value).toBe('10.000');
+    const save = () => screen.getByRole('button', { name: 'Save gross · mark dispatched' });
+    expect(save()).toBeEnabled();
+
+    await fireEvent.changeText(first, '9.000');
+    expect(screen.getByText('Left to allocate')).toBeOnTheScreen();
+    expect(screen.getByText('1.001 MT')).toBeOnTheScreen();
+    expect(save()).toBeDisabled();
+
+    await fireEvent.changeText(first, '10.001');
+    expect(save()).toBeEnabled();
+    await fireEvent.press(save());
+    expect(await screen.findByText('Saved on this phone')).toBeOnTheScreen();
+    const [row] = await (await ravisStore()).outbox();
+    expect(row?.payload.allocations).toEqual([
+      { orderLineId: a, netKg: 10_001 },
+      { orderLineId: b, netKg: 10_000 },
+    ]);
+    await view.unmount();
+  });
+});
+
+describe('Sign-out guard (Ruling 11)', () => {
+  async function pendingWeight() {
+    const view = await wrap(<TasksScreen />);
+    const card = await screen.findByLabelText(/^CG 10 GH 4471/);
+    mock.controls.setOffline(true);
+    await fireEvent.press(within(card).getByRole('button', { name: 'At gate' }));
+    await waitFor(() => expect(useSyncStatus.getState().online).toBe(false));
+    return view;
+  }
+
+  it('sign out with an unsent weight opens the guard; typing SIGN OUT signs out anyway', async () => {
+    const view = await pendingWeight();
+    await view.unmount();
+    await wrap(<ProfileScreen />);
+    const row = await screen.findByRole('button', { name: 'Sign out, 1 weight not sent yet' });
+    await fireEvent.press(row);
+    expect(await screen.findByRole('header', { name: '1 weight not sent yet' })).toBeOnTheScreen();
+    expect(useSession.getState().status).toBe('signedIn');
+    expect(screen.getByRole('button', { name: 'Send now' })).toBeOnTheScreen();
+
+    await press('Sign out anyway');
+    const confirm = () => screen.getAllByRole('button', { name: 'Sign out anyway' }).at(-1)!;
+    expect(confirm()).toBeDisabled();
+    await fireEvent.changeText(screen.getByLabelText('Type SIGN OUT to confirm'), 'SIGN OUT');
+    await fireEvent.press(confirm());
+    await waitFor(() => expect(useSession.getState().status).toBe('signedOut'));
+    // The event stays in Ravi's store on this phone.
+    expect((await (await ravisStore()).outbox()).map((r) => r.status)).toEqual(['pending']);
+  });
+
+  it('switching person in Demo tools with an unsent weight shows the same guard', async () => {
+    const view = await pendingWeight();
+    await view.unmount();
+    await wrap(<DemoToolsScreen />);
+    await fireEvent.press(await screen.findByRole('button', { name: /^Rajesh Agrawal/ }));
+    expect(await screen.findByRole('header', { name: '1 weight not sent yet' })).toBeOnTheScreen();
+    expect(useSession.getState().status).toBe('signedIn');
+    expect(mock.controls.getState().offline).toBe(true); // nothing switched yet
+  });
+});

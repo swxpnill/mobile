@@ -35,3 +35,16 @@ export function relativeTime(iso: string, nowMs: number): string {
   const label = `${d.day} ${MONTHS[d.month - 1]!.slice(0, 3)}`;
   return d.year === istDateParts(nowMs).year ? label : `${label} ${d.year}`;
 }
+
+/** "10:48" (IST, 24-hour). */
+export function istClock(iso: string): string {
+  const d = new Date(Date.parse(iso) + IST_OFFSET_MS);
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+}
+
+/** "Tuesday 3 Nov" (IST). */
+export function istShortDay(nowMs: number): string {
+  const { month, day } = istDateParts(nowMs);
+  const weekday = new Date(nowMs + IST_OFFSET_MS).getUTCDay();
+  return `${DAYS[weekday]} ${day} ${MONTHS[month - 1]!.slice(0, 3)}`;
+}

@@ -1,4 +1,4 @@
-import { istGreeting, istLongDate, relativeTime } from '../src/format/time';
+import { istClock, istGreeting, istLongDate, istShortDay, relativeTime } from '../src/format/time';
 
 const at = (iso: string) => Date.parse(iso);
 
@@ -13,6 +13,12 @@ describe('IST time helpers', () => {
   it('long date like the canvas: Tuesday, 3 November', () => {
     expect(istLongDate(at('2026-11-03T04:30:00Z'))).toBe('Tuesday, 3 November');
     expect(istLongDate(at('2026-11-02T19:00:00Z'))).toBe('Tuesday, 3 November'); // already 3 Nov in IST
+  });
+
+  it('clock and short day in India: 10:48, Tuesday 3 Nov', () => {
+    expect(istClock('2026-11-03T05:18:00Z')).toBe('10:48');
+    expect(istClock('2026-11-02T18:35:00Z')).toBe('00:05');
+    expect(istShortDay(at('2026-11-02T19:00:00Z'))).toBe('Tuesday 3 Nov');
   });
 
   it('relative: just now, minutes, hours, Yesterday, then the date', () => {

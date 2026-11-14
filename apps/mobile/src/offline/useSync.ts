@@ -12,7 +12,7 @@ import { create } from 'zustand';
 import { api, apiWithDate } from '../api/client';
 import { useMe } from '../api/hooks/me';
 import { useSession } from '../auth/session';
-import type { DeviceStore } from './deviceStore';
+import type { DeviceStore, NewCapture, OutboxRow } from './deviceStore';
 import { openDeviceStore } from './sqliteDeviceStore';
 import { type SyncEngine, type SyncOutcome, createSyncEngine } from './syncEngine';
 
@@ -45,15 +45,48 @@ export const useSyncStatus = create<SyncStatus>(() => IDLE);
 /** The signed-in user's device store while the sync loop runs; null otherwise. */
 export const useDeviceStore = create<{ store: DeviceStore | null }>(() => ({ store: null }));
 
+/**
+ * Bumped whenever the device store may have changed (a sync run ended, a capture was saved), so
+ * screens reading the store read it again.
+ */
+export const useDeviceRevision = create<{ rev: number }>(() => ({ rev: 0 }));
+const bumpRevision = () => useDeviceRevision.setState((s) => ({ rev: s.rev + 1 }));
+
 let running: SyncLoop | null = null;
 
 /** Sync now (after a local save). Does nothing when no loop runs. */
 export function requestSync(): void {
-  running?.kick();
+  void running?.kick();
+}
+
+/** Sync now and wait for that run (pull to refresh, "Send now"); resolves at once with no loop. */
+export function syncNow(): Promise<void> {
+  return running?.kick() ?? Promise.resolve();
+}
+
+/**
+ * Saves a captured weight on this phone (one device-store transaction), then publishes the new
+ * counts and syncs. Resolves only after the save committed: the caller may then say "Saved on
+ * this phone".
+ */
+export async function recordCapture(store: DeviceStore, input: NewCapture): Promise<OutboxRow> {
+  const row = await store.saveCapture(input);
+  bumpRevision();
+  try {
+    useSyncStatus.setState(await publishCounts(store));
+  } catch {
+    // The counts catch up on the next sync run.
+  }
+  requestSync();
+  return row;
 }
 
 export interface SyncLoop {
-  kick(): void;
+  /**
+   * Runs now; during a run, schedules exactly one follow-up run after it (a capture saved while
+   * a run is pulling must not wait for the next interval). Resolves when that run has finished.
+   */
+  kick(): Promise<void>;
   stop(): void;
 }
 
@@ -79,6 +112,10 @@ export function startSyncLoop(engine: SyncEngine, store: DeviceStore): SyncLoop 
   let retry: ReturnType<typeof setTimeout> | undefined;
 
   let inFlight: Promise<void> | null = null;
+  /** A kick arrived during the run in flight: run once more after it. */
+  let dirty = false;
+  let followUp: Promise<void> | null = null;
+  let lastOk = false;
 
   /** Triggers that arrive while a run is out share it; only that run handles its outcome. */
   function tick(): Promise<void> {
@@ -89,10 +126,28 @@ export function startSyncLoop(engine: SyncEngine, store: DeviceStore): SyncLoop 
     return inFlight;
   }
 
+  /**
+   * A kick during a run may carry an event that run already passed (it is pulling): one
+   * follow-up run sends it. After a failed run the backoff retry is that follow-up.
+   */
+  function kick(): Promise<void> {
+    if (stopped) return Promise.resolve();
+    if (!inFlight) return tick();
+    dirty = true;
+    followUp ??= inFlight.then(() => {
+      followUp = null;
+      const again = dirty && lastOk;
+      dirty = false;
+      return again ? tick() : undefined;
+    });
+    return followUp;
+  }
+
   async function run(): Promise<void> {
     clearTimeout(retry);
     retry = undefined;
     let out: SyncOutcome | null = null;
+    lastOk = false;
     try {
       useSyncStatus.setState({ syncing: true });
       useSyncStatus.setState(await publishCounts(store));
@@ -103,10 +158,14 @@ export function startSyncLoop(engine: SyncEngine, store: DeviceStore): SyncLoop 
     } catch {
       // The store could not be read: the counts stay as they were; the next trigger tries again.
     } finally {
-      if (!stopped) useSyncStatus.setState({ syncing: false });
+      if (!stopped) {
+        useSyncStatus.setState({ syncing: false });
+        bumpRevision();
+      }
     }
     if (stopped || !out) return;
     if (out.ok) {
+      lastOk = true;
       failures = 0;
     } else if (out.error !== 'auth') {
       clearTimeout(retry);
@@ -122,7 +181,7 @@ export function startSyncLoop(engine: SyncEngine, store: DeviceStore): SyncLoop 
   void tick();
 
   return {
-    kick: () => void tick(),
+    kick,
     stop() {
       stopped = true;
       clearInterval(interval);

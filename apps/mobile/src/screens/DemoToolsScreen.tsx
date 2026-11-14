@@ -26,6 +26,8 @@ import { Sheet } from '../ui/Sheet';
 import { BackHeader } from './admin/parts';
 import { DemoPeopleList } from './DemoPeopleList';
 import { messageFor } from './messages';
+import { SignOutGuardSheet } from './supervisor/SignOutGuardSheet';
+import { useSyncStatus } from '../offline/useSync';
 
 const LATENCY_OPTIONS = [
   { value: '0', label: 'Off' },
@@ -41,6 +43,9 @@ export function DemoToolsScreen() {
   const [message, setMessage] = useState<string | undefined>();
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
+  // A person switch signs this person out: weights not sent yet get the sign-out guard.
+  const pending = useSyncStatus((s) => s.pending);
+  const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
 
   const refresh = useCallback((c: MockControls) => {
     setSim((prev) => {
@@ -101,7 +106,19 @@ export function DemoToolsScreen() {
         </Text>
       ) : null}
 
-      <DemoPeopleList controls={c} />
+      <DemoPeopleList
+        controls={c}
+        confirmSwitch={pending > 0 ? (go) => setPendingSwitch(() => go) : undefined}
+      />
+      <SignOutGuardSheet
+        visible={pendingSwitch !== null}
+        onClose={() => setPendingSwitch(null)}
+        onConfirm={() => {
+          const go = pendingSwitch;
+          setPendingSwitch(null);
+          go?.();
+        }}
+      />
 
       <SectionLabel>Network</SectionLabel>
       <Group>

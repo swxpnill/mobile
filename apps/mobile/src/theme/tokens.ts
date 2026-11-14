@@ -23,6 +23,8 @@ export interface Tokens {
   brs: string;
   vi: string;
   vis: string;
+  /** Text on a violet fill (canvas `.bv`): white in light, near-black in dark. */
+  vitx: string;
   ok: string;
   okt: string;
   oks: string;
@@ -55,6 +57,7 @@ export const lightTokens: Tokens = {
   brs: 'rgba(37,99,235,.10)',
   vi: '#5B3CC4',
   vis: 'rgba(109,74,224,.10)',
+  vitx: '#FFFFFF',
   ok: '#089981',
   okt: '#067A6A',
   oks: 'rgba(8,153,129,.11)',
@@ -86,6 +89,7 @@ export const darkTokens: Tokens = {
   brs: 'rgba(79,134,247,.16)',
   vi: '#A994FF',
   vis: 'rgba(155,133,245,.16)',
+  vitx: '#0D0D10',
   ok: '#26A69A',
   okt: '#26A69A',
   oks: 'rgba(38,166,154,.14)',
