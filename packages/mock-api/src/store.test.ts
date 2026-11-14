@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SAMPLE_WORLD } from '@tonnage/shared';
 import { createFakeClock } from './clock.ts';
-import { createMemoryStorage, seedState } from './store.ts';
+import { createMemoryStorage, parseSnapshot, seedState } from './store.ts';
 import { createMockApi } from './index.ts';
 
 const START = Date.UTC(2026, 10, 3, 4, 30);
@@ -163,6 +163,13 @@ describe('store', () => {
       headers: auth,
     });
     expect(again.status).toBe(401);
+  });
+
+  it('a snapshot saved before truck tombstones existed loads with none', () => {
+    const old: Record<string, unknown> = { ...seedState(createFakeClock(START)) };
+    delete old.truckTombstones;
+    expect(parseSnapshot(JSON.stringify(old))?.truckTombstones).toEqual([]);
+    expect(parseSnapshot(JSON.stringify({ ...old, truckTombstones: 'x' }))).toBeNull();
   });
 
   it('corrupt snapshot in storage falls back to the seed instead of crashing', async () => {

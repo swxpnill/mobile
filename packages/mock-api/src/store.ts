@@ -269,6 +269,13 @@ export interface RejectionRec {
   resolvedAt: string | null;
   resolutionNote: string | null;
 }
+/** A truck purged by an order hard delete, so a phone's cursor pull can drop its task. No PII. */
+export interface TruckTombstoneRec {
+  truckId: string;
+  tenantId: string;
+  plantId: string;
+  removedAt: string;
+}
 /** What de-duplication of a sync event needs, and nothing else (no names, weights or payloads). */
 export interface AppliedEventRec {
   truckId: string;
@@ -327,6 +334,7 @@ export interface MockState {
   brokerLedger: BrokerLedgerRec[];
   /** Every sync event seen, by `clientEventId`: only its truck and outcome, so a replay is `duplicate` and hard delete can purge it. */
   appliedEvents: Record<string, AppliedEventRec>;
+  truckTombstones: TruckTombstoneRec[];
   drafts: DraftRec[];
   numberSeries: NumberSeriesRec[];
 }
@@ -353,6 +361,7 @@ export function emptyState(): MockState {
     rejections: [],
     brokerLedger: [],
     appliedEvents: {},
+    truckTombstones: [],
     drafts: [],
     numberSeries: [],
   };
@@ -435,6 +444,8 @@ export function parseSnapshot(raw: string | null): MockState | null {
     return null;
   }
   if (!isObj(v) || v.schemaVersion !== SNAPSHOT_VERSION) return null;
+  // Added within v4: a snapshot saved before it has none yet.
+  v.truckTombstones ??= [];
   const arrays = [
     'tenants',
     'companies',
@@ -450,6 +461,7 @@ export function parseSnapshot(raw: string | null): MockState | null {
     'weighments',
     'rejections',
     'brokerLedger',
+    'truckTombstones',
     'drafts',
     'numberSeries',
   ] as const;

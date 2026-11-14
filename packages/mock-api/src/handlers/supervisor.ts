@@ -71,10 +71,22 @@ export const supervisorRoutes: RouteDef[] = [
       const since = query.cursor === undefined ? null : fromIso(query.cursor);
       const changed = since === null ? mine : mine.filter((t) => fromIso(t.updatedAt) >= since);
       const items = changed.filter(isOpenTruck).sort(boardOrder).map((t) => toTask(state, t));
-      // Tombstones: no longer open (cancelled, dispatched by another phone or the owner).
-      const removed = since === null ? [] : changed.filter((t) => !isOpenTruck(t)).map((t) => t.id);
-      // The newest change seen (never moving back); the server time when there is nothing yet.
-      const times = mine.map((t) => fromIso(t.updatedAt));
+      // Tombstones: no longer open (cancelled, dispatched by another phone or the owner), or purged
+      // with their order. A full pull (no cursor) is a snapshot and needs none.
+      const graves = state.truckTombstones.filter(
+        (g) => g.tenantId === a.user.tenantId && plantInScope(a.scope, g.plantId),
+      );
+      const removed =
+        since === null
+          ? []
+          : [
+              ...new Set([
+                ...changed.filter((t) => !isOpenTruck(t)).map((t) => t.id),
+                ...graves.filter((g) => fromIso(g.removedAt) >= since).map((g) => g.truckId),
+              ]),
+            ];
+      // The newest change seen, deletions included (never moving back); the server time when there is nothing yet.
+      const times = [...mine.map((t) => fromIso(t.updatedAt)), ...graves.map((g) => fromIso(g.removedAt))];
       if (since !== null) times.push(since);
       const cursor = toIso(times.length > 0 ? Math.max(...times) : now);
       return { body: { items, removed, cursor, serverTime: toIso(now) } satisfies TasksPage };

@@ -388,7 +388,12 @@ export const orderLifecycleRoutes: RouteDef[] = [
       }
       // Fixed order, children first (B2 does the same inside one transaction with an order lock).
       const subIds = new Set(c.math.subOrdersOf(order.id).map((s) => s.id));
-      const truckIds = new Set(state.trucks.filter((t) => subIds.has(t.subOrderId)).map((t) => t.id));
+      const purged = state.trucks.filter((t) => subIds.has(t.subOrderId));
+      const truckIds = new Set(purged.map((t) => t.id));
+      const removedAt = toIso(ctx.now);
+      for (const t of purged) {
+        state.truckTombstones.push({ truckId: t.id, tenantId: t.tenantId, plantId: t.plantId, removedAt });
+      }
       state.weighments = state.weighments.filter((w) => !truckIds.has(w.truckId));
       state.rejections = state.rejections.filter((r) => !truckIds.has(r.truckId));
       state.brokerLedger = state.brokerLedger.filter((r) => !truckIds.has(r.truckId));

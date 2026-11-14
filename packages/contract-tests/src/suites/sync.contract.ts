@@ -389,6 +389,38 @@ export function register(factory: TargetFactory): void {
       });
     });
 
+    describe('tasks pull after a hard delete', () => {
+      it('trucks purged with their order come back in removed for their plant only', async () => {
+        const t = target();
+        const { owner, order, b, truck } = await canvasWithTruck(t);
+        const borai = await assign(t, owner, b.id, b.lines[0]!.id, 5_000, 'CG 07 BR 8810');
+        const ravi = await tokenFor(t, PEOPLE.ravi);
+        const sanjay = await tokenFor(t, PEOPLE.sanjay);
+        const pull = async (token: string, cursor?: string) =>
+          expectOk(
+            await call(t, 'GET', `/v1/supervisor/tasks${cursor === undefined ? '' : `?cursor=${encodeURIComponent(cursor)}`}`, { token }),
+            tasksPageSchema,
+          );
+        const raviFirst = await pull(ravi);
+        const sanjayFirst = await pull(sanjay);
+        expect(raviFirst.items.map((x) => x.truckId)).toContain(truck.id);
+
+        t.clock.advance(MINUTE);
+        const del = await call(t, 'DELETE', `/v1/orders/${order.id}`, { token: owner, body: { confirmNumber: order.number } });
+        expect(del.status).toBe(204);
+
+        const raviNext = await pull(ravi, raviFirst.cursor);
+        expect(raviNext.removed).toEqual([truck.id]);
+        expect(raviNext.items.map((x) => x.truckId)).not.toContain(truck.id);
+        expect(raviNext.cursor > raviFirst.cursor).toBe(true);
+        const sanjayNext = await pull(sanjay, sanjayFirst.cursor);
+        expect(sanjayNext.removed).toEqual([borai.id]);
+        expect(sanjayNext.removed).not.toContain(truck.id);
+        // A full snapshot carries no tombstones.
+        expect((await pull(ravi)).removed).toEqual([]);
+      });
+    });
+
     describe('tolerance close', () => {
       it('waits for the last open truck: 23.4 MT + cancel stays partly dispatched; 0.2 MT more completes it', async () => {
         const t = target();
