@@ -162,6 +162,8 @@ export const taskSchema = z.object({
   companyCode: z.string(),
   state: truckStateSchema,
   tareKg: z.number().int().nullable(),
+  /** Business time (`capturedAt`) of the live (not superseded) tare; null before one. */
+  tareAt: z.string().nullable(),
   tareDeviceId: z.string().nullable(),
   plan: z.array(z.object({ orderLineId: idSchema, productName: z.string(), plannedKg: z.number().int() })),
   version: versionSchema,

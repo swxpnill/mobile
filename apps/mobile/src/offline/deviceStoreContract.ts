@@ -39,6 +39,7 @@ export function task(truckId: string, over: Partial<Task> = {}): Task {
     companyCode: 'AG',
     state: 'assigned',
     tareKg: null,
+    tareAt: null,
     tareDeviceId: null,
     plan: [{ orderLineId: LINE, productName: 'TMT 12', plannedKg: 20_000 }],
     version: 1,

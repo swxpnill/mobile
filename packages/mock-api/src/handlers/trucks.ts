@@ -272,6 +272,7 @@ export const truckRoutes: RouteDef[] = [
       reweigh('tare', body.tareKg);
       reweigh('gross', body.grossKg);
       t.tareKg = body.tareKg;
+      t.tareAt = at; // the corrected tare is the live one now
       t.grossKg = body.grossKg;
       t.allocations = body.allocations.map((x) => ({ orderLineId: x.orderLineId, netKg: x.netKg }));
       t.version += 1;

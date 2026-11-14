@@ -134,6 +134,7 @@ export function toTask(state: MockState, t: TruckRec): Task {
     companyCode: state.companies.find((c) => c.id === sub.companyId)?.code ?? '',
     state: t.state,
     tareKg: t.tareKg,
+    tareAt: t.tareAt,
     tareDeviceId: t.tareDeviceId,
     plan: t.plan.map((p) => {
       const line = state.orderLines.find((l) => l.id === p.orderLineId);

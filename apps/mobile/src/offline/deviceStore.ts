@@ -127,7 +127,8 @@ const LOCAL: OutboxStatus[] = ['pending', 'sending'];
 
 /**
  * The task list as the phone shows it: server tasks with this phone's unsent events applied on
- * top (§6.3). At gate → `at_gate`; tare → `loading` with that tare; gross → gone from the list.
+ * top (§6.3). At gate → `at_gate`; tare → `loading` with that tare and its time; gross → gone
+ * from the list.
  */
 export function displayTasks(
   tasks: Task[],
@@ -144,7 +145,13 @@ export function displayTasks(
       if (r.truckId !== t.truckId) continue;
       if (r.type === 'AT_GATE') view = { ...view, state: 'at_gate', localPending: true };
       else if (r.type === 'TARE')
-        view = { ...view, state: 'loading', tareKg: r.payload.tareKg ?? null, localPending: true };
+        view = {
+          ...view,
+          state: 'loading',
+          tareKg: r.payload.tareKg ?? null,
+          tareAt: r.capturedAtDevice,
+          localPending: true,
+        };
       else gone = true;
     }
     if (!gone) shown.push(view);

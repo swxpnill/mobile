@@ -361,15 +361,14 @@ export function WeighTruckScreen({ truckId }: { truckId: string }) {
   const snap = useDeviceSnapshot();
   const found = snap?.shown.find((x) => x.truckId === truckId);
   const last = useRef<{ task: Task; mode: CaptureMode; tareAt: string | null } | null>(null);
-  if (found && snap) {
-    const localTare = snap.outbox
-      .filter((r) => r.truckId === truckId && r.type === 'TARE')
-      .at(-1)?.capturedAtDevice;
+  if (found) {
     last.current = {
       task: found,
       // The mode is fixed when the screen opens: a tare saved here must not flip it to gross.
       mode: last.current?.mode ?? (found.state === 'loading' ? 'gross' : 'tare'),
-      tareAt: found.tareKg === null ? null : (localTare ?? found.changedAt),
+      // A pending local tare's time (displayTasks), else the server's; never `changedAt`, which
+      // edits and restores also move.
+      tareAt: found.tareKg === null ? null : found.tareAt,
     };
   }
   const shown = last.current;

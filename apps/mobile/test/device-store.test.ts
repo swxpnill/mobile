@@ -21,7 +21,7 @@ describe('displayTasks', () => {
     const store = createMemoryDeviceStore();
     await store.replaceTasks(page([task(TRUCK_A), task(TRUCK_B)]));
     await store.saveCapture(atGate(TRUCK_A));
-    await store.saveCapture(tare(TRUCK_A, 11_500));
+    const localTare = await store.saveCapture(tare(TRUCK_A, 11_500));
     await store.saveCapture(gross(TRUCK_B));
 
     const shown = displayTasks(await store.getTasks(), await store.outbox());
@@ -31,6 +31,7 @@ describe('displayTasks', () => {
       truckId: TRUCK_A,
       state: 'loading',
       tareKg: 11_500,
+      tareAt: localTare.capturedAtDevice, // the local tare's time, not the server's
       localPending: true,
     });
   });

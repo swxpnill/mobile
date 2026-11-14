@@ -388,6 +388,44 @@ export function register(factory: TargetFactory): void {
         expect(task!.plan[0]!.productName).not.toBe('');
       });
 
+      it('tareAt is the business time of the live tare: kept through a truck edit, moved by a tare correction', async () => {
+        const t = target();
+        const { owner, truck } = await canvasWithTruck(t);
+        const ravi = await tokenFor(t, PEOPLE.ravi);
+        const taskOf = async () => {
+          const page = expectOk(await call(t, 'GET', '/v1/supervisor/tasks', { token: ravi }), tasksPageSchema);
+          return page.items.find((x) => x.truckId === truck.id)!;
+        };
+        expect((await taskOf()).tareAt).toBeNull();
+
+        const p = phone(truck.id, () => t.clock.now());
+        await synced(sync(t, ravi, [p.tare(12_460)]));
+        const liveTare = () =>
+          getTruck(t, owner, truck.id).then((d) => d.weighments.find((w) => w.kind === 'tare' && !w.superseded)!);
+        const first = await liveTare();
+        const weighed = await taskOf();
+        expect(weighed.tareAt).toBe(first.capturedAt);
+
+        t.clock.advance(3 * MINUTE);
+        const detail = await getTruck(t, owner, truck.id);
+        expectOk(
+          await call(t, 'PATCH', `/v1/trucks/${truck.id}`, {
+            token: owner,
+            body: { driverName: 'Suresh', version: detail.version },
+          }),
+          truckSchema,
+        );
+        const edited = await taskOf();
+        expect(edited.changedAt).not.toBe(weighed.changedAt);
+        expect(edited.tareAt).toBe(first.capturedAt);
+
+        t.clock.advance(2 * MINUTE);
+        await synced(sync(t, ravi, [p.tare(12_470)]));
+        const corrected = await liveTare();
+        expect(corrected.capturedAt).not.toBe(first.capturedAt);
+        expect((await taskOf()).tareAt).toBe(corrected.capturedAt);
+      });
+
       it('with a cursor: a truck cancelled since comes back in removed, not in items', async () => {
         const t = target();
         const { owner, a, aLine, truck } = await canvasWithTruck(t);

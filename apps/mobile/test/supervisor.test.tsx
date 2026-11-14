@@ -176,7 +176,8 @@ describe('Capture', () => {
     let view = await wrap(<WeighTruckScreen truckId={truckId} />);
     await screen.findByText('Gross weight');
     expect(screen.getByText('Planned 24.000 MT')).toBeOnTheScreen();
-    expect(screen.getByText(/^Tare · weighed \d\d:\d\d$/)).toBeOnTheScreen();
+    // The seeded tare was weighed 25 min before 10:30 IST.
+    expect(screen.getByText('Tare · weighed 10:05')).toBeOnTheScreen();
     expect(screen.getByText('− 12.460')).toBeOnTheScreen();
 
     await typeWeight('36.640');
@@ -220,6 +221,21 @@ describe('Capture', () => {
     view = await wrap(<DoneTodayScreen />);
     const done = await screen.findByLabelText(/^CG 04 MK 2291/);
     expect(within(done).getByText('24.180')).toBeOnTheScreen();
+    await view.unmount();
+  });
+
+  it('the tare time stays the weighing time after the truck is edited', async () => {
+    await signIn(ids.users.rajesh);
+    const mk = await boardTruck('CG 04 MK 2291');
+    await api(`/v1/trucks/${mk.id}`, {
+      method: 'PATCH',
+      body: { driverName: 'Suresh Yadav', version: mk.version },
+    });
+    await signIn(ids.users.ravi);
+
+    const view = await wrap(<WeighTruckScreen truckId={mk.id} />);
+    await screen.findByText('Gross weight');
+    expect(screen.getByText('Tare · weighed 10:05')).toBeOnTheScreen(); // not the edit at 10:30
     await view.unmount();
   });
 
