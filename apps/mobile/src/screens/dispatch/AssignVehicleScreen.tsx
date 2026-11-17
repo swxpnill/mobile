@@ -91,6 +91,7 @@ function Form({ o, sub, latest }: { o: Order; sub: SubOrder; latest?: Truck }) {
     setForm(initialForm(sub, basis, latest));
     setErrors({});
     setError(undefined);
+    key.settle(); // the form now edits the latest truck: its save is a new request
   };
 
   const submit = async () => {
@@ -111,7 +112,8 @@ function Form({ o, sub, latest }: { o: Order; sub: SubOrder; latest?: Truck }) {
           router.back(); // nothing changed: no write, no activity entry
           return;
         }
-        await edit.mutateAsync({ id: truck.id, body, key: key.key() });
+        // The key follows the body sent (version included): a changed field is a new request.
+        await edit.mutateAsync({ id: truck.id, body, key: key.key(JSON.stringify(body)) });
         key.settle();
         showToast('Saved');
         router.back();

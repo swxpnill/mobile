@@ -7,11 +7,13 @@ import {
   syncResponseSchema,
   tasksPageSchema,
 } from '@tonnage/shared';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { AppState } from 'react-native';
 import { create } from 'zustand';
 import { api, apiWithDate } from '../api/client';
 import { useMe } from '../api/hooks/me';
+import { refreshRejections } from '../api/hooks/rejections';
 import { useSession } from '../auth/session';
 import type { DeviceStore, NewCapture, OutboxRow } from './deviceStore';
 import { openDeviceStore } from './sqliteDeviceStore';
@@ -111,7 +113,7 @@ async function publishCounts(
  * failed run it retries with backoff until a run succeeds (an auth failure waits for the next
  * trigger instead). Publishes `useSyncStatus`.
  */
-export function startSyncLoop(engine: SyncEngine, store: DeviceStore): SyncLoop {
+export function startSyncLoop(engine: SyncEngine, store: DeviceStore, onSynced?: () => void): SyncLoop {
   let stopped = false;
   let failures = 0;
   let retry: ReturnType<typeof setTimeout> | undefined;
@@ -172,6 +174,7 @@ export function startSyncLoop(engine: SyncEngine, store: DeviceStore): SyncLoop 
     if (out.ok) {
       lastOk = true;
       failures = 0;
+      onSynced?.();
     } else if (out.error !== 'auth') {
       clearTimeout(retry);
       retry = setTimeout(() => void tick(), engine.nextDelayMs(failures));
@@ -239,6 +242,7 @@ export function useSync(): void {
   const identity = useSession((s) => s.identity);
   const signedIn = status === 'signedIn' || status === 'locked';
   const userId = signedIn && me && CAPTURE_ROLES.includes(me.role) ? me.id : null;
+  const qc = useQueryClient();
 
   useEffect(() => {
     if (!userId) return;
@@ -248,7 +252,8 @@ export function useSync(): void {
       .then((store) => {
         if (stopped) return;
         useDeviceStore.setState({ store });
-        loop = startSyncLoop(engineFor(store, identity), store);
+        // After each completed run the badge asks again (refusals show up there); same person only.
+        loop = startSyncLoop(engineFor(store, identity), store, () => refreshRejections(qc, identity));
         running = loop;
       })
       .catch(() => undefined); // no store, no sync: the screens show the store as unavailable
@@ -259,5 +264,5 @@ export function useSync(): void {
       useDeviceStore.setState({ store: null });
       useSyncStatus.setState(IDLE);
     };
-  }, [userId, identity]);
+  }, [userId, identity, qc]);
 }

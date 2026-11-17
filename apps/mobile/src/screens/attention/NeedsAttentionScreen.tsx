@@ -7,8 +7,8 @@ import { istClock } from '../../format/time';
 import { useTheme } from '../../theme/ThemeProvider';
 import { Badge, EmptyState, Group, Row, Screen, SegmentedControl, Text } from '../../ui';
 import { BackHeader } from '../admin/parts';
-import { messageFor, weightCodeMessage } from '../messages';
-import { EVENT_LABEL, resolutionLine, sentLine } from './describe';
+import { messageFor } from '../messages';
+import { EVENT_LABEL, rejectionReason, resolutionLine, sentLine } from './describe';
 import { RejectionDetailSheet } from './RejectionDetailSheet';
 
 const FILTERS: readonly { value: RejectionFilter; label: string }[] = [
@@ -81,7 +81,7 @@ export function NeedsAttentionScreen() {
 
 function RejectionRow({ r, onPress }: { r: Rejection; onPress?: () => void }) {
   const basis = useDisplayBasis();
-  const why = weightCodeMessage(r.code) ?? r.code;
+  const why = rejectionReason(r.code);
   const sent = sentLine(r, basis);
   const who = `${r.user.name} · ${r.plantName} · ${istClock(r.createdAt)}`;
   const resolved = resolutionLine(r);

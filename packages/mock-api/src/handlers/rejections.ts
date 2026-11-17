@@ -127,6 +127,7 @@ export const rejectionRoutes: RouteDef[] = [
 
   route('POST', '/v1/weighment-rejections/:id/restore', {
     action: 'rejections.manage',
+    idempotent: true,
     transactional: true,
     async handler(ctx) {
       const a = authed(ctx);
@@ -173,6 +174,7 @@ export const rejectionRoutes: RouteDef[] = [
 
   route('POST', '/v1/weighment-rejections/:id/dismiss', {
     action: 'rejections.manage',
+    idempotent: true,
     transactional: true,
     body: dismissRejectionBodySchema,
     async handler(ctx) {

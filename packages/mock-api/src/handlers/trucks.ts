@@ -235,6 +235,7 @@ export const truckRoutes: RouteDef[] = [
   // Owner only, after dispatch (§5.2): new weights replace the old ones, which stay as superseded.
   route('POST', '/v1/trucks/:id/correct-weight', {
     action: 'weighment.correctAfterDispatch',
+    idempotent: true,
     transactional: true,
     body: correctWeightBodySchema,
     async handler(ctx) {

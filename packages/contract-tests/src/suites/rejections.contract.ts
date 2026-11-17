@@ -36,13 +36,15 @@ const list = async (t: ContractTarget, token: string, status?: 'open' | 'all') =
   );
 const openCount = async (t: ContractTarget, token: string) =>
   expectOk(await call(t, 'GET', '/v1/weighment-rejections/count', { token }), rejectionCountSchema).open;
-const restore = (t: ContractTarget, token: string, id: string) =>
-  call(t, 'POST', `/v1/weighment-rejections/${id}/restore`, { token });
-const dismiss = (t: ContractTarget, token: string, id: string, reason: string) =>
-  call(t, 'POST', `/v1/weighment-rejections/${id}/dismiss`, { token, body: { reason } });
-const correct = (t: ContractTarget, token: string, truck: Truck, body: Record<string, unknown>) =>
+// Every write carries an Idempotency-Key (spec: a stored replay for every mutating request).
+const restore = (t: ContractTarget, token: string, id: string, key = newKey()) =>
+  call(t, 'POST', `/v1/weighment-rejections/${id}/restore`, { token, idempotencyKey: key });
+const dismiss = (t: ContractTarget, token: string, id: string, reason: string, key = newKey()) =>
+  call(t, 'POST', `/v1/weighment-rejections/${id}/dismiss`, { token, idempotencyKey: key, body: { reason } });
+const correct = (t: ContractTarget, token: string, truck: Truck, body: Record<string, unknown>, key = newKey()) =>
   call(t, 'POST', `/v1/trucks/${truck.id}/correct-weight`, {
     token,
+    idempotencyKey: key,
     body: { reason: 'Weighbridge recalibrated', version: truck.version, ...body },
   });
 const activityOf = async (t: ContractTarget, token: string, orderId: string) =>
@@ -262,6 +264,53 @@ export function register(factory: TargetFactory): void {
       });
     });
 
+    describe('replay (Idempotency-Key)', () => {
+      it('restore and dismiss replayed with the same key answer the same 200 and change nothing again', async () => {
+        const t = target();
+        const { owner, truck } = await cancelledBeforeSync(t);
+        const [gross, tare] = (await list(t, owner)) as [Rejection, Rejection];
+
+        const dKey = newKey();
+        const d1 = await dismiss(t, owner, gross.id, 'Truck went back empty', dKey);
+        const d2 = await dismiss(t, owner, gross.id, 'Truck went back empty', dKey);
+        expect(d1.status).toBe(200);
+        expect(d2.status).toBe(200);
+        expect(d2.body).toEqual(d1.body);
+
+        const rKey = newKey();
+        const r1 = await restore(t, owner, tare.id, rKey);
+        const r2 = await restore(t, owner, tare.id, rKey);
+        expect(r1.status).toBe(200);
+        expect(r2.status).toBe(200);
+        expect(r2.body).toEqual(r1.body);
+        const after = await getTruck(t, owner, truck.id);
+        expect(after).toMatchObject({ state: 'loading', version: expectOk(r1, restoreRejectionResultSchema).truck.version });
+        expect(after.weighments.filter((w) => !w.superseded)).toHaveLength(1);
+        expect((await list(t, owner, 'all')).map((r) => r.status)).toEqual(['dismissed', 'restored']);
+      });
+
+      it('restore, dismiss and correct-weight without an Idempotency-Key: 400 IDEMPOTENCY_KEY_REQUIRED', async () => {
+        const t = target();
+        const { owner, aLine, truck } = await cancelledBeforeSync(t);
+        const [rej] = await list(t, owner);
+        expectError(await call(t, 'POST', `/v1/weighment-rejections/${rej!.id}/restore`, { token: owner }), 400, 'IDEMPOTENCY_KEY_REQUIRED');
+        expectError(
+          await call(t, 'POST', `/v1/weighment-rejections/${rej!.id}/dismiss`, { token: owner, body: { reason: 'No key here' } }),
+          400,
+          'IDEMPOTENCY_KEY_REQUIRED',
+        );
+        expectError(
+          await call(t, 'POST', `/v1/trucks/${truck.id}/correct-weight`, {
+            token: owner,
+            body: { tareKg: 12_000, grossKg: 30_000, allocations: [{ orderLineId: aLine.id, netKg: 18_000 }], reason: 'No key here', version: 1 },
+          }),
+          400,
+          'IDEMPOTENCY_KEY_REQUIRED',
+        );
+        expect(await openCount(t, owner)).toBe(2);
+      });
+    });
+
     describe('weight correction', () => {
       it('24.180 → 22.000 MT: weighments superseded, dispatched kg and earning rewritten, activity logged', async () => {
         const t = target();
@@ -307,6 +356,27 @@ export function register(factory: TargetFactory): void {
           409,
           'STALE',
         );
+      });
+
+      it('a correction replayed with the same key answers the same 200: one reversal and one new earning', async () => {
+        const t = target();
+        const { owner, order, aLine, truck } = await canvasWithTruck(t);
+        const ravi = await tokenFor(t, PEOPLE.ravi);
+        const p = phone(truck.id, () => t.clock.now());
+        await synced(sync(t, ravi, [p.tare(12_460), p.gross(36_640, [{ orderLineId: aLine.id, netKg: 24_180 }])]));
+        const before = await getTruck(t, owner, truck.id);
+        const body = { tareKg: 12_460, grossKg: 34_460, allocations: [{ orderLineId: aLine.id, netKg: 22_000 }] };
+        const key = newKey();
+        const first = await correct(t, owner, before, body, key);
+        const again = await correct(t, owner, before, body, key);
+        expect(first.status).toBe(200);
+        expect(again.status).toBe(200);
+        expect(again.body).toEqual(first.body);
+        const now = await getTruck(t, owner, truck.id);
+        expect(now).toMatchObject({ netKg: 22_000, earningRupees: 9_900, version: before.version + 1 });
+        expect(now.weighments).toHaveLength(4); // two superseded, two new: not six
+        const log = await activityOf(t, owner, order.id);
+        expect(log.filter((e) => e.action === 'truck.weight_corrected')).toHaveLength(1);
       });
 
       it('a tolerance-completed sub-order corrected down by 2 MT is partly dispatched again; back up, it closes again', async () => {
@@ -357,7 +427,11 @@ export function register(factory: TargetFactory): void {
         expectError(await correct(t, owner, dispatched, { ...good, allocations: [{ orderLineId: aLine.id, netKg: 21_999 }] }), 409, 'ALLOC_MISMATCH');
         expectError(await correct(t, owner, dispatched, { ...good, allocations: [{ orderLineId: RANDOM_ID, netKg: 22_000 }] }), 409, 'LINE_REMOVED');
         expectError(await correct(t, owner, dispatched, { ...good, reason: 'no' }), 422, 'VALIDATION');
-        expectError(await call(t, 'POST', `/v1/trucks/${RANDOM_ID}/correct-weight`, { token: owner, body: { ...good, reason: 'Recheck', version: 1 } }), 404, 'NOT_FOUND');
+        expectError(
+          await call(t, 'POST', `/v1/trucks/${RANDOM_ID}/correct-weight`, { token: owner, idempotencyKey: newKey(), body: { ...good, reason: 'Recheck', version: 1 } }),
+          404,
+          'NOT_FOUND',
+        );
         expect(await getTruck(t, owner, truck.id)).toMatchObject({ netKg: 24_180, earningRupees: 10_881, version: dispatched.version });
       });
     });

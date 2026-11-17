@@ -11,7 +11,7 @@ import { useTheme } from '../../theme/ThemeProvider';
 import { Button, showToast, Text, TextField } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
 import { messageFor, weightCodeMessage } from '../messages';
-import { EVENT_LABEL, chainOf, firstName, hasEarlierOpen, restoreExplanation, sentLine } from './describe';
+import { EVENT_LABEL, chainOf, firstName, hasEarlierOpen, rejectionReason, restoreExplanation, sentLine } from './describe';
 
 const MIN_REASON = 3;
 
@@ -105,7 +105,7 @@ export function RejectionDetailSheet({
           {sentLine(r, basis)}
         </Text>
         <Text color="dgt" style={styles.small}>
-          {weightCodeMessage(r.code) ?? r.code}
+          {rejectionReason(r.code)}
         </Text>
         <Text variant="caption">{`Sent by ${r.user.name} · ${r.plantName} · ${istClock(r.createdAt)} · ${r.subOrderNumber}`}</Text>
       </View>

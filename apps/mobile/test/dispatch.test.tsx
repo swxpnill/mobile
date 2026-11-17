@@ -440,4 +440,36 @@ describe('Truck writes carry an Idempotency-Key, reused on retry', () => {
     expect(keys[0]).toEqual(expect.any(String));
     expect(keys[1]).toBe(keys[0]);
   });
+
+  it('cancel: a changed reason after a lost request is a new key, so the change is not dropped', async () => {
+    const gh = await boardTruck('CG 10 GH 4471');
+    const keys = loseFirst((r) => r.method === 'POST' && r.path.endsWith('/cancel'));
+    await wrap(<TruckDetailScreen id={gh.id} />);
+    await screen.findByRole('header', { name: 'CG 10 GH 4471' });
+    await press('Cancel truck');
+    await press('Vehicle did not arrive');
+    await press('Cancel this truck');
+    expect(await screen.findByText(/reach the server/)).toBeOnTheScreen();
+    await fireEvent.changeText(screen.getByLabelText('Note'), 'Driver unreachable');
+    await press('Cancel this truck');
+    expect(await screen.findByText('CG 10 GH 4471 cancelled')).toBeOnTheScreen();
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).not.toBe(keys[0]);
+  });
+
+  it('edit: a changed LR after a lost request is a new key, and the new LR is saved', async () => {
+    const mk = await boardTruck('CG 04 MK 2291');
+    const keys = loseFirst((r) => r.method === 'PATCH' && r.path.startsWith('/v1/trucks/'));
+    await wrap(<AssignVehicleScreen orderId={mk.orderId} subOrderId={mk.subOrderId} truckId={mk.id} />);
+    await screen.findByText('Edit vehicle');
+    await fireEvent.changeText(screen.getByLabelText('LR number'), 'SGR/2611/0600');
+    await press('Save changes');
+    expect(await screen.findByText(/reach the server/)).toBeOnTheScreen();
+    await fireEvent.changeText(screen.getByLabelText('LR number'), 'SGR/2611/0601');
+    await press('Save changes');
+    await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).not.toBe(keys[0]);
+    expect((await api(`/v1/trucks/${mk.id}`, { schema: truckSchema })).lrNo).toBe('SGR/2611/0601');
+  });
 });

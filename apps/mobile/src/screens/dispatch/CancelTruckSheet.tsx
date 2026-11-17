@@ -43,7 +43,9 @@ export function CancelTruckSheet({
     }
     setError(undefined);
     try {
-      await cancel.mutateAsync({ id: truck.id, key: key.key(), body: { reason, note, version: truck.version } });
+      // The key follows what is sent: a changed reason or note after a lost answer is a new request.
+      const sent = key.key(JSON.stringify({ reason, note }));
+      await cancel.mutateAsync({ id: truck.id, key: sent, body: { reason, note, version: truck.version } });
       key.settle();
       showToast(`${truck.vehicleNo} cancelled`);
       onClose();

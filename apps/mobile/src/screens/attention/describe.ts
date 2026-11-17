@@ -1,10 +1,16 @@
-import { type Rejection, type Truck, type UnitBasis, toDisplayQty } from '@tonnage/shared';
+import { type ErrorCode, type Rejection, type Truck, type UnitBasis, toDisplayQty } from '@tonnage/shared';
+import { MSG, weightCodeMessage } from '../messages';
 
 export const EVENT_LABEL: Record<Rejection['eventType'], string> = {
   AT_GATE: 'At gate',
   TARE: 'Tare',
   GROSS: 'Gross',
 };
+
+/** Why a weight was refused, always in plain words: an unknown code reads as the generic message. */
+export function rejectionReason(code: ErrorCode): string {
+  return weightCodeMessage(code) ?? MSG.generic;
+}
 
 const kgOf = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) ? v : null);
 

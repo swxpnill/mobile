@@ -2,29 +2,38 @@
 // seed with a rejected sync built through the mock API.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query';
 import { randomUUID } from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import type { ReactElement } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { SAMPLE_WORLD, type SyncEvent, dispatchBoardSchema, syncResponseSchema, truckSchema } from '@tonnage/shared';
+import { NetworkError, SAMPLE_WORLD, type SyncEvent, dispatchBoardSchema, syncResponseSchema, truckSchema } from '@tonnage/shared';
 import { createFakeClock, createMockApi, type MockApi } from '@tonnage/mock-api';
+import More from '../app/(app)/(tabs)/more';
 import Attention from '../app/(app)/attention';
 import { api } from '../src/api/client';
 import { UnitBasisProvider } from '../src/api/hooks/me';
 import { setMockApi, setTransport } from '../src/api/transport';
 import { resetSessionForTests, useSession } from '../src/auth/session';
 import { resetDeviceStoresForTests } from '../src/offline/sqliteDeviceStore';
+import { syncNow, useSync } from '../src/offline/useSync';
 import { resetUnitFilterForTests } from '../src/prefs/unitFilter';
 import { MoreScreen } from '../src/screens/MoreScreen';
 import { NeedsAttentionScreen } from '../src/screens/attention/NeedsAttentionScreen';
+import { rejectionReason } from '../src/screens/attention/describe';
+import { MSG } from '../src/screens/messages';
 import { TruckDetailScreen } from '../src/screens/dispatch/TruckDetailScreen';
 import { ThemeProvider } from '../src/theme/ThemeProvider';
 import { ToastHost } from '../src/ui';
 
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true };
 const mockRedirect = jest.fn();
+/** The latest focus callback the screen registered (expo-router's useFocusEffect). */
+const mockFocus: { current: (() => void) | null } = { current: null };
 jest.mock('expo-router', () => ({
+  useFocusEffect: (cb: () => void) => {
+    mockFocus.current = cb;
+  },
   useRouter: () => mockRouter,
   useLocalSearchParams: () => ({}),
   Redirect: ({ href }: { href: string }) => {
@@ -200,6 +209,71 @@ describe('Needs attention (Ruling 8)', () => {
   });
 });
 
+describe('The Needs attention badge stays live', () => {
+  const badge = (n: number) => screen.findByRole('button', { name: `Needs attention · ${n} open` });
+
+  it('a refusal made elsewhere shows after the More tab gains focus', async () => {
+    await wrap(<More />);
+    await badge(0);
+    await rejectedSync(); // Ravi's phone, not this one
+    await act(async () => mockFocus.current?.());
+    expect(await badge(2)).toBeOnTheScreen();
+  });
+
+  it('… and after the app comes back to the foreground', async () => {
+    await wrap(<More />);
+    await badge(0);
+    await rejectedSync();
+    await act(async () => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    expect(await badge(2)).toBeOnTheScreen();
+    focusManager.setFocused(undefined);
+  });
+
+  it('loading the list updates the count', async () => {
+    const view = await wrap(<MoreScreen />);
+    await badge(0);
+    await rejectedSync();
+    await view.rerender(
+      <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 0, left: 0, right: 0, bottom: 0 } }}>
+        <QueryClientProvider client={client}>
+          <ThemeProvider>
+            <UnitBasisProvider>
+              <MoreScreen />
+              <NeedsAttentionScreen />
+            </UnitBasisProvider>
+          </ThemeProvider>
+        </QueryClientProvider>
+      </SafeAreaProvider>,
+    );
+    expect(await badge(2)).toBeOnTheScreen();
+  });
+
+  it('a sync run on this phone refreshes the count', async () => {
+    function SyncHost() {
+      useSync();
+      return null;
+    }
+    await wrap(
+      <>
+        <SyncHost />
+        <MoreScreen />
+      </>,
+    );
+    await badge(0);
+    await rejectedSync();
+    await act(() => syncNow());
+    expect(await badge(2)).toBeOnTheScreen();
+  });
+
+  it('a code the screen does not know is shown in plain words, never raw', () => {
+    expect(rejectionReason('FORBIDDEN')).toBe(MSG.generic);
+    expect(rejectionReason('TRUCK_CANCELLED')).toBe('Truck was cancelled before this weight reached the server');
+  });
+});
+
 describe('Correct weight (owner)', () => {
   async function dispatchedMk() {
     const mk = await boardTruck('CG 04 MK 2291');
@@ -260,5 +334,38 @@ describe('Correct weight (owner)', () => {
     expect(await screen.findByText(/^Broker earning ₹/)).toBeOnTheScreen();
     const after = await api(`/v1/trucks/${mk.id}`, { schema: truckSchema });
     expect(after).toMatchObject({ netKg: 22_000, lrNo: 'SGR/2611/0600' });
+  });
+  it('the answer to a correction is lost: the retry is replayed, so it says saved, not changed by someone else', async () => {
+    const mk = await dispatchedMk();
+    let lost = false;
+    const keys: (string | undefined)[] = [];
+    setTransport({
+      async request(req) {
+        const res = await mock.transport.request(req);
+        if (req.path.endsWith('/correct-weight')) {
+          keys.push(req.headers['idempotency-key']);
+          if (!lost) {
+            lost = true;
+            throw new NetworkError('answer lost');
+          }
+        }
+        return res;
+      },
+    });
+    await wrap(<TruckDetailScreen id={mk.id} />);
+    await screen.findByRole('header', { name: 'CG 04 MK 2291' });
+    await press('Correct weight');
+    await screen.findByRole('header', { name: 'Correct weight · CG 04 MK 2291' });
+    await typeGross('34.46');
+    await fireEvent.changeText(screen.getByLabelText('Reason for the correction'), 'Weighbridge recalibrated');
+    await press('Save correction');
+    expect(await screen.findByText(/reach the server/)).toBeOnTheScreen();
+    await press('Save correction');
+    expect(await screen.findByText('Weight corrected')).toBeOnTheScreen();
+    expect(screen.queryByText(/Someone else changed/)).toBeNull();
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).toBe(keys[0]);
+    const after = await api(`/v1/trucks/${mk.id}`, { schema: truckSchema });
+    expect(after).toMatchObject({ netKg: 22_000, version: mk.version + 1 });
   });
 });
