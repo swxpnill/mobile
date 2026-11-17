@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import { parseRateInput, toDisplayRate } from '../units.ts';
-import { billedRate, brokerEarningEstimate, lineRate, lineValue, roundHalfUp } from './money.ts';
+import { billedRate, brokerEarningEstimate, lineRate, lineValue, roundHalfUp, roundHalfUpSigned } from './money.ts';
 
 describe('roundHalfUp', () => {
   it('half-up: 1 kg × ₹500 = ₹0.5 → ₹1; 1 kg × ₹499 → ₹0', () => {
@@ -131,5 +131,14 @@ describe('brokerEarningEstimate', () => {
       commissionKg: 0,
       overpriceKg: 0,
     });
+  });
+});
+
+describe('roundHalfUpSigned', () => {
+  it('rounds halves away from zero', () => {
+    expect(roundHalfUpSigned(-1_500, 1_000)).toBe(-2);
+    expect(roundHalfUpSigned(1_500, 1_000)).toBe(2);
+    expect(roundHalfUpSigned(1_499, 1_000)).toBe(1);
+    expect(roundHalfUpSigned(0, 7)).toBe(0);
   });
 });
