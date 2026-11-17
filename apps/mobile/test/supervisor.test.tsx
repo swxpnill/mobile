@@ -229,6 +229,7 @@ describe('Capture', () => {
     const mk = await boardTruck('CG 04 MK 2291');
     await api(`/v1/trucks/${mk.id}`, {
       method: 'PATCH',
+      idempotent: true,
       body: { driverName: 'Suresh Yadav', version: mk.version },
     });
     await signIn(ids.users.ravi);

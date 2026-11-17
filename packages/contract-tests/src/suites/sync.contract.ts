@@ -241,6 +241,7 @@ export function register(factory: TargetFactory): void {
         const events = [p.tare(12_460), p.gross(36_640, [{ orderLineId: aLine.id, netKg: 24_180 }])];
         expectOk(
           await call(t, 'POST', `/v1/trucks/${truck.id}/cancel`, {
+            idempotencyKey: newKey(),
             token: owner,
             body: { reason: 'Vehicle did not arrive', note: '', version: truck.version },
           }),
@@ -410,6 +411,7 @@ export function register(factory: TargetFactory): void {
         const detail = await getTruck(t, owner, truck.id);
         expectOk(
           await call(t, 'PATCH', `/v1/trucks/${truck.id}`, {
+            idempotencyKey: newKey(),
             token: owner,
             body: { driverName: 'Suresh', version: detail.version },
           }),
@@ -436,7 +438,7 @@ export function register(factory: TargetFactory): void {
 
         t.clock.advance(MINUTE);
         expectOk(
-          await call(t, 'POST', `/v1/trucks/${truck.id}/cancel`, { token: owner, body: { reason: 'Other', note: '', version: 1 } }),
+          await call(t, 'POST', `/v1/trucks/${truck.id}/cancel`, { token: owner, idempotencyKey: newKey(), body: { reason: 'Other', note: '', version: 1 } }),
           truckSchema,
         );
         const next = expectOk(
@@ -510,7 +512,7 @@ export function register(factory: TargetFactory): void {
 
         const loading = await getTruck(t, owner, two.id);
         expectOk(
-          await call(t, 'POST', `/v1/trucks/${two.id}/cancel`, { token: owner, body: { reason: 'Other', note: '', version: loading.version } }),
+          await call(t, 'POST', `/v1/trucks/${two.id}/cancel`, { token: owner, idempotencyKey: newKey(), body: { reason: 'Other', note: '', version: loading.version } }),
           truckSchema,
         );
         expect(await statusOf()).toMatchObject({ status: 'partly_dispatched', closeKind: null });

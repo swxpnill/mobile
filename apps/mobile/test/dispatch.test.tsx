@@ -120,6 +120,7 @@ describe('Assign vehicle (canvas 07)', () => {
     const gh = await boardTruck('CG 10 GH 4471');
     await api(`/v1/trucks/${gh.id}/cancel`, {
       method: 'POST',
+      idempotent: true,
       body: { reason: 'Vehicle did not arrive', note: '', version: gh.version },
     });
 
@@ -340,7 +341,7 @@ describe('Edit keeps what the person typed', () => {
     await screen.findByText('Edit vehicle');
     await fireEvent.changeText(screen.getByLabelText('LR number'), 'SGR/NEW/1');
     // Someone else edits the truck meanwhile.
-    await api(`/v1/trucks/${mk.id}`, { method: 'PATCH', body: { driverName: 'Suresh Yadav', version: mk.version } });
+    await api(`/v1/trucks/${mk.id}`, { method: 'PATCH', idempotent: true, body: { driverName: 'Suresh Yadav', version: mk.version } });
     return mk;
   }
 
@@ -399,6 +400,30 @@ describe('Truck writes carry an Idempotency-Key, reused on retry', () => {
     expect(keys).toHaveLength(2);
     expect(keys[0]).toEqual(expect.any(String));
     expect(keys[1]).toBe(keys[0]);
+  });
+
+  it('cancel applied but its answer lost: the retry replays it instead of coming back STALE', async () => {
+    const gh = await boardTruck('CG 10 GH 4471');
+    let lost = false;
+    setTransport({
+      async request(req) {
+        const res = await mock.transport.request(req);
+        if (!lost && req.method === 'POST' && req.path.endsWith('/cancel')) {
+          lost = true;
+          throw new NetworkError('answer lost');
+        }
+        return res;
+      },
+    });
+    await wrap(<TruckDetailScreen id={gh.id} />);
+    await screen.findByRole('header', { name: 'CG 10 GH 4471' });
+    await press('Cancel truck');
+    await press('Vehicle did not arrive');
+    await press('Cancel this truck');
+    expect(await screen.findByText(/reach the server/)).toBeOnTheScreen();
+    await press('Cancel this truck');
+    expect(await screen.findByText('CG 10 GH 4471 cancelled')).toBeOnTheScreen();
+    expect(screen.queryByText(/Someone else changed/)).toBeNull();
   });
 
   it('edit: the retry sends the same key', async () => {

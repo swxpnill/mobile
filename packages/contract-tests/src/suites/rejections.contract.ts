@@ -20,6 +20,7 @@ import {
   call,
   expectError,
   expectOk,
+  newKey,
   tokenFor,
   useTarget,
 } from '../harness.ts';
@@ -56,6 +57,7 @@ async function cancelledBeforeSync(t: ContractTarget, grossNetKg = 24_180) {
   const events = [p.tare(12_460), p.gross(12_460 + 24_180, [{ orderLineId: aLine.id, netKg: grossNetKg }])];
   expectOk(
     await call(t, 'POST', `/v1/trucks/${truck.id}/cancel`, {
+      idempotencyKey: newKey(),
       token: owner,
       body: { reason: 'Vehicle did not arrive', note: '', version: truck.version },
     }),
@@ -227,7 +229,7 @@ export function register(factory: TargetFactory): void {
         const t = target();
         const { owner, truck } = await canvasWithTruck(t);
         expectOk(
-          await call(t, 'POST', `/v1/trucks/${truck.id}/cancel`, { token: owner, body: { reason: 'Other', note: '', version: truck.version } }),
+          await call(t, 'POST', `/v1/trucks/${truck.id}/cancel`, { token: owner, idempotencyKey: newKey(), body: { reason: 'Other', note: '', version: truck.version } }),
           truckSchema,
         );
         const ravi = await tokenFor(t, PEOPLE.ravi);

@@ -171,6 +171,7 @@ export function register(factory: TargetFactory): void {
         const truck = expectOk(await assign(t, owner, a.id, assignBody(aLine.id, 24_000)), truckSchema, 201);
         const cancelled = expectOk(
           await call(t, 'POST', `/v1/trucks/${truck.id}/cancel`, {
+            idempotencyKey: newKey(),
             token: owner,
             body: { reason: 'Wrong vehicle', note: 'plate typo', version: truck.version },
           }),
@@ -179,12 +180,12 @@ export function register(factory: TargetFactory): void {
         expect(cancelled).toMatchObject({ state: 'cancelled', cancelReason: 'Wrong vehicle — plate typo', version: 2 });
         expect((await lineOf(t, owner, order, aLine.id)).reservedKg).toBe(0);
         expectError(
-          await call(t, 'PATCH', `/v1/trucks/${truck.id}`, { token: owner, body: { driverName: 'Suresh', version: 2 } }),
+          await call(t, 'PATCH', `/v1/trucks/${truck.id}`, { token: owner, idempotencyKey: newKey(), body: { driverName: 'Suresh', version: 2 } }),
           409,
           'TRUCK_LOCKED',
         );
         expectError(
-          await call(t, 'POST', `/v1/trucks/${truck.id}/cancel`, { token: owner, body: { reason: 'Other', note: '', version: 2 } }),
+          await call(t, 'POST', `/v1/trucks/${truck.id}/cancel`, { token: owner, idempotencyKey: newKey(), body: { reason: 'Other', note: '', version: 2 } }),
           409,
           'TRUCK_LOCKED',
         );
@@ -196,6 +197,7 @@ export function register(factory: TargetFactory): void {
         const truck = expectOk(await assign(t, owner, a.id, assignBody(aLine.id, 24_000)), truckSchema, 201);
         const edited = expectOk(
           await call(t, 'PATCH', `/v1/trucks/${truck.id}`, {
+            idempotencyKey: newKey(),
             token: owner,
             body: { driverName: 'Suresh', plan: planOf(aLine.id, 20_000), lrNo: 'LR-9', version: 1 },
           }),
@@ -205,7 +207,7 @@ export function register(factory: TargetFactory): void {
         expect(edited.plan[0]!.plannedKg).toBe(20_000);
         expect((await lineOf(t, owner, order, aLine.id)).reservedKg).toBe(20_000);
         expectError(
-          await call(t, 'PATCH', `/v1/trucks/${truck.id}`, { token: owner, body: { driverName: 'X', version: 1 } }),
+          await call(t, 'PATCH', `/v1/trucks/${truck.id}`, { token: owner, idempotencyKey: newKey(), body: { driverName: 'X', version: 1 } }),
           409,
           'STALE',
         );
@@ -216,7 +218,7 @@ export function register(factory: TargetFactory): void {
         const { owner, a, aLine, bLine } = await canvas(t);
         const truck = expectOk(await assign(t, owner, a.id, assignBody(aLine.id, 1_000)), truckSchema, 201);
         const err = expectError(
-          await call(t, 'PATCH', `/v1/trucks/${truck.id}`, { token: owner, body: { plan: planOf(bLine.id, 1_000), version: 1 } }),
+          await call(t, 'PATCH', `/v1/trucks/${truck.id}`, { token: owner, idempotencyKey: newKey(), body: { plan: planOf(bLine.id, 1_000), version: 1 } }),
           409,
           'LINE_NOT_ON_ORDER',
         );
@@ -233,19 +235,70 @@ export function register(factory: TargetFactory): void {
           201,
         );
         const edited = expectOk(
-          await call(t, 'PATCH', `/v1/trucks/${other.id}`, { token: owner, body: { vehicleNo: 'CG 04 MK 2291', version: 1 } }),
+          await call(t, 'PATCH', `/v1/trucks/${other.id}`, { token: owner, idempotencyKey: newKey(), body: { vehicleNo: 'CG 04 MK 2291', version: 1 } }),
           truckSchema,
         );
         expect(edited.warnings).toEqual(['VEHICLE_BUSY']);
+      });
+
+      it('a cancel replayed with the same key answers the same 200 and changes nothing again', async () => {
+        const t = target();
+        const { owner, order, a, aLine } = await canvas(t);
+        const truck = expectOk(await assign(t, owner, a.id, assignBody(aLine.id, 1_000)), truckSchema, 201);
+        const key = newKey();
+        const body = { reason: 'Other', note: '', version: truck.version };
+        const first = await call(t, 'POST', `/v1/trucks/${truck.id}/cancel`, { token: owner, idempotencyKey: key, body });
+        const again = await call(t, 'POST', `/v1/trucks/${truck.id}/cancel`, { token: owner, idempotencyKey: key, body });
+        expect(again.status).toBe(200);
+        expect(again.body).toEqual(first.body);
+        const now = expectOk(await call(t, 'GET', `/v1/trucks/${truck.id}`, { token: owner }), truckSchema);
+        expect(now).toMatchObject({ state: 'cancelled', version: 2 });
+        const log = expectOk(await call(t, 'GET', `/v1/orders/${order.id}/activity`, { token: owner }), z.array(activityEntrySchema));
+        expect(log.filter((x) => x.action === 'truck.cancelled')).toHaveLength(1);
+      });
+
+      it('an edit replayed with the same key answers the same 200 and changes nothing again', async () => {
+        const t = target();
+        const { owner, order, a, aLine } = await canvas(t);
+        const truck = expectOk(await assign(t, owner, a.id, assignBody(aLine.id, 1_000)), truckSchema, 201);
+        const key = newKey();
+        const body = { lrNo: 'LR-1', version: truck.version };
+        const first = await call(t, 'PATCH', `/v1/trucks/${truck.id}`, { token: owner, idempotencyKey: key, body });
+        const again = await call(t, 'PATCH', `/v1/trucks/${truck.id}`, { token: owner, idempotencyKey: key, body });
+        expect(first.status).toBe(200);
+        expect(again.status).toBe(200);
+        expect(again.body).toEqual(first.body);
+        const now = expectOk(await call(t, 'GET', `/v1/trucks/${truck.id}`, { token: owner }), truckSchema);
+        expect(now).toMatchObject({ lrNo: 'LR-1', version: 2 });
+        const log = expectOk(await call(t, 'GET', `/v1/orders/${order.id}/activity`, { token: owner }), z.array(activityEntrySchema));
+        expect(log.filter((x) => x.action === 'truck.edited')).toHaveLength(1);
+      });
+
+      it('edit and cancel without an Idempotency-Key: 400 IDEMPOTENCY_KEY_REQUIRED, like assign', async () => {
+        const t = target();
+        const { owner, a, aLine } = await canvas(t);
+        const truck = expectOk(await assign(t, owner, a.id, assignBody(aLine.id, 1_000)), truckSchema, 201);
+        expectError(
+          await call(t, 'PATCH', `/v1/trucks/${truck.id}`, { token: owner, body: { lrNo: 'X', version: 1 } }),
+          400,
+          'IDEMPOTENCY_KEY_REQUIRED',
+        );
+        expectError(
+          await call(t, 'POST', `/v1/trucks/${truck.id}/cancel`, { token: owner, body: { reason: 'Other', note: '', version: 1 } }),
+          400,
+          'IDEMPOTENCY_KEY_REQUIRED',
+        );
+        const now = expectOk(await call(t, 'GET', `/v1/trucks/${truck.id}`, { token: owner }), truckSchema);
+        expect(now).toMatchObject({ state: 'assigned', version: 1 });
       });
 
       it('assign, edit and cancel each log activity on the order with the sub-order id', async () => {
         const t = target();
         const { owner, order, a, aLine } = await canvas(t);
         const truck = expectOk(await assign(t, owner, a.id, assignBody(aLine.id, 1_000)), truckSchema, 201);
-        expectOk(await call(t, 'PATCH', `/v1/trucks/${truck.id}`, { token: owner, body: { driverName: 'S', version: 1 } }), truckSchema);
+        expectOk(await call(t, 'PATCH', `/v1/trucks/${truck.id}`, { token: owner, idempotencyKey: newKey(), body: { driverName: 'S', version: 1 } }), truckSchema);
         expectOk(
-          await call(t, 'POST', `/v1/trucks/${truck.id}/cancel`, { token: owner, body: { reason: 'Other', note: '', version: 2 } }),
+          await call(t, 'POST', `/v1/trucks/${truck.id}/cancel`, { token: owner, idempotencyKey: newKey(), body: { reason: 'Other', note: '', version: 2 } }),
           truckSchema,
         );
         const log = expectOk(await call(t, 'GET', `/v1/orders/${order.id}/activity`, { token: owner }), z.array(activityEntrySchema));
@@ -266,7 +319,7 @@ export function register(factory: TargetFactory): void {
           plan: planOf(aLine.id, 5_000),
         });
         expectOk(
-          await call(t, 'POST', `/v1/trucks/${truckId}/cancel`, { token: owner, body: { reason: 'Other', note: '', version: 1 } }),
+          await call(t, 'POST', `/v1/trucks/${truckId}/cancel`, { token: owner, idempotencyKey: newKey(), body: { reason: 'Other', note: '', version: 1 } }),
           truckSchema,
         );
         const truck = expectOk(await call(t, 'GET', `/v1/trucks/${truckId}`, { token: owner }), truckSchema);
@@ -286,17 +339,17 @@ export function register(factory: TargetFactory): void {
           allocations: [{ orderLineId: aLine.id, netKg: 10_000 }],
         });
         expectError(
-          await call(t, 'PATCH', `/v1/trucks/${truckId}`, { token: owner, body: { driverName: 'Late', version: 1 } }),
+          await call(t, 'PATCH', `/v1/trucks/${truckId}`, { token: owner, idempotencyKey: newKey(), body: { driverName: 'Late', version: 1 } }),
           409,
           'TRUCK_LOCKED',
         );
         const ok = expectOk(
-          await call(t, 'PATCH', `/v1/trucks/${truckId}`, { token: owner, body: { lrNo: 'LR-77', version: 1 } }),
+          await call(t, 'PATCH', `/v1/trucks/${truckId}`, { token: owner, idempotencyKey: newKey(), body: { lrNo: 'LR-77', version: 1 } }),
           truckSchema,
         );
         expect(ok.lrNo).toBe('LR-77');
         expectError(
-          await call(t, 'POST', `/v1/trucks/${truckId}/cancel`, { token: owner, body: { reason: 'Other', note: '', version: 2 } }),
+          await call(t, 'POST', `/v1/trucks/${truckId}/cancel`, { token: owner, idempotencyKey: newKey(), body: { reason: 'Other', note: '', version: 2 } }),
           409,
           'TRUCK_LOCKED',
         );

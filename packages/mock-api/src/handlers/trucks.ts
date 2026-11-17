@@ -161,6 +161,7 @@ export const truckRoutes: RouteDef[] = [
 
   route('PATCH', '/v1/trucks/:id', {
     action: 'truck.edit',
+    idempotent: true,
     transactional: true,
     body: editTruckBodySchema,
     async handler(ctx) {
@@ -203,6 +204,7 @@ export const truckRoutes: RouteDef[] = [
 
   route('POST', '/v1/trucks/:id/cancel', {
     action: 'truck.cancel',
+    idempotent: true,
     transactional: true,
     body: cancelTruckBodySchema,
     async handler(ctx) {
