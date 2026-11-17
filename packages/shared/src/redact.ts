@@ -5,6 +5,9 @@ export const MONEY_KEYS: ReadonlySet<string> = new Set([
   'overpricePerMt', 'commissionPerMt', 'commissionPerMtSnapshot', 'defaultCommissionPerMt',
   'valueRupees', 'lineValue', 'orderValue', 'amount', 'amountRupees', 'due', 'earned', 'paid',
   'tdsRupees', 'billedRate', 'estimatedValue', 'brokerEarningEstimate', 'earningRupees', 'breakdown',
+  'commissionRupees', 'overpriceRupees', 'earnedRupees', 'paidRupees', 'dueRupees', 'totalDueRupees',
+  'openingDueRupees', 'closingDueRupees', 'earnedThisMonthRupees', 'paidThisMonthRupees',
+  'bookedValueRupees', 'liftedValueRupees', 'perMt', 'payment', 'earningLines',
 ]);
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {

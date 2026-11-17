@@ -6,6 +6,7 @@ import {
   SAMPLE_MASTERS,
   SAMPLE_WORLD,
   financialYear,
+  istDateOf,
   formatOrderNumber,
   lineRate,
   subOrderSuffix,
@@ -327,6 +328,32 @@ export function seedDemoOrders(state: MockState, clock: Clock): void {
 
     const fy = financialYear(at);
     lastSeqByFy.set(fy, Math.max(lastSeqByFy.get(fy) ?? 0, d.seq));
+  }
+
+  // R.K. Agarwal has been paid part of what he earned: half, rounded down to Rs 1,000 (canvas 06).
+  const earned = state.brokerLedger
+    .filter((r) => r.brokerId === P.rkAgarwal && r.kind === 'earning')
+    .reduce((sum, r) => sum + r.amountRupees, 0);
+  const paidRupees = Math.floor(earned / 2 / 1_000) * 1_000;
+  if (paidRupees > 0) {
+    state.brokerLedger.push({
+      id: newId(),
+      tenantId: tenant.id,
+      brokerId: P.rkAgarwal,
+      kind: 'payment',
+      truckId: null,
+      amountRupees: -paidRupees,
+      breakdown: [],
+      reversesId: null,
+      createdAt: toIso(now - DAY),
+      createdBy: U.rajesh,
+      mode: 'neft',
+      utr: '223614',
+      tdsRupees: 0,
+      paidRupees,
+      paidOn: istDateOf(now - DAY),
+      note: null,
+    });
   }
 
   for (const [fy, last] of lastSeqByFy) {

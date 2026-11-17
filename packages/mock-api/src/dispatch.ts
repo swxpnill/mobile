@@ -290,11 +290,7 @@ export function rewriteEarning(state: MockState, truck: TruckRec, at: string, ac
   const order = state.orders.find((o) => o.id === truck.orderId);
   if (!order) throw new Error(`truck ${truck.id} has no order`);
   const atDispatch = new Map(
-    old.breakdown.map((b) => [
-      b.orderLineId,
-      // F3 rows only have `perMt`: treat the whole of it as overprice over a zero commission.
-      { commissionPerMt: b.commissionPerMt ?? 0, overpricePerMt: b.overpricePerMt ?? b.perMt },
-    ]),
+    old.breakdown.map((b) => [b.orderLineId, { commissionPerMt: b.commissionPerMt, overpricePerMt: b.overpricePerMt }]),
   );
   const commission = order.commissionPerMtSnapshot ?? 0;
   const rates = new Map(
@@ -304,6 +300,9 @@ export function rewriteEarning(state: MockState, truck: TruckRec, at: string, ac
   );
   pushEarning(state, truck, old.brokerId, earningFromRates(truck.allocations, rates), at, actorId);
 }
+
+/** The payment-only fields of a ledger row that is not a payment. */
+const NO_PAYMENT = { mode: null, utr: null, tdsRupees: null, paidRupees: null, paidOn: null, note: null } as const;
 
 function pushEarning(
   state: MockState,
@@ -324,6 +323,7 @@ function pushEarning(
     reversesId: null,
     createdAt: at,
     createdBy: actorId,
+    ...NO_PAYMENT,
   });
 }
 
@@ -347,6 +347,7 @@ export function reverseEarning(state: MockState, truck: TruckRec, at: string, ac
     reversesId: earning.id,
     createdAt: at,
     createdBy: actorId,
+    ...NO_PAYMENT,
   });
   return earning;
 }

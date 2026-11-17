@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { redactForRole } from './redact.ts';
+import { MONEY_KEYS, redactForRole } from './redact.ts';
 
 const p = { id: 'o1', qtyKg: 24180, rate: 46300, lines: [{ amount: 5, x: 1 }], nested: { due: 9 } };
 it('omits money keys for plant_head and supervisor', () => {
@@ -51,4 +51,30 @@ it('strips billedRate for plant heads and supervisors', () => {
   const row = { truckId: 't1', netKg: 24100, billedRate: 46605, valueRupees: 5 };
   expect(redactForRole('plant_head', row)).toEqual({ truckId: 't1', netKg: 24100 });
   expect(redactForRole('owner', row)).toEqual(row);
+});
+
+it('F4: ledger, payment and report money keys are stripped for plant heads and supervisors', () => {
+  expect(redactForRole('plant_head', { dueRupees: 1, earningLines: [], payment: {} })).toEqual({});
+  const payload = {
+    summary: { dueRupees: 1, earnedThisMonthRupees: 2, paidThisMonthRupees: 3, unpaidKg: 400 },
+    totalDueRupees: 5,
+    openingDueRupees: 6,
+    closingDueRupees: 7,
+    earnedRupees: 8,
+    paidRupees: 9,
+    commissionRupees: 10,
+    overpriceRupees: 11,
+    bookedValueRupees: 12,
+    liftedValueRupees: 13,
+    netKg: 1000,
+    items: [{ id: 'a', perMt: 450, kind: 'earning', amountRupees: 1 }],
+  };
+  expect(redactForRole('supervisor', payload)).toEqual({ summary: { unpaidKg: 400 }, netKg: 1000, items: [{ id: 'a', kind: 'earning' }] });
+  expect(redactForRole('owner', payload)).toEqual(payload);
+});
+
+it('F4: no non-money field name is on the money list', () => {
+  for (const k of ['id', 'name', 'netKg', 'unpaidKg', 'kind', 'entryDate', 'createdAt', 'utr', 'mode', 'paidOn', 'note', 'lines', 'truck', 'productName', 'reversesId', 'reversedById']) {
+    expect(MONEY_KEYS.has(k)).toBe(false);
+  }
 });

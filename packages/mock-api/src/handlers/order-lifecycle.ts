@@ -396,7 +396,7 @@ export const orderLifecycleRoutes: RouteDef[] = [
       }
       state.weighments = state.weighments.filter((w) => !truckIds.has(w.truckId));
       state.rejections = state.rejections.filter((r) => !truckIds.has(r.truckId));
-      state.brokerLedger = state.brokerLedger.filter((r) => !truckIds.has(r.truckId));
+      state.brokerLedger = state.brokerLedger.filter((r) => r.truckId === null || !truckIds.has(r.truckId));
       for (const [eventId, e] of Object.entries(state.appliedEvents)) {
         if (truckIds.has(e.truckId)) delete state.appliedEvents[eventId];
       }
