@@ -232,7 +232,7 @@ describe('applyEvent: the §6.5 table', () => {
     expect(applyEvent(s, ctxFor(s, U.rajesh), atGate(truck.id)).status).toBe('accepted');
   });
 
-  it('AT_GATE: assigned → at gate; late on at gate or loading is a no-op; dispatched is refused', () => {
+  it('AT_GATE: assigned → at gate; late on at gate, loading or dispatched is a no-op', () => {
     const s = world();
     const assigned = truckBy(s, 'CG 10 GH 4471');
     const r = applyEvent(s, ctxFor(s, U.ravi), atGate(assigned.id));
@@ -245,11 +245,9 @@ describe('applyEvent: the §6.5 table', () => {
     expect(loading.state).toBe('loading');
     expect(loading.version).toBe(v);
     const done = truckBy(s, 'CG 04 AB 1123');
-    expect(applyEvent(s, ctxFor(s, U.sanjay), atGate(done.id))).toMatchObject({
-      status: 'rejected',
-      code: 'ALREADY_DISPATCHED',
-      server: { state: 'dispatched' },
-    });
+    const dv = done.version;
+    expect(applyEvent(s, ctxFor(s, U.sanjay), atGate(done.id))).toMatchObject({ status: 'accepted', task: null });
+    expect(done).toMatchObject({ state: 'dispatched', version: dv });
   });
 
   it('TARE from another device on a tared truck is TARE_CONFLICT with the winning value', () => {

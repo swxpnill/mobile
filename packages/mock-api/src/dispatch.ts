@@ -78,6 +78,9 @@ function decide(state: MockState, ctx: DispatchCtx, event: SyncEvent): SyncResul
     return reject(id, 'PLANT_SCOPE');
   }
   const atState = (): Rejected['server'] => ({ state: truck.state });
+  const closed = truck.state === 'cancelled' || truck.state === 'dispatched';
+  // The gate step is optional and may arrive late: on a closed truck it is a no-op, not a refusal.
+  if (event.type === 'AT_GATE' && closed) return { status: 'accepted', eventId: id, task: null };
   if (truck.state === 'cancelled') return reject(id, 'TRUCK_CANCELLED', atState());
   if (truck.state === 'dispatched') return reject(id, 'ALREADY_DISPATCHED', atState());
 

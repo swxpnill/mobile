@@ -287,6 +287,28 @@ export function register(factory: TargetFactory): void {
         expect(await getTruck(t, owner, truck.id)).toEqual(before);
       });
 
+      it('AT_GATE sent late for a dispatched or cancelled truck is an accepted no-op (no task, no rejection)', async () => {
+        const t = target();
+        const { owner, a, aLine, truck } = await canvasWithTruck(t);
+        const other = await assign(t, owner, a.id, aLine.id, 1_000, 'CG 04 AA 1111');
+        const ravi = await tokenFor(t, PEOPLE.ravi);
+        const p = phone(truck.id, () => t.clock.now());
+        await synced(sync(t, ravi, [p.tare(12_460), p.gross(36_640, [{ orderLineId: aLine.id, netKg: 24_180 }])]));
+        expectOk(
+          await call(t, 'POST', `/v1/trucks/${other.id}/cancel`, { token: owner, idempotencyKey: newKey(), body: { reason: 'Other', note: '', version: other.version } }),
+          truckSchema,
+        );
+        const before = [await getTruck(t, owner, truck.id), await getTruck(t, owner, other.id)];
+
+        const late = [p.atGate(), phone(other.id, () => t.clock.now()).atGate()];
+        const results = await synced(sync(t, ravi, late));
+
+        expect(results).toEqual(late.map((e) => ({ status: 'accepted', eventId: e.eventId, task: null })));
+        expect([await getTruck(t, owner, truck.id), await getTruck(t, owner, other.id)]).toEqual(before);
+        const rows = expectOk(await call(t, 'GET', '/v1/weighment-rejections?status=all', { token: owner }), z.array(rejectionSchema));
+        expect(rows).toEqual([]);
+      });
+
       it('a blocked truck does not block another truck in the same batch', async () => {
         const t = target();
         const { owner, a, aLine, truck } = await canvasWithTruck(t);
