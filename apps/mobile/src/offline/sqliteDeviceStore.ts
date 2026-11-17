@@ -330,7 +330,7 @@ export function openDeviceStore(userId: string): Promise<DeviceStore> {
   let store = opened.get(userId);
   if (!store) {
     store =
-      Platform.OS === 'web' || process.env.NODE_ENV === 'test'
+      memoryOnly()
         ? Promise.resolve(createMemoryDeviceStore())
         : import('expo-sqlite').then(async (sqlite) =>
             createSqliteDeviceStore(await sqlite.openDatabaseAsync(deviceDbName(userId))),
@@ -339,6 +339,31 @@ export function openDeviceStore(userId: string): Promise<DeviceStore> {
     opened.set(userId, store);
   }
   return store;
+}
+
+const memoryOnly = () => Platform.OS === 'web' || process.env.NODE_ENV === 'test';
+
+/**
+ * Empties the device store of every person on this phone (Reset demo data), so no old cursor,
+ * task or event outlives the data it came from. Stores opened in this run are cleared in place
+ * (the cached instances stay valid and their connections stay open); the database files of
+ * `userIds` not opened yet are deleted.
+ */
+export async function clearAllDeviceStores(userIds: readonly string[]): Promise<void> {
+  for (const id of new Set([...opened.keys(), ...userIds])) {
+    const store = opened.get(id);
+    if (store) {
+      await (await store).clear();
+      continue;
+    }
+    if (memoryOnly()) continue; // nothing outlives the run there
+    const sqlite = await import('expo-sqlite');
+    try {
+      await sqlite.deleteDatabaseAsync(deviceDbName(id));
+    } catch {
+      // No store for this person on this phone.
+    }
+  }
 }
 
 /** Tests: forget the stores opened so far, so each test starts with empty memory stores. */
