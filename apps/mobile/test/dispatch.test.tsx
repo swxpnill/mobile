@@ -15,17 +15,19 @@ import {
   truckSchema,
 } from '@tonnage/shared';
 import { createFakeClock, createMockApi, type MockApi } from '@tonnage/mock-api';
+import { NetworkError, type TransportRequest } from '@tonnage/shared';
 import { api } from '../src/api/client';
 import { UnitBasisProvider } from '../src/api/hooks/me';
 import { setMockApi, setTransport } from '../src/api/transport';
 import { resetSessionForTests, useSession } from '../src/auth/session';
 import { openDeviceStore, resetDeviceStoresForTests } from '../src/offline/sqliteDeviceStore';
-import { syncNow, useSync } from '../src/offline/useSync';
+import { syncNow, useDeviceStore, useSync } from '../src/offline/useSync';
 import { resetUnitFilterForTests, unitFilterStore } from '../src/prefs/unitFilter';
 import { AssignVehicleScreen } from '../src/screens/dispatch/AssignVehicleScreen';
 import { DispatchScreen } from '../src/screens/dispatch/DispatchScreen';
 import { OwnerWeighScreen } from '../src/screens/dispatch/OwnerWeighScreen';
 import { TruckDetailScreen } from '../src/screens/dispatch/TruckDetailScreen';
+import { truckToTask } from '../src/screens/dispatch/truckStateMeta';
 import { HomeScreen } from '../src/screens/home/HomeScreen';
 import { OrderDetailScreen } from '../src/screens/orders/OrderDetailScreen';
 import { ThemeProvider } from '../src/theme/ThemeProvider';
@@ -50,13 +52,13 @@ function SyncHost() {
   return null;
 }
 
-const wrap = (ui: ReactElement) =>
+const wrap = (ui: ReactElement, opts: { sync?: boolean } = {}) =>
   render(
     <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 0, left: 0, right: 0, bottom: 0 } }}>
       <QueryClientProvider client={client}>
         <ThemeProvider>
           <UnitBasisProvider>
-            <SyncHost />
+            {opts.sync === false ? null : <SyncHost />}
             {ui}
             <ToastHost />
           </UnitBasisProvider>
@@ -286,5 +288,131 @@ describe('Owner weighs from the truck detail (Ruling 4)', () => {
     const after = await api(`/v1/trucks/${fresh.id}`, { schema: truckSchema });
     expect(after).toMatchObject({ state: 'loading', tareKg: 12_100 });
     await view.unmount();
+  });
+});
+
+// ---- Fix round 1 ----
+
+describe('Plant head redaction and scope (Review Focus 4)', () => {
+  const MONEY = /"(earningRupees|breakdown)"/;
+
+  it('owner control: the truck of a broker order carries earningRupees', async () => {
+    const mk = await boardTruck('CG 04 MK 2291');
+    expect(JSON.stringify(await api(`/v1/trucks/${mk.id}`))).toMatch(/"earningRupees"/);
+    expect(JSON.stringify(await api('/v1/dispatch'))).toMatch(/"earningRupees"/);
+  });
+
+  it('Kiran: no earningRupees or breakdown in the truck or the board; a Borai truck is 404', async () => {
+    const mk = await boardTruck('CG 04 MK 2291');
+    const br = await boardTruck('CG 07 BR 8810'); // Borai, as the owner sees it
+    await signIn(ids.users.kiran);
+    expect(JSON.stringify(await api(`/v1/trucks/${mk.id}`))).not.toMatch(MONEY);
+    expect(JSON.stringify(await api('/v1/dispatch'))).not.toMatch(MONEY);
+    await expect(api(`/v1/trucks/${br.id}`)).rejects.toMatchObject({ status: 404, code: 'NOT_FOUND' });
+
+    await wrap(<TruckDetailScreen id={br.id} />);
+    expect(await screen.findByText('Not found')).toBeOnTheScreen();
+    expect(screen.queryByRole('header', { name: 'CG 07 BR 8810' })).toBeNull();
+  });
+});
+
+describe('Owner weighs the step the server is at', () => {
+  it('a stale assigned copy on the phone (v1) loses to the server loading truck (v2): gross opens', async () => {
+    const mk = await boardTruck('CG 04 MK 2291');
+    const server = await api(`/v1/trucks/${mk.id}`, { schema: truckSchema });
+    const store = await openDeviceStore(ids.users.rajesh);
+    const stale = { ...truckToTask(server), state: 'assigned' as const, tareKg: null, tareAt: null, version: server.version - 1 };
+    const at = new Date(NOW).toISOString();
+    await store.replaceTasks({ items: [stale], removed: [], cursor: at, serverTime: at });
+    useDeviceStore.setState({ store });
+
+    await wrap(<OwnerWeighScreen truckId={mk.id} />, { sync: false });
+    expect(await screen.findByText('Gross weight')).toBeOnTheScreen();
+    expect(screen.queryByText('Tare weight')).toBeNull();
+    useDeviceStore.setState({ store: null });
+  });
+});
+
+describe('Edit keeps what the person typed', () => {
+  async function openEdit() {
+    const mk = await boardTruck('CG 04 MK 2291');
+    await wrap(<AssignVehicleScreen orderId={mk.orderId} subOrderId={mk.subOrderId} truckId={mk.id} />);
+    await screen.findByText('Edit vehicle');
+    await fireEvent.changeText(screen.getByLabelText('LR number'), 'SGR/NEW/1');
+    // Someone else edits the truck meanwhile.
+    await api(`/v1/trucks/${mk.id}`, { method: 'PATCH', body: { driverName: 'Suresh Yadav', version: mk.version } });
+    return mk;
+  }
+
+  it('a STALE save keeps the typed LR, says why, and offers the latest', async () => {
+    await openEdit();
+    await press('Save changes');
+    expect(await screen.findByText(/Someone else changed this truck/)).toBeOnTheScreen();
+    expect(screen.getByLabelText('LR number').props.value).toBe('SGR/NEW/1');
+    expect(await screen.findByText('This truck changed.')).toBeOnTheScreen();
+    expect(mockRouter.back).not.toHaveBeenCalled();
+    await press('Reload latest');
+    expect(screen.getByLabelText('Driver name').props.value).toBe('Suresh Yadav');
+    expect(screen.queryByText('This truck changed.')).toBeNull();
+  });
+
+  it('a background refetch with a newer version does not clear the form', async () => {
+    await openEdit();
+    await act(() => client.invalidateQueries({ queryKey: ['truck'] }));
+    expect(await screen.findByText('This truck changed.')).toBeOnTheScreen();
+    expect(screen.getByLabelText('LR number').props.value).toBe('SGR/NEW/1');
+    expect(screen.getByLabelText('Driver name').props.value).toBe('Ramesh Yadav');
+  });
+});
+
+describe('Truck writes carry an Idempotency-Key, reused on retry', () => {
+  /** The first matching request is lost on the way out; every key sent is recorded. */
+  function loseFirst(match: (r: TransportRequest) => boolean) {
+    const keys: (string | undefined)[] = [];
+    let lost = false;
+    setTransport({
+      async request(req) {
+        if (match(req)) {
+          keys.push(req.headers['idempotency-key']);
+          if (!lost) {
+            lost = true;
+            throw new NetworkError('lost');
+          }
+        }
+        return mock.transport.request(req);
+      },
+    });
+    return keys;
+  }
+
+  it('cancel: the retry sends the same key', async () => {
+    const gh = await boardTruck('CG 10 GH 4471');
+    const keys = loseFirst((r) => r.method === 'POST' && r.path.endsWith('/cancel'));
+    await wrap(<TruckDetailScreen id={gh.id} />);
+    await screen.findByRole('header', { name: 'CG 10 GH 4471' });
+    await press('Cancel truck');
+    await press('Vehicle did not arrive');
+    await press('Cancel this truck');
+    expect(await screen.findByText(/reach the server/)).toBeOnTheScreen();
+    await press('Cancel this truck');
+    expect(await screen.findByText('CG 10 GH 4471 cancelled')).toBeOnTheScreen();
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toEqual(expect.any(String));
+    expect(keys[1]).toBe(keys[0]);
+  });
+
+  it('edit: the retry sends the same key', async () => {
+    const mk = await boardTruck('CG 04 MK 2291');
+    const keys = loseFirst((r) => r.method === 'PATCH' && r.path.startsWith('/v1/trucks/'));
+    await wrap(<AssignVehicleScreen orderId={mk.orderId} subOrderId={mk.subOrderId} truckId={mk.id} />);
+    await screen.findByText('Edit vehicle');
+    await fireEvent.changeText(screen.getByLabelText('LR number'), 'SGR/2611/0600');
+    await press('Save changes');
+    expect(await screen.findByText(/reach the server/)).toBeOnTheScreen();
+    await press('Save changes');
+    await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toEqual(expect.any(String));
+    expect(keys[1]).toBe(keys[0]);
   });
 });

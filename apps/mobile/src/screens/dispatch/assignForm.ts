@@ -12,7 +12,11 @@ import {
   toDisplayQty,
   vehicleNoSchema,
 } from '@tonnage/shared';
+import { ApiError } from '../../api/client';
+import { messageFor } from '../messages';
 import { phoneForInput } from './truckStateMeta';
+
+export const NO_CUSTOMER = 'Add a customer to this order before assigning a vehicle';
 
 export interface PlanRowState {
   checked: boolean;
@@ -114,4 +118,30 @@ export function editBody(
     if (!same) body.plan = ok.plan;
   }
   return body;
+}
+
+/** What to say when an assign or edit is refused. */
+export function failure(e: unknown): string {
+  if (e instanceof ApiError) {
+    switch (e.code) {
+      case 'STALE':
+        return 'Someone else changed this truck. Your changes are kept: reload the latest, then save again.';
+      case 'CUSTOMER_REQUIRED':
+        return NO_CUSTOMER;
+      case 'ORDER_LOCKED':
+        return 'This sub-order is closed. Reopen it to assign a vehicle.';
+      case 'PLANT_REQUIRED':
+        return 'Choose the plant that loads this truck';
+      case 'PLANT_INACTIVE':
+      case 'COMPANY_INACTIVE':
+        return 'This plant is not active. Ask the owner to turn it back on.';
+      case 'TRUCK_LOCKED':
+        return 'This truck is dispatched or cancelled: only the LR number can change.';
+      case 'LINE_NOT_ON_ORDER':
+        return 'A line of this plan was removed from the order. Check the plan again.';
+      case 'VALIDATION':
+        return 'Check the details and try again.';
+    }
+  }
+  return messageFor(e);
 }

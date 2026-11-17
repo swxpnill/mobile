@@ -92,13 +92,16 @@ export const useAssignTruck = () =>
     api(`/v1/sub-orders/${subOrderId}/trucks`, { method: 'POST', body, idempotencyKey: key, schema: truckSchema }),
   );
 
-/** Edit (versioned: a second write with the same version answers STALE, never applies twice). */
+/**
+ * Edit and cancel: versioned, and keyed like every write from the phone. The caller holds one key
+ * per submit (`useSubmitKey`) and reuses it on a retry after a lost answer.
+ */
 export const useEditTruck = () =>
-  useTruckMutation(({ id, body }: { id: string; body: EditTruckBody }) =>
-    api(`/v1/trucks/${id}`, { method: 'PATCH', body, schema: truckSchema }),
+  useTruckMutation(({ id, body, key }: { id: string; body: EditTruckBody; key: string }) =>
+    api(`/v1/trucks/${id}`, { method: 'PATCH', body, idempotencyKey: key, schema: truckSchema }),
   );
 
 export const useCancelTruck = () =>
-  useTruckMutation(({ id, body }: { id: string; body: CancelTruckBody }) =>
-    api(`/v1/trucks/${id}/cancel`, { method: 'POST', body, schema: truckSchema }),
+  useTruckMutation(({ id, body, key }: { id: string; body: CancelTruckBody; key: string }) =>
+    api(`/v1/trucks/${id}/cancel`, { method: 'POST', body, idempotencyKey: key, schema: truckSchema }),
   );

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { ApiError } from '../../api/client';
 import { useCancelTruck } from '../../api/hooks/trucks';
-import { useSingleFlight } from '../../api/submitKey';
+import { useSingleFlight, useSubmitKey } from '../../api/submitKey';
 import { Button, Chip, showToast, Text, TextField } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
 import { MSG, messageFor } from '../messages';
@@ -24,6 +24,7 @@ export function CancelTruckSheet({
 }) {
   const cancel = useCancelTruck();
   const once = useSingleFlight();
+  const key = useSubmitKey();
   const [reason, setReason] = useState<Reason | null>(null);
   const [note, setNote] = useState('');
   const [error, setError] = useState<string>();
@@ -42,11 +43,13 @@ export function CancelTruckSheet({
     }
     setError(undefined);
     try {
-      await cancel.mutateAsync({ id: truck.id, body: { reason, note, version: truck.version } });
+      await cancel.mutateAsync({ id: truck.id, key: key.key(), body: { reason, note, version: truck.version } });
+      key.settle();
       showToast(`${truck.vehicleNo} cancelled`);
       onClose();
       onCancelled?.();
     } catch (e) {
+      key.settle(e); // kept for the retry unless the server answered
       if (e instanceof ApiError && e.code === 'STALE') {
         showToast(MSG.stale);
         onClose();

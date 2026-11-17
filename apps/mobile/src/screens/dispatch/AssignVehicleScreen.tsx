@@ -1,8 +1,7 @@
 import { type Order, type SubOrder, type Truck, can, isTerminal } from '@tonnage/shared';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { ApiError } from '../../api/client';
+import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { useCompanies } from '../../api/hooks/companies';
 import { useDisplayBasis, useMe } from '../../api/hooks/me';
 import { useOrder } from '../../api/hooks/orders';
@@ -12,15 +11,14 @@ import { useParties } from '../../api/hooks/masters';
 import { useSingleFlight, useSubmitKey } from '../../api/submitKey';
 import { useTheme } from '../../theme/ThemeProvider';
 import { Button, ChoiceRow, EmptyState, Group, Icon, IconButton, Screen, showToast, Text, TextField } from '../../ui';
-import { SMALL_TEXT_MAX_SCALE } from '../../theme/tokens';
 import { BackHeader } from '../admin/parts';
 import { MSG, messageFor } from '../messages';
-import { LoadPlan, TransporterField, TransporterPickerSheet } from './AssignParts';
-import { type AssignForm, check, editBody, initialForm } from './assignForm';
+import { LoadPlan, RecentChip, TransporterField, TransporterPickerSheet } from './AssignParts';
+import { type AssignForm, NO_CUSTOMER, check, editBody, failure, initialForm } from './assignForm';
+
+export { NO_CUSTOMER };
 import { CancelTruckSheet } from './CancelTruckSheet';
 import { isOpenState, phoneForInput } from './truckStateMeta';
-
-export const NO_CUSTOMER = 'Add a customer to this order before assigning a vehicle';
 
 /** Canvas 07 (assign) and 34 (edit, with `truckId`): one truck for one sub-order. */
 export function AssignVehicleScreen({ orderId, subOrderId, truckId }: { orderId: string; subOrderId: string; truckId?: string }) {
@@ -45,24 +43,29 @@ export function AssignVehicleScreen({ orderId, subOrderId, truckId }: { orderId:
       </Screen>
     );
   }
-  // A new version (a save elsewhere, or STALE) starts the form again from the server's truck.
-  return <Form key={truck.data?.version ?? 'new'} o={order.data} sub={sub} truck={truck.data} />;
+  // Seeded once per truck: a refetch (a synced tare, STALE, focus) never wipes what was typed.
+  return <Form key={truckId ?? 'new'} o={order.data} sub={sub} latest={truck.data} />;
 }
 
-function Form({ o, sub, truck }: { o: Order; sub: SubOrder; truck?: Truck }) {
+/**
+ * `latest` is the server's truck as the cache has it now; `truck` is the copy the form was seeded
+ * from, whose version the save sends. When the server moves on, a banner offers to reload.
+ */
+function Form({ o, sub, latest }: { o: Order; sub: SubOrder; latest?: Truck }) {
   const router = useRouter();
   const { t } = useTheme();
   const basis = useDisplayBasis();
   const { data: me } = useMe();
   const { data: companies } = useCompanies();
   const { data: plants } = usePlants();
-  const recent = useRecentVehicles(truck === undefined);
+  const recent = useRecentVehicles(latest === undefined);
   const transporters = useParties({ type: 'transporter' });
   const assign = useAssignTruck();
   const edit = useEditTruck();
   const key = useSubmitKey();
   const once = useSingleFlight();
-  const [form, setForm] = useState<AssignForm>(() => initialForm(sub, basis, truck));
+  const [truck, setTruck] = useState<Truck | undefined>(latest);
+  const [form, setForm] = useState<AssignForm>(() => initialForm(sub, basis, latest));
   const [errors, setErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string>();
   const [picking, setPicking] = useState(false);
@@ -81,6 +84,14 @@ function Form({ o, sub, truck }: { o: Order; sub: SubOrder; truck?: Truck }) {
   const canCancel = editing && me !== undefined && can(me.role, 'truck.cancel') && isOpenState(truck.state);
   const busy = assign.isPending || edit.isPending;
   const set = (patch: Partial<AssignForm>) => setForm((f) => ({ ...f, ...patch }));
+  const moved = latest !== undefined && truck !== undefined && latest.version > truck.version;
+  const reload = () => {
+    if (!latest) return;
+    setTruck(latest);
+    setForm(initialForm(sub, basis, latest));
+    setErrors({});
+    setError(undefined);
+  };
 
   const submit = async () => {
     const ok = check(form, sub, basis, withPlan && !dispatched);
@@ -100,7 +111,8 @@ function Form({ o, sub, truck }: { o: Order; sub: SubOrder; truck?: Truck }) {
           router.back(); // nothing changed: no write, no activity entry
           return;
         }
-        await edit.mutateAsync({ id: truck.id, body });
+        await edit.mutateAsync({ id: truck.id, body, key: key.key() });
+        key.settle();
         showToast('Saved');
         router.back();
         return;
@@ -189,6 +201,16 @@ function Form({ o, sub, truck }: { o: Order; sub: SubOrder; truck?: Truck }) {
         </Text>
       ) : null}
       {dispatched ? <Text color="tx2">Dispatched: only the LR number can change now.</Text> : null}
+      {moved ? (
+        <View style={[styles.banner, { backgroundColor: t.wns }]} accessibilityLiveRegion="polite">
+          <Text color="wnt" weight="medium" style={[styles.fill, styles.small]}>
+            This truck changed.
+          </Text>
+          <Button variant="secondary" onPress={reload} style={styles.reload}>
+            Reload latest
+          </Button>
+        </View>
+      ) : null}
 
       {askPlant ? (
         <Group>
@@ -278,60 +300,19 @@ function Form({ o, sub, truck }: { o: Order; sub: SubOrder; truck?: Truck }) {
           setPicking(false);
         }}
       />
-      {truck ? <CancelTruckSheet truck={truck} visible={cancelling} onClose={() => setCancelling(false)} onCancelled={() => router.back()} /> : null}
+      {latest ? <CancelTruckSheet truck={latest} visible={cancelling} onClose={() => setCancelling(false)} onCancelled={() => router.back()} /> : null}
     </Screen>
-  );
-}
-
-/** Canvas `.chip`: a recent vehicle; fills vehicle, transporter and driver. */
-function RecentChip({ vehicleNo, onPress }: { vehicleNo: string; onPress(): void }) {
-  const { t } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Recent vehicle ${vehicleNo}`}
-      onPress={onPress}
-      hitSlop={{ top: 6, bottom: 6 }}
-      style={({ pressed }) => [styles.chip, { backgroundColor: pressed ? t.act : t.card, borderColor: t.bd }]}
-    >
-      <Text weight="medium" color="tx2" style={styles.small} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-        {vehicleNo}
-      </Text>
-    </Pressable>
   );
 }
 
 type FieldErrors = Extract<ReturnType<typeof check>, { ok: false }>['errors'];
 
-function failure(e: unknown): string {
-  if (e instanceof ApiError) {
-    switch (e.code) {
-      case 'CUSTOMER_REQUIRED':
-        return NO_CUSTOMER;
-      case 'ORDER_LOCKED':
-        return 'This sub-order is closed. Reopen it to assign a vehicle.';
-      case 'PLANT_REQUIRED':
-        return 'Choose the plant that loads this truck';
-      case 'PLANT_INACTIVE':
-      case 'COMPANY_INACTIVE':
-        return 'This plant is not active. Ask the owner to turn it back on.';
-      case 'TRUCK_LOCKED':
-        return 'This truck is dispatched or cancelled: only the LR number can change.';
-      case 'LINE_NOT_ON_ORDER':
-        return 'A line of this plan was removed from the order. Check the plan again.';
-      case 'VALIDATION':
-        return 'Check the details and try again.';
-    }
-  }
-  return messageFor(e);
-}
-
 const styles = StyleSheet.create({
   head: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingTop: 12, paddingHorizontal: 8, paddingBottom: 4 },
-  chip: { minHeight: 34, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, justifyContent: 'center' },
   heading: { fontSize: 15, lineHeight: 20 },
   fill: { flex: 1, minWidth: 0 },
   small: { fontSize: 13, lineHeight: 18 },
+  reload: { height: 44, paddingHorizontal: 14 },
   banner: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 12 },
   gap: { gap: 8 },
   chips: { gap: 8, alignItems: 'center' },

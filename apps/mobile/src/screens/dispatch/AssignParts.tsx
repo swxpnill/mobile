@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { useParties } from '../../api/hooks/masters';
 import { useTheme } from '../../theme/ThemeProvider';
-import { MIN_TOUCH, fontFamily } from '../../theme/tokens';
+import { MIN_TOUCH, SMALL_TEXT_MAX_SCALE, fontFamily } from '../../theme/tokens';
 import { Avatar, Group, Icon, Row, SearchField, Text, useDebouncedValue } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
 import { type PlanRowState, lineAssignable, lineLabel } from './assignForm';
@@ -172,7 +172,27 @@ export function LoadPlan({
   );
 }
 
+/** Canvas `.chip`: a recent vehicle; fills vehicle, transporter and driver. */
+export function RecentChip({ vehicleNo, onPress }: { vehicleNo: string; onPress(): void }) {
+  const { t } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Recent vehicle ${vehicleNo}`}
+      onPress={onPress}
+      hitSlop={{ top: 6, bottom: 6 }}
+      style={({ pressed }) => [styles.chip, { backgroundColor: pressed ? t.act : t.card, borderColor: t.bd }]}
+    >
+      <Text weight="medium" color="tx2" style={styles.smallText} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+        {vehicleNo}
+      </Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
+  chip: { minHeight: 34, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, justifyContent: 'center' },
+  smallText: { fontSize: 13, lineHeight: 18 },
   field: { gap: 6 },
   label: { paddingHorizontal: 4 },
   fill: { flex: 1, minWidth: 0 },
