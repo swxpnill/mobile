@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useCompanies } from '../api/hooks/companies';
 import { useMe } from '../api/hooks/me';
+import { useRejectionCount } from '../api/hooks/rejections';
 import { demoToolsEnabled } from '../api/demo';
 import { Group, MenuRow, Screen, SectionLabel } from '../ui';
 import { ProfileCard } from './ProfileCard';
@@ -17,6 +18,7 @@ export function MoreScreen() {
   const router = useRouter();
   const { data: me } = useMe();
   const { data: companies } = useCompanies();
+  const { data: rejections } = useRejectionCount();
   if (!me)
     return (
       <Screen title="More" edges={['top']}>
@@ -30,6 +32,20 @@ export function MoreScreen() {
   return (
     <Screen title="More" edges={['top']}>
       <ProfileCard />
+
+      {can(me.role, 'rejections.manage') ? (
+        // Ruling 8: weights the server refused, for the owner to restore or dismiss.
+        <Group>
+          <MenuRow
+            icon="alert"
+            tone="rd"
+            label="Needs attention"
+            badge={rejections?.open}
+            accessibilityLabel={`Needs attention · ${rejections === undefined ? 'loading' : `${rejections.open} open`}`}
+            onPress={() => router.push('/attention')}
+          />
+        </Group>
+      ) : null}
 
       {can(role, 'masters.manage') ? (
         <>

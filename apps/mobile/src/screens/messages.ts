@@ -1,4 +1,4 @@
-import { NetworkError } from '@tonnage/shared';
+import { type ErrorCode, NetworkError } from '@tonnage/shared';
 import { ApiError } from '../api/client';
 
 /** User-facing copy for API failures (sign-in and admin screens). */
@@ -17,6 +17,35 @@ export const MSG = {
   plantRule: 'Choose plants that match the role',
   inProgress: 'Still sending your first try. Wait a moment, then try again.',
 } as const;
+
+/**
+ * Why the server refused a weight from a phone (sync rejections, a refused restore or
+ * correction), in plain words. Undefined for codes that are not about weights.
+ */
+export function weightCodeMessage(code: ErrorCode): string | undefined {
+  switch (code) {
+    case 'TRUCK_CANCELLED':
+      return 'Truck was cancelled before this weight reached the server';
+    case 'INVALID_STATE':
+      return 'The truck was not at this step when the weight arrived';
+    case 'ALLOC_MISMATCH':
+      return 'The split over the order lines does not add up to the net';
+    case 'TARE_CONFLICT':
+      return 'A different tare was already saved for this truck';
+    case 'INVALID_WEIGHT':
+      return 'The gross is not more than the tare';
+    case 'LINE_REMOVED':
+      return 'An order line on this truck was removed';
+    case 'TARE_REQUIRED':
+      return 'The gross arrived before any tare';
+    case 'ALREADY_DISPATCHED':
+      return 'The truck was already dispatched';
+    case 'PLANT_SCOPE':
+      return 'The sender no longer has access to this plant';
+    default:
+      return undefined;
+  }
+}
 
 export function messageFor(e: unknown): string {
   if (e instanceof NetworkError) return MSG.offline;
@@ -43,7 +72,7 @@ export function messageFor(e: unknown): string {
       case 'IDEMPOTENCY_IN_PROGRESS':
         return MSG.inProgress;
       default:
-        return MSG.generic;
+        return weightCodeMessage(e.code) ?? MSG.generic;
     }
   }
   return MSG.generic;

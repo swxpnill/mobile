@@ -98,10 +98,13 @@ export function WeightReadout({
   value,
   basis,
   color = 'tx',
+  compact,
 }: {
   value: string;
   basis: UnitBasis;
   color?: keyof Tokens;
+  /** Smaller, for two readouts side by side (the owner's weight correction). */
+  compact?: boolean;
 }) {
   const shown = value || '0';
   const spoken = `${shown} ${basis === 'mt' ? 'tonnes' : 'kilograms'}`;
@@ -113,10 +116,10 @@ export function WeightReadout({
       numeric
       weight="semibold"
       color={color}
-      style={styles.readout}
+      style={compact ? styles.readoutCompact : styles.readout}
     >
       {shown}
-      <Text weight="medium" color="tx3" style={styles.unit}>
+      <Text weight="medium" color="tx3" style={compact ? styles.unitCompact : styles.unit}>
         {` ${weightUnit(basis)}`}
       </Text>
     </Text>
@@ -136,4 +139,6 @@ const styles = StyleSheet.create({
   keyText: { fontSize: 24, lineHeight: 30 },
   readout: { fontSize: 56, lineHeight: 64, letterSpacing: -2, textAlign: 'center' },
   unit: { fontSize: 22, lineHeight: 28, letterSpacing: 0 },
+  readoutCompact: { fontSize: 28, lineHeight: 34, letterSpacing: -0.5 },
+  unitCompact: { fontSize: 15, lineHeight: 20, letterSpacing: 0 },
 });

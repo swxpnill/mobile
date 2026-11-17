@@ -42,6 +42,7 @@ export function MenuRow({
   onPress,
   comingSoon,
   danger,
+  badge,
   accessibilityLabel,
 }: {
   icon: IconName;
@@ -51,6 +52,8 @@ export function MenuRow({
   onPress?: () => void;
   comingSoon?: boolean;
   danger?: boolean;
+  /** A count that needs action (red pill), e.g. open rejections; hidden at 0. */
+  badge?: number;
   /** Spoken name when the label alone is not enough (e.g. "Sign out, 2 weights not sent yet"). */
   accessibilityLabel?: string;
 }) {
@@ -70,6 +73,13 @@ export function MenuRow({
       ) : value ? (
         <Text variant="caption">{value}</Text>
       ) : null}
+      {badge ? (
+        <View style={[styles.badge, { backgroundColor: t.dgs }]}>
+          <Text weight="semibold" color="dgt" numeric style={styles.badgeText}>
+            {String(badge)}
+          </Text>
+        </View>
+      ) : null}
       {danger || comingSoon ? null : <Icon name="chevronRight" size={18} color={t.tx3} />}
     </Row>
   );
@@ -78,4 +88,6 @@ export function MenuRow({
 const styles = StyleSheet.create({
   tile: { alignItems: 'center', justifyContent: 'center' },
   fill: { flex: 1 },
+  badge: { minWidth: 24, height: 24, borderRadius: 12, paddingHorizontal: 7, alignItems: 'center', justifyContent: 'center' },
+  badgeText: { fontSize: 13, lineHeight: 18 },
 });

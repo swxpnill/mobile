@@ -13,6 +13,7 @@ import { Badge, Button, EmptyState, Group, IconButton, Row, Screen, showToast, T
 import { BackHeader } from '../admin/parts';
 import { MSG, messageFor } from '../messages';
 import { CancelTruckSheet } from './CancelTruckSheet';
+import { CorrectWeightSheet } from './CorrectWeightSheet';
 import { Progress, Weighments } from './TruckTimeline';
 import { TRUCK_STATE_META, isOpenState, planLabel, shownPhone } from './truckStateMeta';
 
@@ -49,6 +50,7 @@ function Detail({ x, refreshing, refetch }: { x: Truck; refreshing: boolean; ref
   const { data: companies } = useCompanies();
   const snap = useDeviceSnapshot();
   const [cancelling, setCancelling] = useState(false);
+  const [correcting, setCorrecting] = useState(false);
   const role = me?.role;
   const may = (a: Parameters<typeof can>[1]) => (role ? can(role, a) : false);
   const all = byCode(companies ?? []);
@@ -89,7 +91,7 @@ function Detail({ x, refreshing, refetch }: { x: Truck; refreshing: boolean; ref
             </Button>
           ) : null}
           {canCorrect ? (
-            <Button variant="secondary" onPress={() => showToast('Correcting a weight arrives in the next update')}>
+            <Button variant="secondary" onPress={() => setCorrecting(true)}>
               Correct weight
             </Button>
           ) : null}
@@ -234,6 +236,9 @@ function Detail({ x, refreshing, refetch }: { x: Truck; refreshing: boolean; ref
       </Group>
 
       <CancelTruckSheet truck={x} visible={cancelling} onClose={() => setCancelling(false)} />
+      {canCorrect || correcting ? (
+        <CorrectWeightSheet truck={x} visible={correcting} onClose={() => setCorrecting(false)} />
+      ) : null}
     </Screen>
   );
 }

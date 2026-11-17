@@ -21,12 +21,15 @@ export function SplitStep({
   netKg,
   basis,
   saving,
+  saveLabel = 'Save gross · mark dispatched',
   onSave,
 }: {
   plan: Task['plan'];
   netKg: number;
   basis: UnitBasis;
   saving: boolean;
+  /** The owner's weight correction reuses this step with its own action. */
+  saveLabel?: string;
   onSave(allocations: Allocation[]): void;
 }) {
   const { t } = useTheme();
@@ -101,7 +104,7 @@ export function SplitStep({
           )
         }
       >
-        Save gross · mark dispatched
+        {saveLabel}
       </Button>
     </View>
   );
