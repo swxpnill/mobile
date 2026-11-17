@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Tonnage**: an Android-first order and dispatch app for a group of steel companies (one owner, several companies each with its own GSTIN, plants under each company). Flow: order → sub-order per company → truck assignment → plant weighment (tare/gross, net = dispatched) → broker commission ledger.
 
-Delivery is **frontend first**: the whole app (milestones F1–F5) runs on an in-app mock API, then the real backend (B1–B5) is built to the same contract. Done: F1 (app foundation: sign-in, app shell, admin screens, demo tools) and F2 (masters and orders: customers/brokers/transporters, products, Home, Orders, order detail, the new-order wizard, the order lifecycle).
+Delivery is **frontend first**: the whole app (milestones F1–F5) runs on an in-app mock API, then the real backend (B1–B5) is built to the same contract. Done: F1 (app foundation: sign-in, app shell, admin screens, demo tools), F2 (masters and orders: customers/brokers/transporters, products, Home, Orders, order detail, the new-order wizard, the order lifecycle) and F3 (dispatch and offline weighment: assign vehicle, Dispatch board, supervisor capture on a device store with outbox and sync, Needs attention).
 
 ## Commands
 
@@ -56,7 +56,9 @@ packages/contract-tests ── one HTTP-level suite run against any Transport
 - **Roles:** `owner | city_staff | plant_head | supervisor`. A supervisor has exactly one plant, a plant head one or more, owner and city staff none (they see all). Money fields are omitted (not null) for plant head and supervisor. Tabs per role live in `apps/mobile/src/nav/tabs.ts`.
 - **Business rules are pure functions** in `packages/shared/src/rules/` (pricing and rounding, quantities, derived status, numbering by IST financial year, edit limits). The mock uses them now, B2 will, and the app uses them for previews; the server's numbers win. Status is derived, never stored.
 - **Mock writes are all-or-nothing:** routes marked `transactional: true` (every order write) are rolled back if the handler throws, like a DB transaction in B2. Auth/OTP routes are not, because refusals must be recorded.
-- **Trucks before F3:** `TruckRec` exists so dispatched/reserved kg and short close with open trucks are real; trucks are created only by `fixtures.addTruck` / `controls.addTruck` and the demo seed.
+- **Trucks and dispatch (F3):** trucks are created by the assign action (the fixtures and the demo seed also add some). Dispatch is one transactional handler per sync event (AT_GATE, TARE, GROSS); GROSS dispatches, issues a loading-slip number (IST financial year numbering) and writes the broker earning. AT_GATE on a dispatched or cancelled truck is an accepted no-op (also on at_gate/loading). A net within tolerance of the plan closes the plan; outside it the usual confirmation applies. Events the server refuses become rejections (`TRUCK_CANCELLED`, `TARE_CONFLICT`, ...) that surface in More → Needs attention, where the owner restores or dismisses them. Owner/city staff can correct a weight after dispatch; the earning is rewritten from the truck's original snapshot rates.
+- **Offline (`apps/mobile/src/offline/`):** a device store per signed-in user (`tonnage-device-<userId>.db`, SQLite via `sqliteDeviceStore.ts`; an in-memory store in jest/web), both held to `deviceStoreContract.ts`. Tables: tasks, done_today, outbox, sync_meta; no prices on the device. Outbox statuses: `pending | sending | accepted | rejected | blocked | resolved` (`blocked` = behind a rejected event for the same truck; `resolved` = the owner restored/dismissed the rejection, reported by `TasksPage.resolved`). `syncEngine.ts` pushes in `device_seq` order; `useSync` triggers on foreground, every 60 s, and after a save, with backoff 2 s x 2^n +/- 20 % up to 5 min. "Online" is the result of the last request, so Demo tools Offline works. Reset demo data clears every device store on the phone. After adding a native-backed package (expo-sqlite), restart Metro with `--clear`.
+- **Demo trucks:** the seed has trucks at various states on the demo orders, so the Dispatch board and supervisor Tasks are populated after Reset demo data.
 - **Expo Go only.** No custom native modules; anything that needs a dev client is out until the plan says otherwise.
 
 ### Mobile layout (`apps/mobile`)
@@ -66,6 +68,7 @@ packages/contract-tests ── one HTTP-level suite run against any Transport
 - `src/auth/`: session (SecureStore tokens) and fingerprint lock (after 15 min idle).
 - `src/ui/`: primitives built on `src/theme/tokens.ts`. Colours, copy and spacing come from the design canvas; use tokens, never raw hex.
 - `src/screens/`: screen components; route files in `app/` stay thin.
+- `src/screens/supervisor/` (Tasks, capture, split, Dispatched, Done today, sync banner), `dispatch/` (board, assign vehicle, truck detail, cancel, correct weight), `attention/` (Needs attention).
 - `src/screens/new-order/`: the wizard. `wizard.ts` holds its pure state (draft ↔ request body ↔ order, preview totals); `useDraftAutosave` keeps server-side drafts. New tab = fresh order; `/order-form?orderId|draftId|partyId` = edit, resume, start for a party.
 - `src/prefs/unitFilter.ts`: the unit switcher's choice, per person on this phone; order and Home query keys include it.
 - `src/nav/`: role tabs (`tabs.ts`), route guards, and `freshStart.ts` (a person switch resets the signed-in stack so no tabs or history carry over; this expo-router only accepts a complete state on RESET).
@@ -97,7 +100,7 @@ More → Demo tools. Shown only in mock mode in dev builds, or when a client dem
 ## Where decisions live
 
 - Spec (binding): `docs/superpowers/specs/2026-11-04-tonnage-design.md`
-- Plans: `docs/superpowers/plans/` (`2026-11-04-f1-app-foundation.md`, `2026-11-06-f2-masters-orders.md`, `2026-11-04-b1-api-foundation.md`; F3+ to be written). The F2 plan's Rulings list open client questions: sub-order numbers ignore the company order prefix, GSTIN verify is offline, ingot lines carry a length.
+- Plans: `docs/superpowers/plans/` (`2026-11-04-f1-app-foundation.md`, `2026-11-06-f2-masters-orders.md`, `2026-11-13-f3-dispatch-offline.md`, `2026-11-04-b1-api-foundation.md`; F4+ to be written). The F2 plan's Rulings list open client questions: sub-order numbers ignore the company order prefix, GSTIN verify is offline, ingot lines carry a length.
 - Business rules, "Decisions Needed to Build" doc (source of truth for rules; open client questions use the doc's Default): https://claude.ai/artifact/7f2fd784-5809-4ac7-ba0f-42a25abdba23
 - Design canvas (source of truth for UI and copy): https://claude.ai/artifact/1cf17fda-d3a4-498b-b46d-c67fdc49f795. Its older role names lose to the decisions doc: Owner, City staff, Plant head, Supervisor.
 - Task tracker (Notion "Tonnage Tasks"): https://app.notion.com/p/40e2c11ff0af81b391b2d7b4ac03b04f
