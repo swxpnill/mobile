@@ -48,8 +48,14 @@ export function CaptureScreen({
   mode,
   tareAt,
   onSaved,
+  ensureTask,
 }: {
   task: Task;
+  /**
+   * The server's task to put on this phone with the save, in the same transaction (the owner
+   * weighing from Dispatch: the truck may not have reached this phone's store yet).
+   */
+  ensureTask?: Task;
   mode: CaptureMode;
   /** When the tare was weighed (for "Tare · weighed 10:12"); null when unknown. */
   tareAt: string | null;
@@ -96,7 +102,7 @@ export function CaptureScreen({
         type: gross ? 'GROSS' : 'TARE',
         payload,
         capturedAtDevice: new Date().toISOString(),
-      });
+      }, ensureTask ? { task: ensureTask } : undefined);
       showToast(SAVED_ON_PHONE);
       if (onSaved) onSaved();
       else if (gross) router.replace(`/dispatched/${task.truckId}`);

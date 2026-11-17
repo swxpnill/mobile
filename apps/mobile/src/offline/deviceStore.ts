@@ -68,8 +68,10 @@ export interface DeviceStore {
    * Saves a captured event in one transaction: takes `deviceSeq = nextDeviceSeq++` and stores the
    * row `pending` (`blocked` when the truck already has a rejected or blocked event). Throws, and
    * stores nothing, when the event is malformed, the truck is not on this phone or the id is taken.
+   * `task` (the owner weighing from Dispatch, Ruling 4) is upserted first in the same transaction,
+   * unless the phone already holds a newer version of it.
    */
-  saveCapture(row: NewCapture): Promise<OutboxRow>;
+  saveCapture(row: NewCapture, opts?: { task?: Task }): Promise<OutboxRow>;
   /** Rows oldest `deviceSeq` first, optionally only those with one of `status`. */
   outbox(filter?: { status?: OutboxStatus[] }): Promise<OutboxRow[]>;
   /** `pending` → `sending` for a request about to go out. */
@@ -229,11 +231,12 @@ export function createMemoryDeviceStore(opts: DeviceStoreOptions = {}): DeviceSt
       s.doneToday = copy(d);
     },
 
-    async saveCapture(input) {
+    async saveCapture(input, opts) {
       return tx((st) => {
         const deviceSeq = st.meta.nextDeviceSeq;
         st.meta.nextDeviceSeq += 1;
         toSyncEvent({ ...input, deviceSeq });
+        if (opts?.task) upsert(st, opts.task);
         if (st.outbox.some((r) => r.eventId === input.eventId))
           throw new Error('Event already saved');
         if (!st.tasks.some((t) => t.truckId === input.truckId))

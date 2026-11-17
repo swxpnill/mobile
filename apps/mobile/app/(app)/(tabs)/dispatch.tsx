@@ -1,12 +1,10 @@
-import { Placeholder } from '../../../src/screens/Placeholder';
+import { RequireAction } from '../../../src/nav/guard';
+import { DispatchScreen } from '../../../src/screens/dispatch/DispatchScreen';
 
 export default function DispatchTab() {
   return (
-    <Placeholder
-      title="Dispatch"
-      icon="truck"
-      milestone="M3"
-      body="Trucks assigned, at the gate and loading, across all plants."
-    />
+    <RequireAction action="dispatch.view">
+      <DispatchScreen />
+    </RequireAction>
   );
 }

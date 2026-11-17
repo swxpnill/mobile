@@ -162,7 +162,7 @@ export async function createSqliteDeviceStore(
       );
     },
 
-    async saveCapture(input) {
+    async saveCapture(input, opts) {
       let saved: OutboxRow | undefined;
       await db.withExclusiveTransactionAsync(async (tx) => {
         const deviceSeq = (await readMeta(tx)).nextDeviceSeq;
@@ -170,6 +170,7 @@ export async function createSqliteDeviceStore(
           'UPDATE sync_meta SET next_device_seq = next_device_seq + 1 WHERE id = 1',
         );
         toSyncEvent({ ...input, deviceSeq });
+        if (opts?.task) await upsertTask(tx, opts.task, true);
         const task = await tx.getFirstAsync(
           'SELECT 1 FROM tasks WHERE truck_id = ?',
           input.truckId,

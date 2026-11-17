@@ -1,0 +1,341 @@
+import { type Order, type SubOrder, type Truck, can, isTerminal } from '@tonnage/shared';
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ApiError } from '../../api/client';
+import { useCompanies } from '../../api/hooks/companies';
+import { useDisplayBasis, useMe } from '../../api/hooks/me';
+import { useOrder } from '../../api/hooks/orders';
+import { usePlants } from '../../api/hooks/plants';
+import { useAssignTruck, useEditTruck, useRecentVehicles, useTruck } from '../../api/hooks/trucks';
+import { useParties } from '../../api/hooks/masters';
+import { useSingleFlight, useSubmitKey } from '../../api/submitKey';
+import { useTheme } from '../../theme/ThemeProvider';
+import { Button, ChoiceRow, EmptyState, Group, Icon, IconButton, Screen, showToast, Text, TextField } from '../../ui';
+import { SMALL_TEXT_MAX_SCALE } from '../../theme/tokens';
+import { BackHeader } from '../admin/parts';
+import { MSG, messageFor } from '../messages';
+import { LoadPlan, TransporterField, TransporterPickerSheet } from './AssignParts';
+import { type AssignForm, check, editBody, initialForm } from './assignForm';
+import { CancelTruckSheet } from './CancelTruckSheet';
+import { isOpenState, phoneForInput } from './truckStateMeta';
+
+export const NO_CUSTOMER = 'Add a customer to this order before assigning a vehicle';
+
+/** Canvas 07 (assign) and 34 (edit, with `truckId`): one truck for one sub-order. */
+export function AssignVehicleScreen({ orderId, subOrderId, truckId }: { orderId: string; subOrderId: string; truckId?: string }) {
+  const { t } = useTheme();
+  const order = useOrder(orderId);
+  const truck = useTruck(truckId);
+  const sub = order.data?.subOrders.find((s) => s.id === subOrderId);
+  const failed = order.isError || truck.isError;
+  if (!order.data || !sub || (truckId !== undefined && !truck.data)) {
+    return (
+      <Screen header={<BackHeader />}>
+        {(order.isPending || (truckId !== undefined && truck.isPending)) && !failed ? (
+          <ActivityIndicator color={t.br} accessibilityLabel="Loading" />
+        ) : (
+          <EmptyState
+            icon="truck"
+            title="Not found"
+            body={failed ? messageFor(order.error ?? truck.error) : MSG.notFound}
+            actions={failed ? [{ label: 'Try again', onPress: () => void Promise.all([order.refetch(), truck.refetch()]) }] : []}
+          />
+        )}
+      </Screen>
+    );
+  }
+  // A new version (a save elsewhere, or STALE) starts the form again from the server's truck.
+  return <Form key={truck.data?.version ?? 'new'} o={order.data} sub={sub} truck={truck.data} />;
+}
+
+function Form({ o, sub, truck }: { o: Order; sub: SubOrder; truck?: Truck }) {
+  const router = useRouter();
+  const { t } = useTheme();
+  const basis = useDisplayBasis();
+  const { data: me } = useMe();
+  const { data: companies } = useCompanies();
+  const { data: plants } = usePlants();
+  const recent = useRecentVehicles(truck === undefined);
+  const transporters = useParties({ type: 'transporter' });
+  const assign = useAssignTruck();
+  const edit = useEditTruck();
+  const key = useSubmitKey();
+  const once = useSingleFlight();
+  const [form, setForm] = useState<AssignForm>(() => initialForm(sub, basis, truck));
+  const [errors, setErrors] = useState<FieldErrors>({});
+  const [error, setError] = useState<string>();
+  const [picking, setPicking] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  useEffect(() => setError(undefined), [form]);
+
+  const editing = truck !== undefined;
+  const dispatched = truck?.state === 'dispatched';
+  const withPlan = !editing || truck.tareKg === null; // edit hides the plan once the tare exists
+  const company = companies?.find((c) => c.id === sub.companyId);
+  const active = (plants ?? []).filter((p) => p.companyId === sub.companyId && p.active);
+  const askPlant = !editing && active.length > 1;
+  const plant = (plants ?? []).find((p) => p.id === (form.plantId ?? (active.length === 1 ? active[0]!.id : truck?.plantId)));
+  const noCustomer = !editing && o.customer === null;
+  const closed = !editing && isTerminal(sub.status);
+  const canCancel = editing && me !== undefined && can(me.role, 'truck.cancel') && isOpenState(truck.state);
+  const busy = assign.isPending || edit.isPending;
+  const set = (patch: Partial<AssignForm>) => setForm((f) => ({ ...f, ...patch }));
+
+  const submit = async () => {
+    const ok = check(form, sub, basis, withPlan && !dispatched);
+    if (!ok.ok) {
+      setErrors(ok.errors);
+      return;
+    }
+    setErrors({});
+    if (askPlant && form.plantId === null) {
+      setError('Choose the plant that loads this truck');
+      return;
+    }
+    try {
+      if (truck) {
+        const body = editBody(form, ok, truck, withPlan);
+        if (Object.keys(body).length === 1) {
+          router.back(); // nothing changed: no write, no activity entry
+          return;
+        }
+        await edit.mutateAsync({ id: truck.id, body });
+        showToast('Saved');
+        router.back();
+        return;
+      }
+      const lr = form.lrNo.trim();
+      const saved = await assign.mutateAsync({
+        subOrderId: sub.id,
+        key: key.key(),
+        body: {
+          ...(form.plantId ? { plantId: form.plantId } : {}),
+          vehicleNo: ok.vehicleNo,
+          transporterId: form.transporter?.id ?? null,
+          driverName: form.driverName.trim(),
+          driverPhone: ok.driverPhone,
+          lrNo: lr === '' ? null : lr,
+          plan: ok.plan,
+        },
+      });
+      key.settle();
+      const notes = [
+        saved.warnings?.includes('VEHICLE_BUSY') ? `${saved.vehicleNo} is on another open truck` : null,
+        saved.warnings?.includes('OVER_ASSIGNABLE') ? 'planned more than is left on the order' : null,
+      ].filter(Boolean);
+      showToast(notes.length > 0 ? `Assigned. ${notes.join('; ')}.` : 'Assigned · plant notified');
+      router.replace(`/trucks/${saved.id}`);
+    } catch (e) {
+      key.settle(e);
+      setError(failure(e));
+    }
+  };
+
+  const pickRecent = (vehicleNo: string) => {
+    const r = recent.data?.find((x) => x.vehicleNo === vehicleNo);
+    if (!r) return;
+    const tr = r.transporterId ? transporters.data?.find((p) => p.id === r.transporterId) : undefined;
+    set({
+      vehicleNo: r.vehicleNo,
+      transporter: tr ? { id: tr.id, name: tr.name } : null,
+      driverName: r.driverName,
+      driverPhone: phoneForInput(r.driverPhone),
+    });
+  };
+
+  const who = o.customer?.name ?? o.broker?.name ?? '';
+  const chips = (recent.data ?? []).filter((r) => r.vehicleNo !== form.vehicleNo).slice(0, 4);
+
+  return (
+    <Screen
+      keyboard
+      header={
+        <View style={styles.head}>
+          <IconButton icon="back" label={editing ? 'Back' : 'Back to order'} onPress={() => router.back()} />
+          <View style={styles.fill}>
+            <Text weight="medium" accessibilityRole="header" style={styles.heading}>
+              {editing ? 'Edit vehicle' : 'Assign vehicle'}
+            </Text>
+            <Text variant="caption" numberOfLines={1}>{`${sub.number}${who ? ` · ${who}` : ''}`}</Text>
+          </View>
+        </View>
+      }
+      footer={
+        <View style={styles.buttons}>
+          {canCancel ? (
+            <Button variant="secondary" disabled={busy} onPress={() => setCancelling(true)}>
+              Cancel truck
+            </Button>
+          ) : null}
+          <Button loading={busy} disabled={noCustomer || closed} onPress={() => void once(submit)} style={styles.fill}>
+            {editing ? 'Save changes' : 'Assign · notify plant'}
+          </Button>
+        </View>
+      }
+    >
+      {plant ? (
+        <View style={[styles.banner, { backgroundColor: t.brs }]}>
+          <Icon name="factory" size={18} color={t.brt} />
+          <Text color="brt" style={[styles.fill, styles.small]}>
+            <Text weight="medium" color="brt" style={styles.small}>{`Loads at ${company?.name.split(/\s+/)[0] ?? sub.companyCode} · ${plant.name}.`}</Text>
+            {' The plant supervisor gets this truck as a weighing task.'}
+          </Text>
+        </View>
+      ) : null}
+      {noCustomer || closed ? (
+        <Text color="wnt" accessibilityRole="alert">
+          {noCustomer ? NO_CUSTOMER : 'This sub-order is closed. Reopen it to assign a vehicle.'}
+        </Text>
+      ) : null}
+      {dispatched ? <Text color="tx2">Dispatched: only the LR number can change now.</Text> : null}
+
+      {askPlant ? (
+        <Group>
+          {active.map((p) => (
+            <ChoiceRow key={p.id} kind="radio" title={p.name} detail={p.location} checked={form.plantId === p.id} onPress={() => set({ plantId: p.id })} />
+          ))}
+        </Group>
+      ) : null}
+
+      <View style={styles.gap}>
+        <TextField
+          label="Vehicle number"
+          value={form.vehicleNo}
+          onChangeText={(v) => set({ vehicleNo: v.toUpperCase() })}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          maxLength={15}
+          editable={!dispatched}
+          placeholder="CG 04 MK 2291"
+          error={errors.vehicleNo}
+        />
+        {chips.length > 0 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+            <Text variant="caption" style={styles.recent}>
+              Recent
+            </Text>
+            {chips.map((r) => (
+              <RecentChip key={r.vehicleNo} vehicleNo={r.vehicleNo} onPress={() => pickRecent(r.vehicleNo)} />
+            ))}
+          </ScrollView>
+        ) : null}
+      </View>
+      <TransporterField name={form.transporter?.name ?? 'Self'} onPress={() => setPicking(true)} disabled={dispatched} />
+      <View style={styles.pair}>
+        <View style={styles.fill}>
+          <TextField label="Driver name" value={form.driverName} onChangeText={(v) => set({ driverName: v })} maxLength={60} editable={!dispatched} error={errors.driverName} />
+        </View>
+        <View style={styles.fill}>
+          <TextField
+            label="Driver phone"
+            value={form.driverPhone}
+            onChangeText={(v) => set({ driverPhone: v })}
+            keyboardType="phone-pad"
+            maxLength={14}
+            editable={!dispatched}
+            error={errors.driverPhone}
+          />
+        </View>
+      </View>
+      <TextField
+        label="LR number"
+        value={form.lrNo}
+        onChangeText={(v) => set({ lrNo: v })}
+        placeholder="Add LR number"
+        maxLength={30}
+        hint={editing ? undefined : 'Optional, can be added later'}
+      />
+      {withPlan && !dispatched ? (
+        <LoadPlan
+          sub={sub}
+          truck={truck}
+          basis={basis}
+          plan={form.plan}
+          onChange={(id, row) => set({ plan: { ...form.plan, [id]: row } })}
+          error={errors.plan}
+        />
+      ) : null}
+      {editing ? (
+        <View style={[styles.banner, { backgroundColor: t.brs }]}>
+          <Icon name="clock" size={18} color={t.brt} />
+          <Text color="brt" style={[styles.fill, styles.small]}>
+            Changes are saved to the order’s activity log. The supervisor sees the new details on the next sync.
+          </Text>
+        </View>
+      ) : null}
+      {error ? (
+        <Text color="dgt" accessibilityRole="alert">
+          {error}
+        </Text>
+      ) : null}
+
+      <TransporterPickerSheet
+        visible={picking}
+        onClose={() => setPicking(false)}
+        onPick={(p) => {
+          set({ transporter: p });
+          setPicking(false);
+        }}
+      />
+      {truck ? <CancelTruckSheet truck={truck} visible={cancelling} onClose={() => setCancelling(false)} onCancelled={() => router.back()} /> : null}
+    </Screen>
+  );
+}
+
+/** Canvas `.chip`: a recent vehicle; fills vehicle, transporter and driver. */
+function RecentChip({ vehicleNo, onPress }: { vehicleNo: string; onPress(): void }) {
+  const { t } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Recent vehicle ${vehicleNo}`}
+      onPress={onPress}
+      hitSlop={{ top: 6, bottom: 6 }}
+      style={({ pressed }) => [styles.chip, { backgroundColor: pressed ? t.act : t.card, borderColor: t.bd }]}
+    >
+      <Text weight="medium" color="tx2" style={styles.small} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+        {vehicleNo}
+      </Text>
+    </Pressable>
+  );
+}
+
+type FieldErrors = Extract<ReturnType<typeof check>, { ok: false }>['errors'];
+
+function failure(e: unknown): string {
+  if (e instanceof ApiError) {
+    switch (e.code) {
+      case 'CUSTOMER_REQUIRED':
+        return NO_CUSTOMER;
+      case 'ORDER_LOCKED':
+        return 'This sub-order is closed. Reopen it to assign a vehicle.';
+      case 'PLANT_REQUIRED':
+        return 'Choose the plant that loads this truck';
+      case 'PLANT_INACTIVE':
+      case 'COMPANY_INACTIVE':
+        return 'This plant is not active. Ask the owner to turn it back on.';
+      case 'TRUCK_LOCKED':
+        return 'This truck is dispatched or cancelled: only the LR number can change.';
+      case 'LINE_NOT_ON_ORDER':
+        return 'A line of this plan was removed from the order. Check the plan again.';
+      case 'VALIDATION':
+        return 'Check the details and try again.';
+    }
+  }
+  return messageFor(e);
+}
+
+const styles = StyleSheet.create({
+  head: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingTop: 12, paddingHorizontal: 8, paddingBottom: 4 },
+  chip: { minHeight: 34, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, justifyContent: 'center' },
+  heading: { fontSize: 15, lineHeight: 20 },
+  fill: { flex: 1, minWidth: 0 },
+  small: { fontSize: 13, lineHeight: 18 },
+  banner: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 12 },
+  gap: { gap: 8 },
+  chips: { gap: 8, alignItems: 'center' },
+  recent: { marginRight: 2 },
+  pair: { flexDirection: 'row', gap: 12 },
+  buttons: { flexDirection: 'row', gap: 10 },
+});

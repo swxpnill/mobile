@@ -94,7 +94,7 @@ export function PartyDetailScreen({ id }: { id: string }) {
         ) : null}
       </View>
 
-      {p.type !== 'transporter' ? <Stats p={p} /> : null}
+      {p.type !== 'transporter' ? <Stats p={p} /> : <TransporterStats p={p} />}
 
       <SectionLabel>Contacts</SectionLabel>
       <Group>
@@ -133,6 +133,18 @@ export function PartyDetailScreen({ id }: { id: string }) {
       </Group>
 
       {p.type === 'customer' ? <Addresses p={p} /> : null}
+      {p.type === 'transporter' && (p.stats.recentVehicles ?? []).length > 0 ? (
+        <>
+          <SectionLabel>Recent vehicles</SectionLabel>
+          <Group>
+            {(p.stats.recentVehicles ?? []).map((v) => (
+              <Row key={v}>
+                <Text weight="medium">{v}</Text>
+              </Row>
+            ))}
+          </Group>
+        </>
+      ) : null}
     </Screen>
   );
 }
@@ -180,6 +192,26 @@ function Stats({ p }: { p: Party }) {
   );
 }
 
+/** Canvas 20: trucks this transporter took out this month (IST) and distinct vehicles seen. */
+function TransporterStats({ p }: { p: Party }) {
+  const tile = (label: string, value: number) => (
+    <View style={styles.tile} accessible accessibilityLabel={`${label}, ${value}`}>
+      <Text variant="caption">{label}</Text>
+      <Text weight="semibold" numeric style={styles.big}>
+        {String(value)}
+      </Text>
+    </View>
+  );
+  return (
+    <Group>
+      <View style={styles.stats}>
+        {tile('Trips this month', p.stats.tripsThisMonth ?? 0)}
+        {tile('Vehicles seen', p.stats.vehiclesSeen ?? 0)}
+      </View>
+    </Group>
+  );
+}
+
 function Addresses({ p }: { p: Party }) {
   const bill = p.addresses.find((a) => a.kind === 'bill_to');
   const ship = p.addresses.filter((a) => a.kind === 'ship_to').sort((a, b) => Number(b.isDefault) - Number(a.isDefault));
@@ -222,4 +254,5 @@ const styles = StyleSheet.create({
   },
   stats: { flexDirection: 'row', padding: 16, gap: 12 },
   tile: { flex: 1, gap: 2 },
+  big: { fontSize: 20, lineHeight: 26 },
 });

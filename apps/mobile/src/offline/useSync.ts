@@ -1,6 +1,7 @@
 import {
   type Role,
   type SyncBody,
+  type Task,
   NetworkError,
   doneTodaySchema,
   syncResponseSchema,
@@ -69,8 +70,12 @@ export function syncNow(): Promise<void> {
  * counts and syncs. Resolves only after the save committed: the caller may then say "Saved on
  * this phone".
  */
-export async function recordCapture(store: DeviceStore, input: NewCapture): Promise<OutboxRow> {
-  const row = await store.saveCapture(input);
+export async function recordCapture(
+  store: DeviceStore,
+  input: NewCapture,
+  opts?: { task?: Task },
+): Promise<OutboxRow> {
+  const row = await store.saveCapture(input, opts);
   bumpRevision();
   try {
     useSyncStatus.setState(await publishCounts(store));

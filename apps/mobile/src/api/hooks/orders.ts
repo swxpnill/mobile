@@ -30,6 +30,9 @@ export const ORDERS_KEY = ['orders'] as const;
 export const HOME_KEY = ['home'] as const;
 export const DRAFTS_KEY = ['drafts'] as const;
 export const orderKey = (id: string) => ['order', id] as const;
+/** Dispatch board and truck detail: order changes (short close, delete) move trucks too. */
+export const DISPATCH_KEY = ['dispatch'] as const;
+export const TRUCK_KEY = ['truck'] as const;
 
 export interface OrderFilters {
   status?: OrderListStatus;
@@ -106,7 +109,7 @@ export function useDeletePreview(id: string, enabled: boolean) {
 export function afterOrderChange(qc: QueryClient, identity: number, order?: z.infer<typeof orderSchema>): void {
   if (useSession.getState().identity !== identity) return;
   if (order) qc.setQueryData(orderKey(order.id), order);
-  for (const key of [ORDERS_KEY, HOME_KEY, PARTIES_KEY, DRAFTS_KEY, ['order-activity']]) {
+  for (const key of [ORDERS_KEY, HOME_KEY, PARTIES_KEY, DRAFTS_KEY, DISPATCH_KEY, TRUCK_KEY, ['order-activity']]) {
     void qc.invalidateQueries({ queryKey: key });
   }
 }

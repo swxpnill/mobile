@@ -145,6 +145,27 @@ export const deviceStoreContract: DeviceStoreCase[] = [
     },
   },
   {
+    name: 'saveCapture with a task (owner, Ruling 4) stores the truck with the event in one transaction',
+    async run(makeStore) {
+      const store = await seeded(makeStore);
+      const fresh = '0190a000-0000-7000-8000-0000000000fe';
+      const row = await store.saveCapture(tare(fresh), { task: task(fresh) });
+      eq(row.status, 'pending', 'status');
+      eq((await store.getTasks()).map((t) => t.truckId), [TRUCK_A, TRUCK_B, TRUCK_C, fresh], 'tasks');
+      // An older copy never overwrites a newer one already on the phone.
+      await store.replaceTasks(page([task(TRUCK_A, { version: 3, driverName: 'New' })], [], new Date(T0 + 1).toISOString()));
+      await store.saveCapture(atGate(TRUCK_A), { task: task(TRUCK_A, { version: 2, driverName: 'Old' }) });
+      eq((await store.getTasks()).find((t) => t.truckId === TRUCK_A)?.driverName, 'New', 'kept newer');
+      // A refused save stores neither the event nor the task.
+      const other = '0190a000-0000-7000-8000-0000000000fd';
+      await rejects(
+        () => store.saveCapture({ ...tare(other, 0.5) }, { task: task(other) }),
+        'bad weight',
+      );
+      eq((await store.getTasks()).some((t) => t.truckId === other), false, 'no task');
+    },
+  },
+  {
     name: 'saving the same event id twice fails inside the transaction and gives back its deviceSeq',
     async run(makeStore) {
       const store = await seeded(makeStore);
