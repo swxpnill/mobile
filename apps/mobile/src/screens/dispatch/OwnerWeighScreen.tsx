@@ -3,8 +3,10 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useRef } from 'react';
 import { ActivityIndicator } from 'react-native';
-import { DISPATCH_KEY, HOME_KEY, ORDERS_KEY, TRUCK_KEY } from '../../api/hooks/orders';
-import { useTruck } from '../../api/hooks/trucks';
+import { currentIdentity } from '../../api/hooks/cache';
+import { TRUCK_KEY, orderKey } from '../../api/hooks/orders';
+import { afterTruckChange, useTruck } from '../../api/hooks/trucks';
+import { useSession } from '../../auth/session';
 import { useDeviceSnapshot } from '../../offline/useDeviceData';
 import { syncNow } from '../../offline/useSync';
 import { useTheme } from '../../theme/ThemeProvider';
@@ -85,8 +87,14 @@ export function OwnerWeighScreen({ truckId }: { truckId: string }) {
       ensureTask={server ?? undefined}
       onSaved={() => {
         router.back();
+        const identity = currentIdentity();
+        const orderId = truck.data?.orderId;
         void syncNow().then(() => {
-          for (const key of [TRUCK_KEY, DISPATCH_KEY, HOME_KEY, ORDERS_KEY]) void qc.invalidateQueries({ queryKey: key });
+          // The server's truck after the sync is not in hand: refetch it rather than set it.
+          afterTruckChange(qc, identity);
+          if (useSession.getState().identity !== identity) return;
+          void qc.invalidateQueries({ queryKey: TRUCK_KEY });
+          if (orderId) void qc.invalidateQueries({ queryKey: orderKey(orderId) });
         });
       }}
     />

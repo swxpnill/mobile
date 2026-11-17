@@ -88,8 +88,9 @@ export function refreshRejections(qc: QueryClient, identity: number): void {
 }
 
 /**
- * Restore and dismiss. Neither route is idempotent on the server (a second try is refused with
- * ALREADY_RESOLVED), but every write from the phone carries a key: the caller holds one per submit.
+ * Restore and dismiss. Both routes honour Idempotency-Key: a retry with the same key gets the first
+ * answer; a new try on a resolved rejection is refused with ALREADY_RESOLVED. The caller holds one
+ * key per submit.
  */
 export function useResolveRejection() {
   const qc = useQueryClient();

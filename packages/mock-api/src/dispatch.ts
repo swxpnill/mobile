@@ -39,9 +39,8 @@ const bump = (t: { version: number; updatedAt: string }, at: string) => {
 /**
  * Applies one supervisor sync event to the state: the §6.5 table, first match wins. Business
  * refusals come back as `rejected` (never thrown); the caller runs each event in its own
- * snapshot/rollback and copies rejections into `state.rejections` (Task 5). Every outcome is kept,
- * as its truck and status only,
- * in `appliedEvents`, so a replay of the same `eventId` gets the same answer and changes nothing
+ * snapshot/rollback and copies rejections into `state.rejections` (Task 5). Every outcome is kept
+ * in `appliedEvents` (truck, status, a refusal's code and message), so a replay of the same `eventId` gets the same answer and changes nothing
  * (`duplicate` when it was accepted, the same refusal when it was rejected).
  */
 export function applyEvent(state: MockState, ctx: DispatchCtx, event: SyncEvent): SyncResult {

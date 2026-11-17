@@ -1,4 +1,5 @@
 import {
+  MAX_READING_KG,
   type Truck,
   type UnitBasis,
   can,
@@ -23,7 +24,6 @@ import { messageFor } from '../messages';
 import { type Allocation, SplitStep } from '../supervisor/SplitStep';
 
 const MIN_REASON = 3;
-const MAX_READING_KG = 100_000;
 type Field = 'tare' | 'gross';
 
 /** A weight as the keypad types it: the user's basis, no grouping commas. */

@@ -280,9 +280,16 @@ describe('Owner weighs from the truck detail (Ruling 4)', () => {
 
     view = await wrap(<OwnerWeighScreen truckId={fresh.id} />);
     await screen.findByText('Tare weight');
+    const invalidated = jest.spyOn(client, 'invalidateQueries');
     for (const k of '12.1') await press(k === '.' ? 'Decimal point' : k);
     await press('Save tare · start loading');
     expect(await screen.findByText('Saved on this phone')).toBeOnTheScreen();
+    // Once sent, everything a truck change touches is asked again (afterTruckChange), the truck too.
+    await waitFor(() => {
+      const keys = invalidated.mock.calls.map(([f]) => JSON.stringify(f?.queryKey));
+      for (const k of [['truck'], ['order', fresh.orderId], ['parties'], ['dispatch']])
+        expect(keys).toContain(JSON.stringify(k));
+    });
     const store = await openDeviceStore(ids.users.rajesh);
     expect((await store.outbox()).map((r) => [r.truckId, r.type])).toEqual([[fresh.id, 'TARE']]);
     await act(() => syncNow());

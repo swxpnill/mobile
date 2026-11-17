@@ -1,4 +1,5 @@
 import {
+  MAX_READING_KG,
   type Task,
   netKg as netOf,
   parseQtyInput,
@@ -33,7 +34,6 @@ import { type Allocation, SplitStep } from './SplitStep';
 
 export const SAVED_ON_PHONE = 'Saved on this phone';
 export const SAVE_FAILED = 'Could not save on this phone. Try again.';
-const MAX_READING_KG = 100_000;
 
 export type CaptureMode = 'tare' | 'gross';
 

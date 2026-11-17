@@ -87,7 +87,6 @@ export function runEventTransaction<T>(state: MockState, fn: () => T): T {
  * → handler (scoped) → money redaction → persist. Unauthenticated callers never see schema errors.
  * Controls (offline/latency/failNext) wrap this in `controls.ts`.
  */
-
 export function createPipeline(deps: { router: Router; store: Store; clock: Clock }) {
   const { router, store, clock } = deps;
 
