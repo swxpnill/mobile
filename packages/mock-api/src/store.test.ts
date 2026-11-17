@@ -172,6 +172,26 @@ describe('store', () => {
     expect(parseSnapshot(JSON.stringify({ ...old, truckTombstones: 'x' }))).toBeNull();
   });
 
+  it('a refused event saved before refusals kept their code gets one back (its rejection row, else INVALID_STATE)', () => {
+    const old = seedState(createFakeClock(START));
+    const legacy = { truckId: 't1', status: 'rejected' };
+    const snapshot = {
+      ...old,
+      appliedEvents: { e1: legacy, e2: { ...legacy }, e3: { truckId: 't1', status: 'accepted' } },
+      rejections: [{ clientEventId: 'e2', code: 'TARE_CONFLICT' }],
+    };
+    const parsed = parseSnapshot(JSON.stringify(snapshot));
+    expect(parsed?.appliedEvents.e1).toEqual({
+      truckId: 't1',
+      status: 'rejected',
+      code: 'INVALID_STATE',
+      message: 'This vehicle is not in the right step for that',
+    });
+    expect(parsed?.appliedEvents.e2).toMatchObject({ status: 'rejected', code: 'TARE_CONFLICT' });
+    expect(parsed?.appliedEvents.e2).toHaveProperty('message', expect.any(String));
+    expect(parsed?.appliedEvents.e3).toEqual({ truckId: 't1', status: 'accepted' });
+  });
+
   it('corrupt snapshot in storage falls back to the seed instead of crashing', async () => {
     const corrupt = [
       '{not json',

@@ -16,6 +16,7 @@ import {
   type UnitBasis,
 } from '@tonnage/shared';
 import { type Clock, toIso } from './clock.ts';
+import { errorMessage } from './errors.ts';
 
 /** Bump when the shape of `MockState` changes; older snapshots are discarded for the seed. */
 export const SNAPSHOT_VERSION = 4;
@@ -278,10 +279,10 @@ export interface TruckTombstoneRec {
   plantId: string;
   removedAt: string;
 }
-/** What de-duplication of a sync event needs, and nothing else (no names, weights or payloads). */
 /**
- * A sync event already seen. A rejected one keeps its code and generic message (never names,
- * phones or weights), so a replay is refused again the same way instead of reading `duplicate`.
+ * A sync event already seen: what de-duplication needs and nothing else. A rejected one keeps its
+ * code and generic message (never names, phones or weights), so a replay is refused again the same
+ * way instead of reading `duplicate`.
  */
 export type AppliedEventRec =
   | { truckId: string; status: 'accepted' }
@@ -475,7 +476,25 @@ export function parseSnapshot(raw: string | null): MockState | null {
   const users = v.users as unknown[];
   if (!users.every((u) => isObj(u) && typeof u.id === 'string' && Array.isArray(u.plantIds)))
     return null;
+  backfillRefusalCodes(v.appliedEvents as Record<string, unknown>, v.rejections as unknown[]);
   return v as unknown as MockState;
+}
+
+/**
+ * Refusals saved before `appliedEvents` kept a code have none, so a replay would answer without
+ * one (the phone refuses that body and its outbox retries forever). Give each the code of its
+ * rejection row, else INVALID_STATE, with the generic message.
+ */
+function backfillRefusalCodes(applied: Record<string, unknown>, rejections: unknown[]): void {
+  const codeOf = new Map<unknown, unknown>();
+  for (const r of rejections) if (isObj(r)) codeOf.set(r.clientEventId, r.code);
+  for (const [eventId, rec] of Object.entries(applied)) {
+    if (!isObj(rec) || rec.status !== 'rejected' || typeof rec.code === 'string') continue;
+    const found = codeOf.get(eventId);
+    const code = (typeof found === 'string' ? found : 'INVALID_STATE') as SyncRejectCode;
+    rec.code = code;
+    rec.message = errorMessage(code);
+  }
 }
 
 export function createMemoryStorage(initial: Record<string, string> = {}): StorageAdapter {
