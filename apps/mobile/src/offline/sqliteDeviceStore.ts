@@ -12,6 +12,7 @@ import {
   defaultMeta,
   toSyncEvent,
 } from './deviceStore';
+import { createWriteQueue } from './writeQueue';
 
 /** Spec §6.2. JSON columns hold server shapes; no prices are ever stored on the device. */
 const SCHEMA = `
@@ -110,7 +111,8 @@ async function upsertTask(db: Db, t: Task, onlyNewer: boolean): Promise<void> {
 
 /**
  * `DeviceStore` on expo-sqlite: a thin mapping of the memory store's behaviour, proven by
- * `deviceStoreContract` on the phone. Multi-statement writes run in exclusive transactions.
+ * `deviceStoreContract` on the phone. Multi-statement writes run in exclusive transactions, and
+ * every write waits for the one before it.
  */
 export async function createSqliteDeviceStore(
   db: SQLiteDatabase,
@@ -125,6 +127,18 @@ export async function createSqliteDeviceStore(
     m.deviceId,
   );
 
+  // Every write goes through one queue: `withExclusiveTransactionAsync` runs on a connection of its
+  // own (without this connection's busy_timeout), so two writes at once could fail SQLITE_BUSY.
+  const serial = createWriteQueue();
+  type TxFn = Parameters<SQLiteDatabase['withExclusiveTransactionAsync']>[0];
+  const exclusive = (fn: TxFn) =>
+    serial(() =>
+      db.withExclusiveTransactionAsync(async (tx) => {
+        await tx.execAsync('PRAGMA busy_timeout = 5000'); // belt: that connection waits too
+        await fn(tx);
+      }),
+    );
+
   const readMeta = async (q: Db) =>
     toMeta((await q.getFirstAsync<MetaSql>('SELECT * FROM sync_meta WHERE id = 1')) as MetaSql);
 
@@ -135,7 +149,7 @@ export async function createSqliteDeviceStore(
     },
 
     async replaceTasks(page) {
-      await db.withExclusiveTransactionAsync(async (tx) => {
+      await exclusive(async (tx) => {
         const { cursor } = await readMeta(tx);
         if (cursor === null) await tx.runAsync('DELETE FROM tasks');
         else if (page.removed.length > 0)
@@ -162,15 +176,14 @@ export async function createSqliteDeviceStore(
     },
 
     async setDoneToday(d) {
-      await db.runAsync(
-        'INSERT OR REPLACE INTO done_today (id, json) VALUES (1, ?)',
-        JSON.stringify(d),
+      await serial(() =>
+        db.runAsync('INSERT OR REPLACE INTO done_today (id, json) VALUES (1, ?)', JSON.stringify(d)),
       );
     },
 
     async saveCapture(input, opts) {
       let saved: OutboxRow | undefined;
-      await db.withExclusiveTransactionAsync(async (tx) => {
+      await exclusive(async (tx) => {
         const deviceSeq = (await readMeta(tx)).nextDeviceSeq;
         await tx.runAsync(
           'UPDATE sync_meta SET next_device_seq = next_device_seq + 1 WHERE id = 1',
@@ -224,15 +237,17 @@ export async function createSqliteDeviceStore(
 
     async markSending(eventIds) {
       if (eventIds.length === 0) return;
-      await db.runAsync(
-        `UPDATE outbox SET status = 'sending' WHERE status = 'pending' AND event_id IN (${marks(eventIds.length)})`,
-        ...eventIds,
+      await serial(() =>
+        db.runAsync(
+          `UPDATE outbox SET status = 'sending' WHERE status = 'pending' AND event_id IN (${marks(eventIds.length)})`,
+          ...eventIds,
+        ),
       );
     },
 
     async markResults(results: SyncResult[]) {
       const acceptedAt = new Date(now()).toISOString();
-      await db.withExclusiveTransactionAsync(async (tx) => {
+      await exclusive(async (tx) => {
         for (const res of results) {
           const row = await tx.getFirstAsync<OutboxSql>(
             'SELECT * FROM outbox WHERE event_id = ?',
@@ -268,18 +283,22 @@ export async function createSqliteDeviceStore(
 
     async requeue(eventIds) {
       if (eventIds.length === 0) return;
-      await db.runAsync(
-        `UPDATE outbox SET status = 'pending', attempts = attempts + 1, error = NULL
-         WHERE status <> 'accepted' AND event_id IN (${marks(eventIds.length)})`,
-        ...eventIds,
+      await serial(() =>
+        db.runAsync(
+          `UPDATE outbox SET status = 'pending', attempts = attempts + 1, error = NULL
+           WHERE status <> 'accepted' AND event_id IN (${marks(eventIds.length)})`,
+          ...eventIds,
+        ),
       );
     },
 
     async purgeAccepted(olderThanMs, at) {
       // ISO strings from toISOString() compare in time order.
-      const res = await db.runAsync(
-        `DELETE FROM outbox WHERE status = 'accepted' AND accepted_at < ?`,
-        new Date(at - olderThanMs).toISOString(),
+      const res = await serial(() =>
+        db.runAsync(
+          `DELETE FROM outbox WHERE status = 'accepted' AND accepted_at < ?`,
+          new Date(at - olderThanMs).toISOString(),
+        ),
       );
       return res.changes;
     },
@@ -303,11 +322,11 @@ export async function createSqliteDeviceStore(
         values.push(patch.lastSyncAt);
       }
       if (sets.length === 0) return;
-      await db.runAsync(`UPDATE sync_meta SET ${sets.join(', ')} WHERE id = 1`, ...values);
+      await serial(() => db.runAsync(`UPDATE sync_meta SET ${sets.join(', ')} WHERE id = 1`, ...values));
     },
 
     async clear() {
-      await db.withExclusiveTransactionAsync(async (tx) => {
+      await exclusive(async (tx) => {
         await tx.execAsync('DELETE FROM tasks; DELETE FROM done_today; DELETE FROM outbox;');
         await tx.runAsync(
           'UPDATE sync_meta SET cursor = NULL, clock_offset_ms = 0, last_sync_at = NULL WHERE id = 1',
