@@ -7,6 +7,7 @@ import {
   type PricingMethod,
   SAMPLE_MASTERS,
   SAMPLE_WORLD,
+  type EarningLine,
   type SyncEvent,
   type SyncRejectCode,
   type TruckState,
@@ -295,7 +296,8 @@ export interface BrokerLedgerRec {
   kind: 'earning' | 'reversal';
   truckId: string;
   amountRupees: number;
-  breakdown: { orderLineId: string; netKg: number; perMt: number }[];
+  /** Rows written before F4 only have `perMt`; the split fields are absent on them. */
+  breakdown: (Pick<EarningLine, 'orderLineId' | 'netKg' | 'perMt'> & Partial<Pick<EarningLine, 'commissionPerMt' | 'overpricePerMt'>>)[];
   reversesId: string | null;
   createdAt: string;
   createdBy: string;

@@ -1,5 +1,4 @@
 import { roundHalfUp } from './money.ts';
-import { istDateParts } from './numbering.ts';
 
 export const PAYMENT_MODES = ['neft', 'upi', 'cash', 'cheque'] as const;
 export type PaymentMode = (typeof PAYMENT_MODES)[number];
@@ -25,12 +24,6 @@ export interface LedgerRow {
   entryDate: string;
   createdAt: string;
   reversesId: string | null;
-}
-
-/** IST `YYYY-MM-DD` of an instant. */
-export function istDateOf(at: string | number): string {
-  const { year, month, day } = istDateParts(at);
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
 export function paymentAmount(paidRupees: number, tdsRupees: number): number {

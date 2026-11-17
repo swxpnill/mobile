@@ -4,6 +4,7 @@ import {
   type SyncRejectCode,
   type SyncResult,
   checkAllocations,
+  earningFromRates,
   formatLoadingSlip,
   netKg,
   overToleranceKg,
@@ -288,15 +289,20 @@ export function rewriteEarning(state: MockState, truck: TruckRec, at: string, ac
   }
   const order = state.orders.find((o) => o.id === truck.orderId);
   if (!order) throw new Error(`truck ${truck.id} has no order`);
-  const atDispatch = new Map(old.breakdown.map((b) => [b.orderLineId, b.perMt]));
+  const atDispatch = new Map(
+    old.breakdown.map((b) => [
+      b.orderLineId,
+      // F3 rows only have `perMt`: treat the whole of it as overprice over a zero commission.
+      { commissionPerMt: b.commissionPerMt ?? 0, overpricePerMt: b.overpricePerMt ?? b.perMt },
+    ]),
+  );
   const commission = order.commissionPerMtSnapshot ?? 0;
-  // Each line's whole per-MT rate as its "overprice", over a zero commission.
   const rates = new Map(
     state.orderLines
       .filter((l) => l.subOrderId === truck.subOrderId)
-      .map((l) => [l.id, { overpricePerMt: atDispatch.get(l.id) ?? commission + l.overpricePerMt }]),
+      .map((l) => [l.id, atDispatch.get(l.id) ?? { commissionPerMt: commission, overpricePerMt: l.overpricePerMt }]),
   );
-  pushEarning(state, truck, old.brokerId, truckEarning(truck.allocations, rates, 0), at, actorId);
+  pushEarning(state, truck, old.brokerId, earningFromRates(truck.allocations, rates), at, actorId);
 }
 
 function pushEarning(

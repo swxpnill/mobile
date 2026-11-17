@@ -400,8 +400,31 @@ describe('earnings and views', () => {
       ['earning', 2_100, null], // 14.000 MT × ₹150
     ]);
     expect(rows[1]!.breakdown).toEqual(first!.breakdown.map((b) => ({ ...b, netKg: -b.netKg })));
-    expect(rows[2]!.breakdown).toEqual([{ orderLineId: gupta.allocations[0]!.orderLineId, netKg: 14_000, perMt: 150 }]);
+    const b0 = first!.breakdown[0]!;
+    expect(rows[2]!.breakdown).toEqual([
+      {
+        orderLineId: gupta.allocations[0]!.orderLineId,
+        netKg: 14_000,
+        perMt: 150,
+        commissionPerMt: b0.commissionPerMt,
+        overpricePerMt: b0.overpricePerMt,
+      },
+    ]);
     expect(rows.reduce((n, x) => n + x.amountRupees, 0)).toBe(2_100);
+  });
+
+  it('rewriteEarning on an F3 row (perMt only) still earns at the dispatch rate', () => {
+    const s = world();
+    const gupta = s.trucks.find((t) => t.vehicleNo === 'CG 04 NB 5510')!;
+    const first = s.brokerLedger.find((x) => x.truckId === gupta.id)!;
+    first.breakdown = first.breakdown.map((b) => ({ orderLineId: b.orderLineId, netKg: b.netKg, perMt: b.perMt }));
+    gupta.allocations = [{ orderLineId: gupta.allocations[0]!.orderLineId, netKg: 14_000 }];
+    rewriteEarning(s, gupta, toIso(NOW), U.rajesh);
+    const rows = s.brokerLedger.filter((x) => x.truckId === gupta.id);
+    expect(rows[2]!.amountRupees).toBe(2_100);
+    expect(rows[2]!.breakdown).toEqual([
+      { orderLineId: gupta.allocations[0]!.orderLineId, netKg: 14_000, perMt: 150, commissionPerMt: 0, overpricePerMt: 150 },
+    ]);
   });
 
   it('toTruck carries the earning only on broker orders; toTask carries no money', () => {
