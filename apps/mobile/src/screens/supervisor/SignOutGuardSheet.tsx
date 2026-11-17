@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { syncNow, useSyncStatus } from '../../offline/useSync';
+import { notSent, syncNow, useSyncStatus } from '../../offline/useSync';
 import { Button, Text, TextField } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
 import { weights } from './usePlantTitle';
@@ -22,7 +22,8 @@ export function SignOutGuardSheet({
   /** Sign out (or switch): all sent, or confirmed anyway. */
   onConfirm(): void;
 }) {
-  const { pending, online } = useSyncStatus();
+  const { online, rejected } = useSyncStatus();
+  const pending = useSyncStatus(notSent);
   const [sending, setSending] = useState(false);
   const [typing, setTyping] = useState(false);
   const [typed, setTyped] = useState('');
@@ -76,6 +77,9 @@ export function SignOutGuardSheet({
               ? 'It is saved on this phone. Send it before you sign out.'
               : 'They are saved on this phone. Send them before you sign out.'}
           </Text>
+          {rejected > 0 ? (
+            <Text color="tx2">{`${weights(rejected)} wait for the owner to check.`}</Text>
+          ) : null}
           {tried && online === false ? (
             <Text color="wnt" accessibilityLiveRegion="polite">
               No network. Try again when the phone is online.

@@ -144,6 +144,12 @@ export async function createSqliteDeviceStore(
             ...page.removed,
           );
         for (const t of page.items) await upsertTask(tx, t, false);
+        if (page.resolved.length > 0)
+          await tx.runAsync(
+            `UPDATE outbox SET status = 'resolved'
+             WHERE status IN ('rejected', 'blocked') AND event_id IN (${marks(page.resolved.length)})`,
+            ...page.resolved,
+          );
         await tx.runAsync('UPDATE sync_meta SET cursor = ? WHERE id = 1', page.cursor);
       });
     },

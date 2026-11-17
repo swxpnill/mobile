@@ -1,18 +1,18 @@
 import { useState } from 'react';
 import { useSession } from '../auth/session';
-import { useSyncStatus } from '../offline/useSync';
+import { notSent, useSyncStatus } from '../offline/useSync';
 import { MenuRow } from '../ui';
 import { SignOutGuardSheet } from './supervisor/SignOutGuardSheet';
 import { weights } from './supervisor/usePlantTitle';
 
 /**
- * Red "Sign out" row; ignores repeat taps while signing out. With weights not sent yet it says
- * so and opens the guard sheet instead (Ruling 11).
+ * Red "Sign out" row; ignores repeat taps while signing out. With weights not sent yet (waiting,
+ * or refused and held for the owner) it says so and opens the guard sheet instead (Ruling 11).
  */
 export function SignOutRow() {
   const [busy, setBusy] = useState(false);
   const [guard, setGuard] = useState(false);
-  const pending = useSyncStatus((s) => s.pending);
+  const pending = useSyncStatus(notSent);
   const note = pending > 0 ? `${weights(pending)} not sent yet` : undefined;
 
   function signOut() {

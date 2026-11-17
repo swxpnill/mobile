@@ -45,6 +45,12 @@ const IDLE: SyncStatus = {
 
 export const useSyncStatus = create<SyncStatus>(() => IDLE);
 
+/**
+ * Weights on this phone that have not reached the server for good: waiting or in flight, and
+ * those refused or held behind a refusal (until the owner resolves them). The sign-out guard counts these.
+ */
+export const notSent = (s: Pick<SyncStatus, 'pending' | 'rejected'>): number => s.pending + s.rejected;
+
 /** The signed-in user's device store while the sync loop runs; null otherwise. */
 export const useDeviceStore = create<{ store: DeviceStore | null }>(() => ({ store: null }));
 

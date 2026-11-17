@@ -130,7 +130,10 @@ export function dispatchedView(snap: DeviceSnapshot, truckId: string): Dispatche
       sync: 'synced',
     };
   }
-  const row = snap.outbox.filter((r) => r.truckId === truckId && r.type === 'GROSS').at(-1);
+  // A resolved row is the owner's call made on the server: it says nothing about this phone.
+  const row = snap.outbox
+    .filter((r) => r.truckId === truckId && r.type === 'GROSS' && r.status !== 'resolved')
+    .at(-1);
   const task = snap.tasks.find((t) => t.truckId === truckId);
   if (!row || !task) return null;
   return {

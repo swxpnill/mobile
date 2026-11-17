@@ -53,7 +53,7 @@ export function page(
   removed: string[] = [],
   cursor = new Date(T0).toISOString(),
 ): TasksPage {
-  return { items, removed, cursor, serverTime: cursor };
+  return { items, removed, resolved: [], cursor, serverTime: cursor };
 }
 
 type Capture = Parameters<DeviceStore['saveCapture']>[0];
@@ -308,6 +308,32 @@ export const deviceStoreContract: DeviceStoreCase[] = [
       ]);
       eq((await store.saveCapture(gross(TRUCK_A))).status, 'blocked', 'same truck');
       eq((await store.saveCapture(tare(TRUCK_B))).status, 'pending', 'other truck');
+    },
+  },
+  {
+    name: 'replaceTasks: resolved event ids end their refused and held rows; a truck with none left takes new captures pending',
+    async run(makeStore) {
+      const store = await seeded(makeStore);
+      const t = await store.saveCapture(tare(TRUCK_A));
+      const g = await store.saveCapture(gross(TRUCK_A));
+      const b = await store.saveCapture(tare(TRUCK_B));
+      await store.markResults([
+        { status: 'rejected', eventId: t.eventId, code: 'TRUCK_CANCELLED', message: 'x' },
+      ]);
+      const cursor = (await store.meta()).cursor ?? new Date(T0).toISOString();
+      // Only the tare resolved so far: the held gross still holds the truck.
+      await store.replaceTasks({ ...page([], [], cursor), resolved: [t.eventId, b.eventId] });
+      eq(
+        (await store.outbox()).map((r) => r.status),
+        ['resolved', 'blocked', 'pending'],
+        'tare resolved, gross held, pending row untouched',
+      );
+      eq((await store.saveCapture(atGate(TRUCK_A))).status, 'blocked', 'still held');
+      const rows = await store.outbox({ status: ['blocked'] });
+      await store.replaceTasks({ ...page([], [], cursor), resolved: rows.map((r) => r.eventId) });
+      eq((await store.outbox({ status: ['resolved'] })).length, 3, 'all three resolved');
+      eq((await store.saveCapture(tare(TRUCK_A))).status, 'pending', 'no longer held');
+      eq(g.status, 'pending', 'saved pending before the refusal');
     },
   },
   {

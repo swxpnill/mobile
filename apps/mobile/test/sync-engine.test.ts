@@ -149,7 +149,7 @@ describe('sync engine', () => {
     expect(out).toMatchObject({ ok: true, sent: 150, pendingLeft: 0 });
   });
 
-  it('a rejected TARE blocks the later GROSS of that truck, which is never sent; another truck still goes', async () => {
+  it('a rejected TARE blocks the later GROSS of that truck, which is not sent on its own; another truck still goes', async () => {
     const tareA = await store.saveCapture(tare(TRUCK_A));
     let grossA = '';
     let grossB = '';
@@ -172,7 +172,6 @@ describe('sync engine', () => {
     };
 
     const first = await engine().syncNow();
-    const second = await engine().syncNow();
 
     expect(first).toEqual({ ok: true, sent: 2, rejected: 1, pendingLeft: 0 });
     expect(pushes.flatMap((b) => b.events.map((e) => e.eventId))).toEqual([tareA.eventId, grossB]);
@@ -183,7 +182,66 @@ describe('sync engine', () => {
       [grossB, 'accepted'],
     ]);
     expect(rows[0]?.error).toEqual({ code: 'TRUCK_CANCELLED', message: 'Truck was cancelled' });
-    expect(second).toEqual({ ok: true, sent: 0, rejected: 0, pendingLeft: 0 }); // the blocked GROSS stays put
+    // The next run takes the held GROSS to the server behind its refused TARE (see below).
+    const second = await engine().syncNow();
+    expect(pushes.at(-1)?.events.map((e) => e.eventId)).toEqual([tareA.eventId, grossA]);
+    expect(second).toMatchObject({ ok: true, sent: 2, pendingLeft: 0 });
+  });
+
+  it('a held GROSS goes behind its refused TARE, sent again; both come back rejected and are not sent again', async () => {
+    const tareA = await store.saveCapture(tare(TRUCK_A));
+    const cancelled = (id: string): SyncResult => ({
+      status: 'rejected',
+      eventId: id,
+      code: 'TRUCK_CANCELLED',
+      message: 'Truck was cancelled',
+    });
+    push = acceptAll(cancelled);
+    await engine().syncNow();
+    // Weighed after the refusal: saved held, never sent on its own.
+    const grossA = await store.saveCapture(gross(TRUCK_A));
+    const atGateB = await store.saveCapture(atGate(TRUCK_B));
+    expect(grossA.status).toBe('blocked');
+    // The server answers a replayed refusal the same way and blocks the truck's later events.
+    push = acceptAll((id) =>
+      id === tareA.eventId
+        ? cancelled(id)
+        : id === grossA.eventId
+          ? { status: 'rejected', eventId: id, code: 'INVALID_STATE', message: 'Blocked by an earlier rejected weight' }
+          : undefined,
+    );
+
+    const out = await engine().syncNow();
+
+    expect(pushes[1]?.events.map((e) => e.eventId)).toEqual([
+      tareA.eventId,
+      grossA.eventId,
+      atGateB.eventId,
+    ]);
+    expect(out).toMatchObject({ ok: true, pendingLeft: 0 });
+    expect((await store.outbox()).map((r) => [r.eventId, r.status])).toEqual([
+      [tareA.eventId, 'rejected'],
+      [grossA.eventId, 'rejected'],
+      [atGateB.eventId, 'accepted'],
+    ]);
+    expect((await store.outbox())[1]?.error?.code).toBe('INVALID_STATE');
+
+    // Nothing held any more: the next run sends nothing.
+    await engine().syncNow();
+    expect(pushes).toHaveLength(2);
+  });
+
+  it('a resolved pull ends the refused rows: the truck takes new weights pending again', async () => {
+    const tareA = await store.saveCapture(tare(TRUCK_A));
+    push = acceptAll((id) => ({ status: 'rejected', eventId: id, code: 'TRUCK_CANCELLED', message: 'x' }));
+    await engine().syncNow();
+    expect((await store.outbox())[0]?.status).toBe('rejected');
+
+    pullPage = { ...page([task(TRUCK_A, { version: 2 })], [], '2026-11-13T06:01:00.000Z'), resolved: [tareA.eventId] };
+    await engine().syncNow();
+
+    expect((await store.outbox())[0]?.status).toBe('resolved');
+    expect((await store.saveCapture(tare(TRUCK_A, 12_500))).status).toBe('pending');
   });
 
   it('sends again rows left "sending" by a run that never finished (app killed mid-request)', async () => {

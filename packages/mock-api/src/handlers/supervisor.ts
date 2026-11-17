@@ -93,11 +93,23 @@ export const supervisorRoutes: RouteDef[] = [
                 ...graves.filter((g) => fromIso(g.removedAt) >= since).map((g) => g.truckId),
               ]),
             ];
-      // The newest change seen, deletions included (never moving back); the server time when there is nothing yet.
-      const times = [...mine.map((t) => fromIso(t.updatedAt)), ...graves.map((g) => fromIso(g.removedAt))];
+      // My refusals the owner has resolved since (restored or dismissed): the phone stops holding them.
+      const settled = state.rejections.filter(
+        (r): r is typeof r & { resolvedAt: string } =>
+          r.tenantId === a.user.tenantId && r.userId === a.user.id && r.resolvedAt !== null,
+      );
+      const resolved = [
+        ...new Set(settled.filter((r) => since === null || fromIso(r.resolvedAt) >= since).map((r) => r.clientEventId)),
+      ];
+      // The newest change seen, deletions and resolutions included (never moving back); the server time when there is nothing yet.
+      const times = [
+        ...mine.map((t) => fromIso(t.updatedAt)),
+        ...graves.map((g) => fromIso(g.removedAt)),
+        ...settled.map((r) => fromIso(r.resolvedAt)),
+      ];
       if (since !== null) times.push(since);
       const cursor = toIso(times.length > 0 ? Math.max(...times) : now);
-      return { body: { items, removed, cursor, serverTime: toIso(now) } satisfies TasksPage };
+      return { body: { items, removed, resolved, cursor, serverTime: toIso(now) } satisfies TasksPage };
     },
   }),
 

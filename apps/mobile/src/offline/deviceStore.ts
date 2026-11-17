@@ -8,7 +8,11 @@ import {
   syncEventSchema,
 } from '@tonnage/shared';
 
-export type OutboxStatus = 'pending' | 'sending' | 'accepted' | 'rejected' | 'blocked';
+/**
+ * `resolved` is terminal: the owner restored or dismissed the refused event on the server (a pull's
+ * `resolved`), so the row neither counts as unsent nor holds its truck.
+ */
+export type OutboxStatus = 'pending' | 'sending' | 'accepted' | 'rejected' | 'blocked' | 'resolved';
 
 /** One weighment event captured on this phone (§6.2 `outbox`). Weights are integer kg. */
 export interface OutboxRow {
@@ -59,7 +63,8 @@ export interface DeviceStore {
   /**
    * Applies a pull and stores its cursor, in one transaction. With no stored cursor the page is
    * a full snapshot and replaces every task; with one, `items` are upserted and `removed` deleted
-   * (idempotent: a change at the cursor may come back again).
+   * (idempotent: a change at the cursor may come back again). `resolved` event ids move their
+   * `rejected`/`blocked` rows to `resolved`.
    */
   replaceTasks(page: TasksPage): Promise<void>;
   getDoneToday(): Promise<DoneToday | null>;
@@ -219,6 +224,10 @@ export function createMemoryDeviceStore(opts: DeviceStoreOptions = {}): DeviceSt
             else st.tasks[i] = copy(t);
           }
         }
+        const resolved = new Set(page.resolved);
+        for (const r of st.outbox)
+          if (resolved.has(r.eventId) && (r.status === 'rejected' || r.status === 'blocked'))
+            r.status = 'resolved';
         st.meta.cursor = page.cursor;
       });
     },

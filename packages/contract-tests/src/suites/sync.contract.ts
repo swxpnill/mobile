@@ -455,6 +455,43 @@ export function register(factory: TargetFactory): void {
         expect(full.removed).toEqual([]);
         expect((await call(t, 'GET', '/v1/supervisor/tasks?cursor=yesterday', { token: ravi })).status).toBe(422);
       });
+
+      it("resolved: my refusals the owner dismissed since the cursor come back by event id; another person's do not", async () => {
+        const t = target();
+        const { owner, a, aLine, truck } = await canvasWithTruck(t);
+        const other = await assign(t, owner, a.id, aLine.id, 1_000, 'CG 04 AA 1111');
+        for (const x of [truck, other])
+          expectOk(
+            await call(t, 'POST', `/v1/trucks/${x.id}/cancel`, { token: owner, idempotencyKey: newKey(), body: { reason: 'Other', note: '', version: x.version } }),
+            truckSchema,
+          );
+        const ravi = await tokenFor(t, PEOPLE.ravi);
+        const mine = phone(truck.id, () => t.clock.now()).tare(12_460);
+        const theirs = phone(other.id, () => t.clock.now()).tare(11_000);
+        expect((await synced(sync(t, ravi, [mine])))[0]).toMatchObject({ status: 'rejected' });
+        expect((await synced(sync(t, owner, [theirs], { deviceId: DEVICE_B })))[0]).toMatchObject({ status: 'rejected' });
+        const first = expectOk(await call(t, 'GET', '/v1/supervisor/tasks', { token: ravi }), tasksPageSchema);
+        expect(first.resolved).toEqual([]);
+
+        t.clock.advance(MINUTE);
+        const rows = expectOk(await call(t, 'GET', '/v1/weighment-rejections', { token: owner }), z.array(rejectionSchema));
+        for (const r of rows.filter((x) => x.truckId === truck.id || x.truckId === other.id))
+          expectOk(
+            await call(t, 'POST', `/v1/weighment-rejections/${r.id}/dismiss`, { token: owner, idempotencyKey: newKey(), body: { reason: 'Truck went back' } }),
+            rejectionSchema,
+          );
+        const next = expectOk(
+          await call(t, 'GET', `/v1/supervisor/tasks?cursor=${encodeURIComponent(first.cursor)}`, { token: ravi }),
+          tasksPageSchema,
+        );
+        expect(next.resolved).toEqual([mine.eventId]);
+        expect(next.cursor >= first.cursor).toBe(true);
+        // A full pull carries every refusal of mine that is resolved.
+        const full = expectOk(await call(t, 'GET', '/v1/supervisor/tasks', { token: ravi }), tasksPageSchema);
+        expect(full.resolved).toEqual([mine.eventId]);
+        const ownerPull = expectOk(await call(t, 'GET', '/v1/supervisor/tasks', { token: owner }), tasksPageSchema);
+        expect(ownerPull.resolved).toEqual([theirs.eventId]);
+      });
     });
 
     describe('tasks pull after a hard delete', () => {

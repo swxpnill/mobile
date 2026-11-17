@@ -174,6 +174,11 @@ export type Task = z.infer<typeof taskSchema>;
 export const tasksPageSchema = z.object({
   items: z.array(taskSchema),
   removed: z.array(idSchema),
+  /**
+   * Event ids of the caller's own refused events the owner restored or dismissed at or after the
+   * cursor (every resolved one on a pull without a cursor): the phone stops holding them.
+   */
+  resolved: z.array(idSchema),
   cursor: z.string(),
   serverTime: z.string(),
 });

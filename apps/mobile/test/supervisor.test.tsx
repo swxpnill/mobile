@@ -11,12 +11,14 @@ import { UnitBasisProvider } from '../src/api/hooks/me';
 import { setMockApi, setTransport } from '../src/api/transport';
 import { resetSessionForTests, useSession } from '../src/auth/session';
 import { openDeviceStore, resetDeviceStoresForTests } from '../src/offline/sqliteDeviceStore';
-import { syncNow, useSync, useSyncStatus } from '../src/offline/useSync';
+import { eventId } from '../src/offline/deviceStoreContract';
+import { recordCapture, syncNow, useSync, useSyncStatus } from '../src/offline/useSync';
 import { DemoToolsScreen } from '../src/screens/DemoToolsScreen';
 import { ProfileScreen } from '../src/screens/ProfileScreen';
 import { WeighTruckScreen } from '../src/screens/supervisor/CaptureScreen';
 import { DispatchedScreen } from '../src/screens/supervisor/DispatchedScreen';
 import { DoneTodayScreen } from '../src/screens/supervisor/DoneTodayScreen';
+import { SyncBanner } from '../src/screens/supervisor/SyncBanner';
 import { TasksScreen } from '../src/screens/supervisor/TasksScreen';
 import { ThemeProvider } from '../src/theme/ThemeProvider';
 import { ToastHost } from '../src/ui';
@@ -352,5 +354,69 @@ describe('Sign-out guard (Ruling 11)', () => {
     expect(await screen.findByRole('header', { name: '1 weight not sent yet' })).toBeOnTheScreen();
     expect(useSession.getState().status).toBe('signedIn');
     expect(mock.controls.getState().offline).toBe(true); // nothing switched yet
+  });
+});
+
+describe('Weights held behind a refusal', () => {
+  const OWNER_DEVICE = '019a4c00-00ff-7000-8000-0000000000aa';
+
+  async function asOwner(method: 'GET' | 'POST', path: string, body?: unknown) {
+    const { accessToken } = await mock.controls.signInAs(ids.users.rajesh, OWNER_DEVICE);
+    const headers: Record<string, string> = { authorization: `Bearer ${accessToken}` };
+    if (method === 'POST') {
+      headers['idempotency-key'] = eventId();
+      headers['content-type'] = 'application/json';
+    }
+    const res = await mock.transport.request({ method, path, headers, body });
+    if (res.status >= 300) throw new Error(`${path}: ${res.status}`);
+    return res.body as { id: string }[];
+  }
+
+  it('the banner shows refused and waiting weights together', async () => {
+    await wrap(<TasksScreen />);
+    await screen.findByLabelText(/^CG 10 GH 4471/);
+    await act(async () => useSyncStatus.setState({ online: false, pending: 1, rejected: 2 }));
+    expect(screen.getByText('2 weights need the owner')).toBeOnTheScreen();
+    expect(screen.getByText('No network')).toBeOnTheScreen();
+  });
+
+  it('a refused gross and one held behind it reach Needs attention, count in the guard, and clear once the owner dismisses them', async () => {
+    const view = await wrap(<TasksScreen />);
+    await screen.findByLabelText(/^CG 04 MK 2291/);
+    const store = await ravisStore();
+    const truck = (await store.getTasks()).find((t) => t.vehicleNo === 'CG 04 MK 2291')!;
+    const lineId = truck.plan[0]!.orderLineId;
+    // 1 kg off the net: refused (ALLOC_MISMATCH); the truck stays loading on the server.
+    const grossOf = (netKg: number) => ({
+      eventId: eventId(),
+      truckId: truck.truckId,
+      type: 'GROSS' as const,
+      payload: { grossKg: 12_460 + 24_180, allocations: [{ orderLineId: lineId, netKg }] },
+      capturedAtDevice: new Date(NOW).toISOString(),
+    });
+    await act(() => recordCapture(store, grossOf(24_179)));
+    await waitFor(() => expect(useSyncStatus.getState().rejected).toBe(1));
+    // Weighed again after the refusal: held on the phone, then sent behind the refused one.
+    const held = await act(() => recordCapture(store, grossOf(24_180)));
+    expect(held.status).toBe('blocked');
+    await act(() => syncNow());
+    expect((await store.outbox()).map((r) => r.status)).toEqual(['rejected', 'rejected']);
+    const open = await asOwner('GET', '/v1/weighment-rejections');
+    expect(open.length).toBe(2);
+    expect(await screen.findByText('2 weights need the owner')).toBeOnTheScreen();
+    await view.unmount();
+
+    const profile = await wrap(<ProfileScreen />);
+    expect(await screen.findByRole('button', { name: 'Sign out, 2 weights not sent yet' })).toBeOnTheScreen();
+    await profile.unmount();
+
+    for (const r of open) await asOwner('POST', `/v1/weighment-rejections/${r.id}/dismiss`, { reason: 'Weighed again' });
+    await wrap(<SyncBanner />);
+    await act(() => syncNow());
+    await waitFor(() => expect(useSyncStatus.getState().rejected).toBe(0));
+    expect(screen.queryByText(/need the owner/)).toBeNull();
+    expect((await store.outbox()).map((r) => r.status)).toEqual(['resolved', 'resolved']);
+    const again = await act(() => recordCapture(store, grossOf(24_180)));
+    expect(again.status).toBe('pending');
   });
 });

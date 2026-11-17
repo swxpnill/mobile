@@ -7,7 +7,7 @@ import {
 } from '@tonnage/shared';
 import { ApiError } from '../api/client';
 import { backoff } from './backoff';
-import { type DeviceStore, type MetaPatch, toSyncEvent } from './deviceStore';
+import { type DeviceStore, type MetaPatch, type OutboxRow, toSyncEvent } from './deviceStore';
 
 /** At most this many events per `POST /v1/weighments/sync` (the shared body allows 100). */
 export const SYNC_BATCH = 100;
@@ -39,7 +39,10 @@ export interface SyncEngineDeps {
 }
 
 export interface SyncEngine {
-  /** Pushes pending events, then pulls tasks and done today. Concurrent calls share one run. */
+  /**
+   * Pushes pending events (and, once per run, rows held behind a refusal), then pulls tasks and
+   * done today. Concurrent calls share one run.
+   */
   syncNow(): Promise<SyncOutcome>;
   /** Delay before retrying after `failures` failed runs in a row. */
   nextDelayMs(failures: number): number;
@@ -59,6 +62,24 @@ function offsetFrom(serverTime: string | null, now: number): number | null {
   return Number.isFinite(t) ? t - now : null;
 }
 
+/**
+ * Rows held behind a refusal, to send again so they reach the server (and Needs attention): for
+ * each truck with `blocked` rows, its latest `rejected` row before them (the server answers that
+ * replay with the same refusal and blocks the truck's later events in the request), then the
+ * blocked rows in `deviceSeq` order. A truck with only `rejected` rows sends nothing: those were
+ * answered already. With no refused row left (resolved), the blocked rows simply go.
+ */
+async function heldRows(store: DeviceStore): Promise<OutboxRow[]> {
+  const rows = await store.outbox({ status: ['rejected', 'blocked'] });
+  const trucks = [...new Set(rows.filter((r) => r.status === 'blocked').map((r) => r.truckId))];
+  return trucks.flatMap((truckId) => {
+    const blocked = rows.filter((r) => r.truckId === truckId && r.status === 'blocked');
+    const first = blocked[0]?.deviceSeq ?? 0;
+    const lead = rows.filter((r) => r.truckId === truckId && r.status === 'rejected' && r.deviceSeq < first).pop();
+    return lead ? [lead, ...blocked] : blocked;
+  });
+}
+
 export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
   const { store } = deps;
   let running: Promise<SyncOutcome> | null = null;
@@ -76,11 +97,15 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       // (the app was killed mid-request): send it again; the server de-duplicates by event id.
       const stale = await store.outbox({ status: ['sending'] });
       if (stale.length > 0) await store.requeue(stale.map((r) => r.eventId));
+      // Held rows go once per run, in the first request, ahead of the pending ones.
+      let held = await heldRows(store);
       // Rows saved while a request is out, or behind the first 100, go in the next round.
       for (;;) {
-        const batch = (await store.outbox({ status: ['pending'] })).slice(0, SYNC_BATCH);
+        const batch = [...held, ...(await store.outbox({ status: ['pending'] }))].slice(0, SYNC_BATCH);
+        held = [];
         if (batch.length === 0) break;
-        const ids = batch.map((r) => r.eventId);
+        // Only pending rows go to `sending` (and back on a failure); held rows keep their status.
+        const ids = batch.filter((r) => r.status === 'pending').map((r) => r.eventId);
         await store.markSending(ids);
         let answer: Awaited<ReturnType<SyncEngineDeps['push']>>;
         try {
@@ -90,7 +115,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
           throw e;
         }
         await store.markResults(answer.results);
-        // An event the server did not answer (never expected) is simply sent again.
+        // A pending event the server did not answer (never expected) is simply sent again.
         const answered = new Set(answer.results.map((r) => r.eventId));
         const missing = ids.filter((id) => !answered.has(id));
         if (missing.length > 0) await store.requeue(missing);
