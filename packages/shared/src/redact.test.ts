@@ -47,3 +47,8 @@ it('F2: generic names are not money — a line length keeps its value for plant 
 it('strips earning keys for plant roles', () => {
   expect(redactForRole('plant_head', { earningRupees: 1, breakdown: [] })).toEqual({});
 });
+it('strips billedRate for plant heads and supervisors', () => {
+  const row = { truckId: 't1', netKg: 24100, billedRate: 46605, valueRupees: 5 };
+  expect(redactForRole('plant_head', row)).toEqual({ truckId: 't1', netKg: 24100 });
+  expect(redactForRole('owner', row)).toEqual(row);
+});

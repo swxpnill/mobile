@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { paymentAmount, type LedgerRow } from '../rules/ledger.ts';
 import type { EarningLine } from '../rules/trucks.ts';
-import { ageBucket, ageDays, checkRange, istDate, monthOf } from './dates.ts';
-import { buildReport, dispatchRegister, brokerWise, loadingVariance, variancePercentTenths } from './aggregate.ts';
-import { REPORT_ROW_CAP, type ReportFacts, type ReportFilter, type TruckLineFact } from './facts.ts';
+import { ageBucket, ageBucketLabels, ageDays, checkRange, istDate, monthOf } from './dates.ts';
+import { buildReport, brokerWise, customerWise, dispatchRegister, loadingVariance, pendingOrders, productWise, unitSales, variancePercentTenths } from './aggregate.ts';
+import { REPORT_ROW_CAP, type OpenSubOrderFact, type ReportFacts, type ReportFilter, type TruckLineFact } from './facts.ts';
 
 function line(over: Partial<TruckLineFact> = {}): TruckLineFact {
   return {
@@ -156,5 +156,163 @@ describe('variance and dispatch', () => {
   });
   it('buildReport dispatches', () => {
     expect(buildReport('product-wise', facts({ truckLines: [line()] }), F).kind).toBe('product-wise');
+  });
+});
+
+describe('one rounding for lifted value', () => {
+  // 1 kg and 3 kg at 500 per MT are 0.5 and 1.5 rupees: each line rounds half up (1 + 2)
+  const lines = [
+    line({ truckId: 'a', loadingSlipNo: 'LS-1', netKg: 1, ratePerMt: 500, overpricePerMt: 0 }),
+    line({ truckId: 'b', loadingSlipNo: 'LS-2', netKg: 3, ratePerMt: 500, overpricePerMt: 0 }),
+  ];
+  it('register, unit-sales and customer-wise totals agree', () => {
+    const fx = facts({ truckLines: lines });
+    expect(dispatchRegister(fx, F).summary.valueRupees).toBe(3);
+    expect(unitSales(fx, F).summary.valueRupees).toBe(3);
+    expect(unitSales(fx, F).rows[0]!.valueRupees).toBe(3);
+    expect(customerWise(fx, F).summary.liftedValueRupees).toBe(3);
+  });
+});
+
+describe('age bucket labels follow the setting', () => {
+  it('10 and 14', () => {
+    expect(ageBucketLabels(10)).toEqual(['0–5', '6–10', '11–20', '21+']);
+    expect(ageBucketLabels(14)).toEqual(['0–7', '8–14', '15–28', '29+']);
+    expect(ageBucket(10, 10)).toBe('6–10');
+    expect(ageBucket(11, 10)).toBe('11–20');
+    expect(ageBucket(20, 10)).toBe('11–20');
+    expect(ageBucket(15, 14)).toBe('15–28');
+  });
+});
+
+describe('pending orders', () => {
+  const so = (id: string, createdAt: string, pendingKg: number): OpenSubOrderFact => ({
+    subOrderId: id,
+    orderId: `o-${id}`,
+    subOrderNumber: `SO-${id}`,
+    companyId: 'c1',
+    companyCode: 'AIS',
+    customerId: 'cu1',
+    customerName: 'Shree',
+    createdAt,
+    orderedKg: 30_000,
+    dispatchedKg: 30_000 - pendingKg,
+    pendingKg,
+  });
+  const open = [
+    so('new', '2026-11-16T06:00:00Z', 5_000),
+    so('old', '2026-10-01T06:00:00Z', 7_000),
+    so('mid', '2026-11-03T06:00:00Z', 2_000),
+    so('done', '2026-11-01T06:00:00Z', 0),
+  ];
+  it('drops zero pending, oldest first, buckets', () => {
+    const r = pendingOrders(facts({ openSubOrders: open }), F);
+    expect(r.rows.map((x) => x.subOrderId)).toEqual(['old', 'mid', 'new']);
+    expect(r.rows.map((x) => x.ageDays)).toEqual([47, 14, 1]);
+    expect(r.summary).toEqual({
+      pendingKg: 14_000,
+      subOrders: 3,
+      byBucket: [
+        { bucket: '0–5', pendingKg: 5_000, count: 1 },
+        { bucket: '6–10', pendingKg: 0, count: 0 },
+        { bucket: '11–20', pendingKg: 2_000, count: 1 },
+        { bucket: '21+', pendingKg: 7_000, count: 1 },
+      ],
+    });
+  });
+  it('byBucket ignores the bucket filter while rows and totals follow it', () => {
+    const r = pendingOrders(facts({ openSubOrders: open }), { ...F, bucket: '21+' });
+    expect(r.rows.map((x) => x.subOrderId)).toEqual(['old']);
+    expect(r.summary.pendingKg).toBe(7_000);
+    expect(r.summary.byBucket.map((b) => b.count)).toEqual([1, 0, 1, 1]);
+  });
+  it('labels follow agedOrderDays', () => {
+    const r = pendingOrders(facts({ openSubOrders: open }), { ...F, agedOrderDays: 14 });
+    expect(r.summary.byBucket.map((b) => b.bucket)).toEqual(['0–7', '8–14', '15–28', '29+']);
+  });
+});
+
+describe('unit sales', () => {
+  it('per company and product, with totals', () => {
+    const fx = facts({
+      truckLines: [
+        line({ truckId: 'a', netKg: 10_000, ratePerMt: 40_000, overpricePerMt: 0 }),
+        line({ truckId: 'b', netKg: 5_000, ratePerMt: 40_000, overpricePerMt: 0 }),
+        line({ truckId: 'c', companyId: 'c2', companyCode: 'BIS', companyName: 'B Ispat', netKg: 2_000, ratePerMt: 50_000, overpricePerMt: 0 }),
+      ],
+    });
+    const r = unitSales(fx, F);
+    expect(r.rows.map((x) => [x.companyCode, x.netKg, x.valueRupees, x.trucks])).toEqual([
+      ['AIS', 15_000, 600_000, 2],
+      ['BIS', 2_000, 100_000, 1],
+    ]);
+    expect(r.summary.netKg).toBe(17_000);
+    expect(r.summary.valueRupees).toBe(700_000);
+    expect(r.summary.byCompany.map((x) => [x.companyCode, x.netKg, x.valueRupees])).toEqual([
+      ['AIS', 15_000, 600_000],
+      ['BIS', 2_000, 100_000],
+    ]);
+  });
+});
+
+describe('customer-wise', () => {
+  it('booked by order date, lifted by dispatch date, null customer grouped', () => {
+    const fx = facts({
+      bookedLines: [
+        { orderId: 'o1', createdAt: '2026-11-02T06:00:00Z', companyId: 'c1', customerId: 'cu1', customerName: 'Shree', orderedKg: 30_000, valueRupees: 1_400_000 },
+        { orderId: 'o0', createdAt: '2026-10-20T06:00:00Z', companyId: 'c1', customerId: 'cu1', customerName: 'Shree', orderedKg: 99_000, valueRupees: 9_000_000 },
+        { orderId: 'o2', createdAt: '2026-11-03T06:00:00Z', companyId: 'c1', customerId: null, customerName: null, orderedKg: 1_000, valueRupees: 50_000 },
+      ],
+      truckLines: [
+        line({ truckId: 'a', netKg: 10_000, ratePerMt: 40_000, overpricePerMt: 0 }),
+        line({ truckId: 'b', customerId: null, customerName: null, netKg: 1_000, ratePerMt: 40_000, overpricePerMt: 0 }),
+        line({ truckId: 'c', dispatchedAt: '2026-10-30T06:00:00Z', netKg: 7_000 }),
+      ],
+    });
+    const r = customerWise(fx, F);
+    expect(r.rows).toEqual([
+      { customerId: 'cu1', customerName: 'Shree', bookedKg: 30_000, bookedValueRupees: 1_400_000, liftedKg: 10_000, liftedValueRupees: 400_000 },
+      { customerId: null, customerName: null, bookedKg: 1_000, bookedValueRupees: 50_000, liftedKg: 1_000, liftedValueRupees: 40_000 },
+    ]);
+    expect(r.summary).toEqual({ bookedKg: 31_000, bookedValueRupees: 1_450_000, liftedKg: 11_000, liftedValueRupees: 440_000 });
+  });
+});
+
+describe('product-wise', () => {
+  it('groups by product, size and length with distinct trucks', () => {
+    const r = productWise(
+      facts({
+        truckLines: [
+          line({ truckId: 'a', netKg: 10_000 }),
+          line({ truckId: 'a', netKg: 2_000 }),
+          line({ truckId: 'b', netKg: 5_000 }),
+          line({ truckId: 'c', sizeLabel: '16 mm', netKg: 3_000 }),
+        ],
+      }),
+      F,
+    );
+    expect(r.rows.map((x) => [x.sizeLabel, x.netKg, x.trucks])).toEqual([
+      ['12 mm', 17_000, 2],
+      ['16 mm', 3_000, 1],
+    ]);
+    expect(r.summary).toEqual({ netKg: 20_000, trucks: 3 });
+  });
+});
+
+describe('loading variance summary', () => {
+  it('over and under trucks and kg do not net to zero', () => {
+    const r = loadingVariance(
+      facts({
+        truckLines: [
+          line({ truckId: 'a', vehicleNo: 'A', plannedKg: 24_000, netKg: 24_180 }),
+          line({ truckId: 'b', vehicleNo: 'B', plannedKg: 30_000, netKg: 29_580 }),
+          line({ truckId: 'c', vehicleNo: 'C', plannedKg: 10_000, netKg: 10_000 }),
+          line({ truckId: 'd', vehicleNo: 'D', plannedKg: 20_000, netKg: 20_050 }),
+        ],
+      }),
+      F,
+    );
+    expect(r.rows.map((x) => x.diffKg)).toEqual([180, -420, 0, 50]);
+    expect(r.summary).toEqual({ trucks: 4, overTrucks: 2, underTrucks: 1, overKg: 230, underKg: 420 });
   });
 });

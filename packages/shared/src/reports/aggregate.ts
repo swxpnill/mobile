@@ -1,6 +1,6 @@
 import { billedRate, roundHalfUp, roundHalfUpSigned } from '../rules/money.ts';
 import { statementTotals } from '../rules/ledger.ts';
-import { AGE_BUCKETS, ageBucket, ageDays, inRange, istDate, type AgeBucket } from './dates.ts';
+import { ageBucket, ageBucketLabels, ageDays, inRange, istDate, type AgeBucket } from './dates.ts';
 import {
   REPORT_ROW_CAP,
   type ReportFacts,
@@ -32,9 +32,9 @@ function cap<T>(rows: T[]): { rows: T[]; truncated: boolean } {
     : { rows, truncated: false };
 }
 
-/** Unrounded value of a line in rupee-kg-per-MT units (divide by 1000 once, at the group). */
-function rawValue(l: TruckLineFact): number {
-  return l.netKg * billedRate(l.ratePerMt, l.overpricePerMt);
+/** One truck line's rupees at the billed rate, rounded once. Every lifted value is a sum of these. */
+export function lineValueRupees(l: Pick<TruckLineFact, 'netKg' | 'ratePerMt' | 'overpricePerMt'>): number {
+  return roundHalfUp(l.netKg * billedRate(l.ratePerMt, l.overpricePerMt), 1000);
 }
 
 function liftedLines(facts: ReportFacts, f: ReportFilter): TruckLineFact[] {
@@ -99,7 +99,6 @@ export function dispatchRegister(facts: ReportFacts, f: ReportFilter): DispatchR
   );
   const all: DispatchRegisterRow[] = lines
     .map((l) => {
-      const rate = billedRate(l.ratePerMt, l.overpricePerMt);
       return {
         truckId: l.truckId,
         date: istDate(l.dispatchedAt),
@@ -114,8 +113,8 @@ export function dispatchRegister(facts: ReportFacts, f: ReportFilter): DispatchR
         lengthValue: l.lengthValue,
         lengthUnit: l.lengthUnit,
         netKg: l.netKg,
-        billedRate: rate,
-        valueRupees: roundHalfUp(l.netKg * rate, 1000),
+        billedRate: billedRate(l.ratePerMt, l.overpricePerMt),
+        valueRupees: lineValueRupees(l),
       };
     })
     .sort((a, b) => cmp(a.date, b.date) || cmp(a.loadingSlipNo, b.loadingSlipNo));
@@ -154,7 +153,7 @@ export interface PendingOrdersReport extends Base<'pending-orders'> {
 
 /** "As of now": the date range is ignored. */
 export function pendingOrders(facts: ReportFacts, f: ReportFilter): PendingOrdersReport {
-  const all: PendingOrderRow[] = facts.openSubOrders
+  const unfiltered: PendingOrderRow[] = facts.openSubOrders
     .filter((s) => s.pendingKg > 0 && (!f.companyId || s.companyId === f.companyId))
     .map((s) => {
       const age = ageDays(s.createdAt, f.today);
@@ -172,8 +171,8 @@ export function pendingOrders(facts: ReportFacts, f: ReportFilter): PendingOrder
         pendingKg: s.pendingKg,
       };
     })
-    .filter((r) => !f.bucket || r.bucket === f.bucket)
     .sort((a, b) => cmp(a.createdAt, b.createdAt) || cmp(a.subOrderNumber, b.subOrderNumber));
+  const all = unfiltered.filter((r) => !f.bucket || r.bucket === f.bucket);
   return {
     kind: 'pending-orders',
     from: f.from,
@@ -182,8 +181,9 @@ export function pendingOrders(facts: ReportFacts, f: ReportFilter): PendingOrder
     summary: {
       pendingKg: all.reduce((s, r) => s + r.pendingKg, 0),
       subOrders: all.length,
-      byBucket: AGE_BUCKETS.map((bucket) => {
-        const inB = all.filter((r) => r.bucket === bucket);
+      // Counted before the bucket filter so the chips keep their numbers.
+      byBucket: ageBucketLabels(f.agedOrderDays).map((bucket) => {
+        const inB = unfiltered.filter((r) => r.bucket === bucket);
         return { bucket, pendingKg: inB.reduce((s, r) => s + r.pendingKg, 0), count: inB.length };
       }),
     },
@@ -218,12 +218,12 @@ export interface UnitSalesReport extends Base<'unit-sales'> {
 
 export function unitSales(facts: ReportFacts, f: ReportFilter): UnitSalesReport {
   const lines = liftedLines(facts, f);
-  const m = new Map<string, { l: TruckLineFact; netKg: number; raw: number; trucks: Set<string> }>();
+  const m = new Map<string, { l: TruckLineFact; netKg: number; value: number; trucks: Set<string> }>();
   for (const l of lines) {
     const k = `${l.companyId}|${l.productId}`;
-    const e = m.get(k) ?? { l, netKg: 0, raw: 0, trucks: new Set<string>() };
+    const e = m.get(k) ?? { l, netKg: 0, value: 0, trucks: new Set<string>() };
     e.netKg += l.netKg;
-    e.raw += rawValue(l);
+    e.value += lineValueRupees(l);
     e.trucks.add(l.truckId);
     m.set(k, e);
   }
@@ -235,7 +235,7 @@ export function unitSales(facts: ReportFacts, f: ReportFilter): UnitSalesReport 
       productId: e.l.productId,
       productName: e.l.productName,
       netKg: e.netKg,
-      valueRupees: roundHalfUp(e.raw, 1000),
+      valueRupees: e.value,
       trucks: e.trucks.size,
     }))
     .sort((a, b) => cmp(a.companyCode, b.companyCode) || cmp(a.productName, b.productName));
@@ -341,11 +341,11 @@ export interface CustomerWiseReport extends Base<'customer-wise'> {
 export function customerWise(facts: ReportFacts, f: ReportFilter): CustomerWiseReport {
   const m = new Map<
     string,
-    { id: string | null; name: string | null; bookedKg: number; bookedValue: number; liftedKg: number; liftedRaw: number }
+    { id: string | null; name: string | null; bookedKg: number; bookedValue: number; liftedKg: number; liftedValue: number }
   >();
   const entry = (id: string | null, name: string | null) => {
     const k = id ?? '';
-    const e = m.get(k) ?? { id, name, bookedKg: 0, bookedValue: 0, liftedKg: 0, liftedRaw: 0 };
+    const e = m.get(k) ?? { id, name, bookedKg: 0, bookedValue: 0, liftedKg: 0, liftedValue: 0 };
     m.set(k, e);
     return e;
   };
@@ -361,7 +361,7 @@ export function customerWise(facts: ReportFacts, f: ReportFilter): CustomerWiseR
     if (f.customerId && l.customerId !== f.customerId) continue;
     const e = entry(l.customerId, l.customerName);
     e.liftedKg += l.netKg;
-    e.liftedRaw += rawValue(l);
+    e.liftedValue += lineValueRupees(l);
   }
   const all: CustomerWiseRow[] = [...m.values()]
     .map((e) => ({
@@ -370,7 +370,7 @@ export function customerWise(facts: ReportFacts, f: ReportFilter): CustomerWiseR
       bookedKg: e.bookedKg,
       bookedValueRupees: e.bookedValue,
       liftedKg: e.liftedKg,
-      liftedValueRupees: roundHalfUp(e.liftedRaw, 1000),
+      liftedValueRupees: e.liftedValue,
     }))
     .sort((a, b) => b.liftedKg - a.liftedKg || cmp(a.customerName ?? '', b.customerName ?? ''));
   const sum = (k: 'bookedKg' | 'bookedValueRupees' | 'liftedKg' | 'liftedValueRupees') =>

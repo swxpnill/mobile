@@ -1,8 +1,8 @@
 import { istDateOf } from '../rules/numbering.ts';
 import { REPORT_MAX_DAYS } from './facts.ts';
 
-export const AGE_BUCKETS = ['0–5', '6–10', '11–20', '21+'] as const;
-export type AgeBucket = (typeof AGE_BUCKETS)[number];
+/** A bucket label such as `6–10`; the edges move with the `agedOrderDays` setting. */
+export type AgeBucket = string;
 
 /** IST `YYYY-MM-DD` of an instant. */
 export function istDate(at: string | number): string {
@@ -30,12 +30,18 @@ export function ageDays(createdAt: string, today: string): number {
   return Math.max(0, dayNumber(today) - dayNumber(istDate(createdAt)));
 }
 
-/** Edges are floor(aged/2), aged and 2 x aged. */
+/** Labels for edges floor(aged/2), aged and 2 x aged: 10 gives 0–5, 6–10, 11–20, 21+. */
+export function ageBucketLabels(agedOrderDays: number): AgeBucket[] {
+  const h = Math.floor(agedOrderDays / 2);
+  return [`0–${h}`, `${h + 1}–${agedOrderDays}`, `${agedOrderDays + 1}–${2 * agedOrderDays}`, `${2 * agedOrderDays + 1}+`];
+}
+
 export function ageBucket(days: number, agedOrderDays: number): AgeBucket {
-  if (days <= Math.floor(agedOrderDays / 2)) return AGE_BUCKETS[0];
-  if (days <= agedOrderDays) return AGE_BUCKETS[1];
-  if (days <= 2 * agedOrderDays) return AGE_BUCKETS[2];
-  return AGE_BUCKETS[3];
+  const labels = ageBucketLabels(agedOrderDays);
+  if (days <= Math.floor(agedOrderDays / 2)) return labels[0]!;
+  if (days <= agedOrderDays) return labels[1]!;
+  if (days <= 2 * agedOrderDays) return labels[2]!;
+  return labels[3]!;
 }
 
 /** `YYYY-MM` of an IST date. */
