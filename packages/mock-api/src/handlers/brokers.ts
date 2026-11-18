@@ -43,19 +43,31 @@ interface Keyed {
   entryDate: string;
 }
 
-/** Newest first: entry date, then creation time, then id, all descending. */
-function newestFirst(x: Keyed, y: Keyed): number {
-  return cmp(y.entryDate, x.entryDate) || cmp(y.rec.createdAt, x.rec.createdAt) || cmp(y.rec.id, x.rec.id);
+/** What a `before` cursor carries: the sort key of the last item on the previous page. */
+interface Cursor {
+  entryDate: string;
+  createdAt: string;
+  id: string;
 }
+
+const DAY_MS = 86_400_000;
+
+const keyOf = (k: Keyed): Cursor => ({ entryDate: k.entryDate, createdAt: k.rec.createdAt, id: k.rec.id });
+
+/** Newest first: entry date, then creation time, then id, all descending. */
+function compareNewest(x: Cursor, y: Cursor): number {
+  return cmp(y.entryDate, x.entryDate) || cmp(y.createdAt, x.createdAt) || cmp(y.id, x.id);
+}
+const newestFirst = (x: Keyed, y: Keyed): number => compareNewest(keyOf(x), keyOf(y));
 
 const encodeCursor = (k: Keyed): string => `${k.entryDate}~${k.rec.createdAt}~${k.rec.id}`;
 
-function decodeCursor(s: string): Keyed {
+function decodeCursor(s: string): Cursor {
   const [entryDate, createdAt, id, ...rest] = s.split('~');
   if (!entryDate || !createdAt || !id || rest.length > 0) {
     throw validationError([{ path: ['before'], message: 'Not a valid cursor' }]);
   }
-  return { entryDate, rec: { id, createdAt } as BrokerLedgerRec };
+  return { entryDate, createdAt, id };
 }
 
 /** Whether a row is on the earnings side (an earning, or the reversal of one). */
@@ -66,8 +78,12 @@ function isEarningSide(state: MockState, r: BrokerLedgerRec): boolean {
   return target ? target.kind === 'earning' : r.amountRupees <= 0;
 }
 
-function assertNotFuture(date: string, today: string, field: string): void {
-  if (date > today) throw validationError([{ path: [field], message: 'Date cannot be in the future' }]);
+/** A payment date is today or earlier, and at most 365 days back. */
+function assertPaidOn(date: string, now: number): void {
+  if (date > istDateOf(now)) throw validationError([{ path: ['paidOn'], message: 'Date cannot be in the future' }]);
+  if (date < istDateOf(now - 365 * DAY_MS)) {
+    throw validationError([{ path: ['paidOn'], message: 'Date cannot be more than 365 days back' }]);
+  }
 }
 
 export const brokerRoutes: RouteDef[] = [
@@ -110,7 +126,7 @@ export const brokerRoutes: RouteDef[] = [
         .filter((r) => query.view === 'all' || isEarningSide(state, r) === (query.view === 'earnings'))
         .map((rec) => ({ rec, entryDate: entryDateOf(state, rec) }))
         .sort(newestFirst);
-      const rest = cursor === null ? keyed : keyed.filter((k) => newestFirst(cursor, k) < 0);
+      const rest = cursor === null ? keyed : keyed.filter((k) => compareNewest(cursor, keyOf(k)) < 0);
       const page = rest.slice(0, query.limit);
       const last = page[page.length - 1];
       const body: BrokerLedger = {
@@ -175,7 +191,7 @@ export const brokerRoutes: RouteDef[] = [
       const a = authed(ctx);
       const { state, now, body } = ctx;
       const broker = findBroker(state, a, ctx.params.id);
-      assertNotFuture(body.paidOn, istDateOf(now), 'paidOn');
+      assertPaidOn(body.paidOn, now);
       const rec: BrokerLedgerRec = {
         id: newId(),
         tenantId: broker.tenantId,

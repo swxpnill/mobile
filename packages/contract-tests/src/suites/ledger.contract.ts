@@ -131,6 +131,19 @@ export function register(factory: TargetFactory): void {
       expect((await ledger(t, owner, '?view=payments')).items).toEqual([]);
     });
 
+    it('paidOn: exactly 365 days back is accepted, 366 days back is 422 on paidOn', async () => {
+      const t = target();
+      const { owner } = await twoOrders(t);
+      const old = expectError(
+        await pay(t, owner, { paidOn: istDateOf(t.clock.now() - 366 * DAY) }),
+        422,
+        'VALIDATION',
+      );
+      expect(paths(old)).toContainEqual(['paidOn']);
+      const ok = await pay(t, owner, { paidOn: istDateOf(t.clock.now() - 365 * DAY) });
+      expectOk(ok, paymentResultSchema, 201);
+    });
+
     it('reverses a payment once; earnings and reversals are not reversible; the reason is checked', async () => {
       const t = target();
       const { owner } = await twoOrders(t);
