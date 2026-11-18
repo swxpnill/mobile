@@ -120,14 +120,29 @@ export function unitTagColors(slot: number, scheme: ColorScheme): { bg: string; 
   return { bg: t[s.bg], fg: s[scheme] };
 }
 
-export type TypeVariant = 'title' | 'subtitle' | 'heading' | 'body' | 'caption' | 'overline';
+export type TypeVariant =
+  | 'title'
+  | 'subtitle'
+  | 'heading'
+  | 'stat'
+  | 'button'
+  | 'body'
+  | 'chip'
+  | 'caption'
+  | 'overline';
 
 /** Canvas type scale. Letter spacing converted from em to px at each size. */
 export const typeScale: Record<TypeVariant, TextStyle> = {
   title: { fontSize: 28, lineHeight: 34, letterSpacing: -0.7 },
   subtitle: { fontSize: 20, lineHeight: 26, letterSpacing: -0.4 },
   heading: { fontSize: 17, lineHeight: 24, letterSpacing: -0.255 },
+  /** A figure in a stat tile (board 23 "962.400"). */
+  stat: { fontSize: 18, lineHeight: 24 },
+  /** Button label (canvas `.btn`). */
+  button: { fontSize: 15, lineHeight: 20 },
   body: { fontSize: 14, lineHeight: 20 },
+  /** Filter chip label (canvas `.flt`). */
+  chip: { fontSize: 13, lineHeight: 18 },
   caption: { fontSize: 12, lineHeight: 16 },
   overline: { fontSize: 11, lineHeight: 14, letterSpacing: 0.77, textTransform: 'uppercase' },
 };
@@ -137,7 +152,10 @@ export const variantWeight: Record<TypeVariant, FontWeight> = {
   title: 'semibold',
   subtitle: 'semibold',
   heading: 'semibold',
+  stat: 'semibold',
+  button: 'semibold',
   body: 'regular',
+  chip: 'medium',
   caption: 'regular',
   overline: 'semibold',
 };

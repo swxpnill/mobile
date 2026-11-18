@@ -32,6 +32,8 @@ export function ReportPreview({
   onRetry,
   onShare,
   onExport,
+  holdHeight,
+  onMeasure,
 }: {
   kind: ReportKind;
   report: Report | undefined;
@@ -45,6 +47,14 @@ export function ReportPreview({
   onRetry(): void;
   onShare(): void;
   onExport?: (format: ExportFormat) => void;
+  /**
+   * The card's height when the last report was on screen. Until this kind's report arrives the
+   * card keeps at least that height, so the page under the user's finger does not shrink and
+   * scroll (switching a lower tile used to jump the page).
+   */
+  holdHeight?: number;
+  /** Reports the card's height once a report is shown. */
+  onMeasure?: (height: number) => void;
 }) {
   const { t, scheme } = useTheme();
   const meta = REPORT_META[kind];
@@ -140,7 +150,15 @@ export function ReportPreview({
     <>
       <View
         testID="report-preview"
-        style={[styles.card, { backgroundColor: t.card, borderColor: t.bd }, stale ? styles.stale : null]}
+        style={[
+          styles.card,
+          { backgroundColor: t.card, borderColor: t.bd },
+          !data && holdHeight ? { minHeight: holdHeight } : null,
+          stale ? styles.stale : null,
+        ]}
+        onLayout={(e) => {
+          if (data) onMeasure?.(Math.round(e.nativeEvent.layout.height));
+        }}
       >
         <View style={styles.top}>
           <View style={styles.head}>
@@ -207,7 +225,7 @@ const StatCell = memo(function StatCell({ s }: { s: Stat }) {
   return (
     <View style={styles.fill} accessible accessibilityLabel={`${s.label} ${s.value} ${s.caption}`}>
       <Text variant="caption">{s.label}</Text>
-      <Text weight="semibold" numeric color={s.color} style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>
+      <Text variant="stat" numeric color={s.color} numberOfLines={1} adjustsFontSizeToFit>
         {s.value}
       </Text>
       <Text variant="caption" numberOfLines={1}>
@@ -250,7 +268,7 @@ const ActionButton = memo(function ActionButton({
       ]}
     >
       <Icon name={icon} size={18} color={t[fg]} />
-      <Text weight="semibold" numberOfLines={1} style={{ color: t[fg], fontSize: 15 }}>
+      <Text variant="button" numberOfLines={1} color={fg}>
         {label}
       </Text>
     </Pressable>
@@ -266,7 +284,6 @@ const styles = StyleSheet.create({
   top: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12, gap: 10 },
   head: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
   stats: { flexDirection: 'row', gap: 10 },
-  statValue: { fontSize: 18, lineHeight: 24 },
   bar: { flexDirection: 'row', gap: 3, height: 8, marginTop: 4, borderRadius: 4, overflow: 'hidden' },
   seg: { borderRadius: 2 },
   // Loading, error and empty share one height, so switching kinds does not jump the page.

@@ -7,7 +7,7 @@ import * as SecureStore from 'expo-secure-store';
 import type { ReactElement } from 'react';
 import { Share } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { SAMPLE_MASTERS, SAMPLE_WORLD, orderSchema } from '@tonnage/shared';
+import { type Report, SAMPLE_MASTERS, SAMPLE_WORLD, orderSchema } from '@tonnage/shared';
 import { createFakeClock, createMockApi, type MockApi } from '@tonnage/mock-api';
 import Reports from '../app/(app)/reports';
 import { api } from '../src/api/client';
@@ -19,7 +19,7 @@ import { resetDeviceStoresForTests } from '../src/offline/sqliteDeviceStore';
 import { resetUnitFilterForTests } from '../src/prefs/unitFilter';
 import { MoreScreen } from '../src/screens/MoreScreen';
 import { presetRange, rangeLabel, rangeProblem } from '../src/screens/reports/ranges';
-import { percentTenths, signedQty } from '../src/screens/reports/reportView';
+import { percentTenths, reportView, signedQty } from '../src/screens/reports/reportView';
 import { ThemeProvider } from '../src/theme/ThemeProvider';
 import { ToastHost } from '../src/ui';
 
@@ -267,6 +267,53 @@ describe('Reports (board 23)', () => {
     expect(screen.getByRole('button', { name: 'Filter, All ages' })).toBeOnTheScreen();
   });
 
+  it('the age filter chip keeps the picked label while its options load again', async () => {
+    await openReports();
+    await press(/^Pending orders/);
+    await press('Filter, All ages');
+    await fireEvent.press(await screen.findByRole('radio', { name: '0–5 days' }));
+    expect(await screen.findByRole('button', { name: 'Filter, 0–5 days' })).toBeOnTheScreen();
+    await press(/^Dispatch register/);
+    // Pending orders loads afresh and its request hangs, so the bucket options are not there yet.
+    client.removeQueries({ queryKey: ['report', 'pending-orders'] });
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    setTransport({
+      async request(req) {
+        if (req.path.startsWith('/v1/reports/pending-orders')) await held;
+        return mock.transport.request(req);
+      },
+    });
+    await press(/^Pending orders/);
+    expect(screen.getByLabelText('Loading Pending orders')).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Filter, 0–5 days' })).toBeOnTheScreen();
+    release();
+    expect(await screen.findByRole('button', { name: 'Filter, 0–5 days' })).toBeOnTheScreen();
+  });
+
+  it('switching kind keeps the card at its last loaded height while the next report loads (stable scroll)', async () => {
+    await openReports();
+    await preview().findAllByText('74.800');
+    await fireEvent(screen.getByTestId('report-preview'), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 350, height: 412 } } });
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    setTransport({
+      async request(req) {
+        if (req.path.startsWith('/v1/reports/product-wise')) await held;
+        return mock.transport.request(req);
+      },
+    });
+    await press(/^Product-wise/);
+    expect(screen.getByLabelText('Loading Product-wise')).toBeOnTheScreen();
+    expect(screen.getByTestId('report-preview')).toHaveStyle({ minHeight: 412 });
+    release();
+    expect(await preview().findByText('Items')).toBeOnTheScreen();
+  });
+
   it('kg basis: the table header reads "Net kg"', async () => {
     await api('/v1/me/preferences', { method: 'PATCH', body: { unitBasis: 'kg' } });
     await openReports();
@@ -337,5 +384,55 @@ describe('ranges', () => {
     expect(percentTenths(-18)).toBe('−1.8 %');
     expect(percentTenths(0)).toBe('0.0 %');
     expect(percentTenths(null)).toBe('');
+  });
+});
+
+describe('reportView', () => {
+  const base = { from: '2026-11-01', to: '2026-11-17', truncated: false } as const;
+
+  it('a zero over / under reads unsigned "0.000", never "+0.000" or "−0.000"', () => {
+    const variance = (overKg: number, underKg: number): Report => ({
+      ...base,
+      kind: 'loading-variance',
+      rows: [],
+      summary: { trucks: 2, overTrucks: overKg ? 1 : 0, underTrucks: underKg ? 1 : 0, overKg, underKg },
+    });
+    const zero = reportView(variance(0, 0), 'mt').stats;
+    expect(zero[1].caption).toBe('0.000 MT');
+    expect(zero[2].caption).toBe('0.000 MT');
+    const some = reportView(variance(180, 420), 'mt').stats;
+    expect(some[1].caption).toBe('+0.180 MT');
+    expect(some[2].caption).toBe('−0.420 MT');
+    const register: Report = {
+      ...base,
+      kind: 'dispatch-register',
+      rows: [],
+      summary: { netKg: 0, trucks: 0, overUnderKg: 0, valueRupees: 0, byCompany: [] },
+    };
+    expect(reportView(register, 'mt').stats[2].value).toBe('0.000');
+    expect(signedQty(-0, 'mt')).toBe('0.000');
+  });
+
+  it('pending orders: "Oldest" is the largest age, whatever the row order', () => {
+    const row = (id: string, ageDays: number) => ({
+      subOrderId: id,
+      orderId: id,
+      subOrderNumber: `SO-${ageDays}`,
+      companyCode: 'AIP',
+      customerName: null,
+      createdAt: '2026-11-01T00:00:00Z',
+      ageDays,
+      bucket: '0–5',
+      orderedKg: 1_000,
+      dispatchedKg: 0,
+      pendingKg: 1_000,
+    });
+    const pending: Report = {
+      ...base,
+      kind: 'pending-orders',
+      rows: [row('00000000-0000-4000-8000-000000000001', 3), row('00000000-0000-4000-8000-000000000002', 14)],
+      summary: { pendingKg: 2_000, subOrders: 2, byBucket: [] },
+    };
+    expect(reportView(pending, 'mt').stats[2]).toMatchObject({ label: 'Oldest', value: '14' });
   });
 });

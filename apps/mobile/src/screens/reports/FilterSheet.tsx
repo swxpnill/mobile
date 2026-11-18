@@ -23,11 +23,12 @@ export function FilterSheet({
   allLabel: string;
   options: readonly FilterOption[];
   value: string | undefined;
-  onPick(id: string | undefined): void;
+  /** The picked option, or undefined for "All …"; the label is kept for the chip. */
+  onPick(option: FilterOption | undefined): void;
   onClose(): void;
 }) {
   const pick = (id: string | undefined) => {
-    onPick(id);
+    onPick(options.find((o) => o.id === id));
     onClose();
   };
   return (

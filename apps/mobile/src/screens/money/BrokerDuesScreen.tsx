@@ -1,23 +1,15 @@
-import { type BrokerDues, dueState, formatRupees } from '@tonnage/shared';
+import type { BrokerDues } from '@tonnage/shared';
 import { useRouter } from 'expo-router';
 import { memo, useCallback } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useBrokerDues } from '../../api/hooks/money';
 import { useTheme } from '../../theme/ThemeProvider';
-import type { Tokens } from '../../theme/tokens';
 import { Avatar, Badge, Button, EmptyState, Group, Row, Screen, Text } from '../../ui';
 import { BackHeader } from '../admin/parts';
 import { messageFor } from '../messages';
+import { dueText } from './captions';
 
 type DueItem = BrokerDues['items'][number];
-
-/** "₹15,399 due" (amber), "Advance ₹4,601" (green) or "Nothing due". */
-export function dueText(dueRupees: number): { text: string; color: keyof Tokens } {
-  const s = dueState(dueRupees);
-  if (s.kind === 'due') return { text: `${formatRupees(s.rupees)} due`, color: 'wnt' };
-  if (s.kind === 'advance') return { text: `Advance ${formatRupees(s.rupees)}`, color: 'okt' };
-  return { text: 'Nothing due', color: 'tx3' };
-}
 
 /** More → Broker ledger (Ruling 8): every broker with what is due, highest first; rows as board 18. */
 export function BrokerDuesScreen() {

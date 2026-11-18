@@ -11,7 +11,7 @@ import {
 import { dateLabel } from '../../format/time';
 import { shortCompanyName } from '../../nav/roles';
 import type { Tokens } from '../../theme/tokens';
-import { dueText } from '../money/BrokerDuesScreen';
+import { dueText } from '../money/captions';
 import { REPORT_META } from './reportMeta';
 
 /** One of the three numbers at the top of the preview card. */
@@ -52,7 +52,7 @@ export interface ReportView {
 const MINUS = '−';
 const plural = (n: number, one: string, many: string) => `${groupIndian(String(n))} ${n === 1 ? one : many}`;
 
-/** "+0.800" / "−0.120" / "0.000": a signed quantity through the shared formatter. */
+/** "+0.800" / "−0.120", and zero unsigned ("0.000"): a signed quantity through the shared formatter. */
 export function signedQty(kg: number, basis: UnitBasis): string {
   const body = toDisplayQty(Math.abs(kg), basis);
   return kg > 0 ? `+${body}` : kg < 0 ? `${MINUS}${body}` : body;
@@ -108,7 +108,7 @@ export function reportView(r: Report, basis: UnitBasis): ReportView {
     }
     case 'pending-orders': {
       const s = r.summary;
-      const oldest = r.rows[0]?.ageDays;
+      const oldest = r.rows.length ? r.rows.reduce((m, x) => Math.max(m, x.ageDays), 0) : undefined;
       return {
         stats: [
           { label: 'Pending', value: qty(s.pendingKg), caption: unit, color: 'wnt' },
@@ -187,8 +187,8 @@ export function reportView(r: Report, basis: UnitBasis): ReportView {
       return {
         stats: [
           { label: 'Trucks', value: groupIndian(String(s.trucks)), caption: 'this period', color: 'brt' },
-          { label: 'Over', value: groupIndian(String(s.overTrucks)), caption: `+${qtyU(s.overKg)}`, color: 'wnt' },
-          { label: 'Under', value: groupIndian(String(s.underTrucks)), caption: `${MINUS}${qtyU(s.underKg)}`, color: 'dgt' },
+          { label: 'Over', value: groupIndian(String(s.overTrucks)), caption: `${signedQty(s.overKg, basis)} ${unit}`, color: 'wnt' },
+          { label: 'Under', value: groupIndian(String(s.underTrucks)), caption: `${signedQty(-s.underKg, basis)} ${unit}`, color: 'dgt' },
         ],
         table: null,
         list: r.rows.map((x) => ({

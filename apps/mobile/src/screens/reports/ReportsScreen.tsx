@@ -34,8 +34,11 @@ export function ReportsScreen() {
   const today = istDateOf(Date.now());
   const [kind, setKind] = useState<ReportKind>('dispatch-register');
   const [range, setRange] = useState<DateRange>(() => presetRange('thisMonth', today));
-  const [picked, setPicked] = useState<Partial<Record<ReportFilterKey, string>>>({});
+  // The label is kept with the id, so the chip still names the pick while its options reload.
+  const [picked, setPicked] = useState<Partial<Record<ReportFilterKey, FilterOption>>>({});
   const [sheet, setSheet] = useState<'range' | 'unit' | 'filter' | null>(null);
+  // The preview's last loaded height, held while the next kind loads (stable scroll).
+  const [previewHeight, setPreviewHeight] = useState(0);
   const unit = useUnitFilter();
   const { data: companies } = useCompanies();
   const meta = REPORT_META[kind];
@@ -46,14 +49,13 @@ export function ReportsScreen() {
   const slotOf = useCallback((code: string) => Math.max(0, all.findIndex((c) => c.code === code)), [all]);
 
   const params: ReportParams = { ...range, companyId: chosen?.id };
-  if (filter && picked[filter]) params[FILTER_PARAM[filter]] = picked[filter];
+  const pick = filter ? picked[filter] : undefined;
+  if (filter && pick) params[FILTER_PARAM[filter]] = pick.id;
   const report = useReport(kind, params);
   const options = useFilterOptions(filter, report.data);
 
   const rangeChip = rangeLabel(range.from, range.to);
-  const filterLabel = filter
-    ? (options.find((o) => o.id === picked[filter])?.label ?? FILTER_ALL[filter])
-    : null;
+  const filterLabel = filter ? (pick?.label ?? FILTER_ALL[filter]) : null;
 
   const onShare = useCallback(() => {
     const r = report.data;
@@ -106,6 +108,8 @@ export function ReportsScreen() {
         slotOf={slotOf}
         onRetry={() => void report.refetch()}
         onShare={onShare}
+        holdHeight={previewHeight}
+        onMeasure={setPreviewHeight}
       />
 
       {sheet === 'range' ? (
@@ -117,8 +121,8 @@ export function ReportsScreen() {
           title={FILTER_TITLE[filter]}
           allLabel={FILTER_ALL[filter]}
           options={options}
-          value={picked[filter]}
-          onPick={(id) => setPicked((p) => ({ ...p, [filter]: id }))}
+          value={pick?.id}
+          onPick={(o) => setPicked((p) => ({ ...p, [filter]: o }))}
           onClose={() => setSheet(null)}
         />
       ) : null}
@@ -171,7 +175,7 @@ function FilterChip({
   const content = (
     <>
       <Icon name={icon} size={16} color={onPress ? t.brt : t.tx3} />
-      <Text weight="medium" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} style={styles.chipText}>
+      <Text variant="chip" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
         {label}
       </Text>
       {onPress ? <Icon name="chevronDown" size={14} color={t.tx3} /> : null}
@@ -211,5 +215,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  chipText: { fontSize: 13 },
 });

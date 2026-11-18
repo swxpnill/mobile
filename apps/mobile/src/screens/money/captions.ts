@@ -2,10 +2,20 @@ import {
   type LedgerEntry,
   PAYMENT_MODE_LABEL,
   type UnitBasis,
+  dueState,
   formatRupees,
   toDisplayQty,
   toDisplayRate,
 } from '@tonnage/shared';
+import type { Tokens } from '../../theme/tokens';
+
+/** "₹15,399 due" (amber), "Advance ₹4,601" (green) or "Nothing due". */
+export function dueText(dueRupees: number): { text: string; color: keyof Tokens } {
+  const s = dueState(dueRupees);
+  if (s.kind === 'due') return { text: `${formatRupees(s.rupees)} due`, color: 'wnt' };
+  if (s.kind === 'advance') return { text: `Advance ${formatRupees(s.rupees)}`, color: 'okt' };
+  return { text: 'Nothing due', color: 'tx3' };
+}
 
 const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name;
 
