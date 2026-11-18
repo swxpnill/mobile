@@ -13,6 +13,7 @@ import {
 import { z } from 'zod';
 import {
   COMPANY,
+  DAY,
   DEVICE_A,
   DEVICE_B,
   MINUTE,
@@ -220,7 +221,7 @@ export function register(factory: TargetFactory): void {
         const fresh = await getOrder(t, owner, order.id);
         const body = editBody(fresh);
         body.subOrders[0]!.lines = body.subOrders[0]!.lines.filter((l) => l.id !== removedLine.id);
-        expectOk(await call(t, 'PATCH', `/v1/orders/${order.id}`, { token: owner, body }), orderSchema);
+        expectOk(await call(t, 'PATCH', `/v1/orders/${order.id}`, { idempotencyKey: newKey(), token: owner, body }), orderSchema);
 
         const [r] = await synced(
           sync(t, ravi, [
@@ -533,7 +534,7 @@ export function register(factory: TargetFactory): void {
         expect(raviFirst.items.map((x) => x.truckId)).toContain(truck.id);
 
         t.clock.advance(MINUTE);
-        const del = await call(t, 'DELETE', `/v1/orders/${order.id}`, { token: owner, body: { confirmNumber: order.number } });
+        const del = await call(t, 'DELETE', `/v1/orders/${order.id}`, { idempotencyKey: newKey(), token: owner, body: { confirmNumber: order.number } });
         expect(del.status).toBe(204);
 
         const raviNext = await pull(ravi, raviFirst.cursor);
@@ -545,6 +546,85 @@ export function register(factory: TargetFactory): void {
         expect(sanjayNext.removed).not.toContain(truck.id);
         // A full snapshot carries no tombstones.
         expect((await pull(ravi)).removed).toEqual([]);
+      });
+
+      it('a truck whose TARE was refused and whose order is erased comes back in deleted, not only in removed', async () => {
+        const t = target();
+        const { owner, order, truck } = await canvasWithTruck(t);
+        expectOk(
+          await call(t, 'POST', `/v1/trucks/${truck.id}/cancel`, { token: owner, idempotencyKey: newKey(), body: { reason: 'Other', note: '', version: truck.version } }),
+          truckSchema,
+        );
+        const ravi = await tokenFor(t, PEOPLE.ravi);
+        const tare = phone(truck.id, () => t.clock.now()).tare(12_460);
+        expect((await synced(sync(t, ravi, [tare])))[0]).toMatchObject({ status: 'rejected', code: 'TRUCK_CANCELLED' });
+        const first = expectOk(await call(t, 'GET', '/v1/supervisor/tasks', { token: ravi }), tasksPageSchema);
+        expect(first.deleted).toEqual([]);
+
+        t.clock.advance(MINUTE);
+        expect(
+          (await call(t, 'DELETE', `/v1/orders/${order.id}`, { token: owner, idempotencyKey: newKey(), body: { confirmNumber: order.number } })).status,
+        ).toBe(204);
+        const next = expectOk(
+          await call(t, 'GET', `/v1/supervisor/tasks?cursor=${encodeURIComponent(first.cursor)}`, { token: ravi }),
+          tasksPageSchema,
+        );
+        expect(next.deleted).toEqual([truck.id]);
+        expect(next.removed).toContain(truck.id);
+        // The rejection went with the order: nothing is reported resolved for it.
+        expect(next.resolved).toEqual([]);
+      });
+    });
+
+    describe('cursorless pull horizon (RESOLVED_HORIZON_MS, 30 days)', () => {
+      it('a refusal resolved 31 days ago is left out of resolved; one resolved 29 days ago is in', async () => {
+        const t = target();
+        const { owner, a, aLine, truck } = await canvasWithTruck(t);
+        const other = await assign(t, owner, a.id, aLine.id, 1_000, 'CG 04 AA 1111');
+        for (const x of [truck, other])
+          expectOk(
+            await call(t, 'POST', `/v1/trucks/${x.id}/cancel`, { token: owner, idempotencyKey: newKey(), body: { reason: 'Other', note: '', version: x.version } }),
+            truckSchema,
+          );
+        const ravi = await tokenFor(t, PEOPLE.ravi);
+        const old = phone(truck.id, () => t.clock.now()).tare(12_460);
+        const recent = phone(other.id, () => t.clock.now()).tare(11_000);
+        await synced(sync(t, ravi, [old, recent]));
+        const rows = expectOk(await call(t, 'GET', '/v1/weighment-rejections', { token: owner }), z.array(rejectionSchema));
+        const dismiss = async (token: string, truckId: string) =>
+          expectOk(
+            await call(t, 'POST', `/v1/weighment-rejections/${rows.find((r) => r.truckId === truckId)!.id}/dismiss`, {
+              token,
+              idempotencyKey: newKey(),
+              body: { reason: 'Truck went back' },
+            }),
+            rejectionSchema,
+          );
+        await dismiss(owner, truck.id);
+        t.clock.advance(2 * DAY);
+        await dismiss(await tokenFor(t, PEOPLE.rajesh), other.id);
+        t.clock.advance(29 * DAY);
+
+        const full = expectOk(await call(t, 'GET', '/v1/supervisor/tasks', { token: await tokenFor(t, PEOPLE.ravi) }), tasksPageSchema);
+        expect(full.resolved).toEqual([recent.eventId]);
+      });
+
+      it('an order erased 31 days ago is left out of deleted; one erased 29 days ago is in', async () => {
+        const t = target();
+        const erase = async () => {
+          const { owner, order, truck } = await canvasWithTruck(t);
+          const del = await call(t, 'DELETE', `/v1/orders/${order.id}`, { token: owner, idempotencyKey: newKey(), body: { confirmNumber: order.number } });
+          expect(del.status).toBe(204);
+          return truck.id;
+        };
+        await erase();
+        t.clock.advance(2 * DAY);
+        const recent = await erase();
+        t.clock.advance(29 * DAY);
+
+        const full = expectOk(await call(t, 'GET', '/v1/supervisor/tasks', { token: await tokenFor(t, PEOPLE.ravi) }), tasksPageSchema);
+        expect(full.deleted).toEqual([recent]);
+        expect(full.removed).toEqual([]);
       });
     });
 

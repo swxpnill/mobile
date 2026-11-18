@@ -112,6 +112,7 @@ async function patelInProgress(t: ContractTarget) {
 
 const shortClose = (t: ContractTarget, token: string, subId: string, version: number, cancelOpenTrucks = false) =>
   call(t, 'POST', `/v1/sub-orders/${subId}/short-close`, {
+    idempotencyKey: newKey(),
     token,
     body: { reason: 'Customer stopped lifting', note: '', cancelOpenTrucks, version },
   });
@@ -128,13 +129,13 @@ export function register(factory: TargetFactory): void {
         const base = editBody(order);
         const l16 = order.subOrders[0]!.lines[0]!.id;
         const below = expectError(
-          await call(t, 'PATCH', `/v1/orders/${order.id}`, { token: priya, body: withLine(base, 0, { orderedKg: 28_000 }) }),
+          await call(t, 'PATCH', `/v1/orders/${order.id}`, { idempotencyKey: newKey(), token: priya, body: withLine(base, 0, { orderedKg: 28_000 }) }),
           409,
           'BELOW_DISPATCHED',
         );
         expect(below.details).toEqual({ lineId: l16 });
         expectError(
-          await call(t, 'PATCH', `/v1/orders/${order.id}`, { token: priya, body: withLine(base, 0, { typedRate: 47_000 }) }),
+          await call(t, 'PATCH', `/v1/orders/${order.id}`, { idempotencyKey: newKey(), token: priya, body: withLine(base, 0, { typedRate: 47_000 }) }),
           409,
           'LINE_RATE_LOCKED',
         );
@@ -145,12 +146,12 @@ export function register(factory: TargetFactory): void {
         const { order, rajesh } = await patelInProgress(t);
         const base = editBody(order);
         expectError(
-          await call(t, 'PATCH', `/v1/orders/${order.id}`, { token: rajesh, body: withLine(base, 0, { orderedKg: 28_000 }) }),
+          await call(t, 'PATCH', `/v1/orders/${order.id}`, { idempotencyKey: newKey(), token: rajesh, body: withLine(base, 0, { orderedKg: 28_000 }) }),
           409,
           'BELOW_DISPATCHED',
         );
         const ok = expectOk(
-          await call(t, 'PATCH', `/v1/orders/${order.id}`, { token: rajesh, body: withLine(base, 0, { typedRate: 47_000 }) }),
+          await call(t, 'PATCH', `/v1/orders/${order.id}`, { idempotencyKey: newKey(), token: rajesh, body: withLine(base, 0, { typedRate: 47_000 }) }),
           orderSchema,
         );
         expect(ok.subOrders[0]!.lines[0]).toMatchObject({ rate: 47_000, dispatchedKg: 28_400 });
@@ -171,7 +172,7 @@ export function register(factory: TargetFactory): void {
           typedRate: 46_200,
           overpricePerMt: 0,
         });
-        const ok = expectOk(await call(t, 'PATCH', `/v1/orders/${order.id}`, { token: priya, body }), orderSchema);
+        const ok = expectOk(await call(t, 'PATCH', `/v1/orders/${order.id}`, { idempotencyKey: newKey(), token: priya, body }), orderSchema);
         expect(ok.subOrders[0]!.lines.map((l) => l.orderedKg)).toEqual([30_000, 50_000, 35_000, 10_000]);
         expect(ok.warnings).toEqual([{ lineId: order.subOrders[0]!.lines[0]!.id, code: 'BELOW_RESERVED' }]);
       });
@@ -180,9 +181,9 @@ export function register(factory: TargetFactory): void {
         const t = target();
         const { order, rajesh } = await patelInProgress(t);
         // Someone else saves first (version 1 → 2); this phone still holds version 1.
-        expectOk(await call(t, 'PATCH', `/v1/orders/${order.id}`, { token: rajesh, body: editBody(order) }), orderSchema);
+        expectOk(await call(t, 'PATCH', `/v1/orders/${order.id}`, { idempotencyKey: newKey(), token: rajesh, body: editBody(order) }), orderSchema);
         const stale = withLine(editBody(order), 1, { orderedKg: 55_000 });
-        expectError(await call(t, 'PATCH', `/v1/orders/${order.id}`, { token: rajesh, body: stale }), 409, 'STALE');
+        expectError(await call(t, 'PATCH', `/v1/orders/${order.id}`, { idempotencyKey: newKey(), token: rajesh, body: stale }), 409, 'STALE');
         const after = expectOk(await call(t, 'GET', `/v1/orders/${order.id}`, { token: rajesh }), orderSchema);
         expect(after.subOrders[0]!.lines[1]!.orderedKg).toBe(50_000);
       });
@@ -243,7 +244,7 @@ export function register(factory: TargetFactory): void {
         const closed = expectOk(await shortClose(t, rajesh, sub.id, sub.version, true), orderSchema).subOrders[0]!;
         const priya = await tokenFor(t, PEOPLE.priya);
         const reopen = (token: string, version: number) =>
-          call(t, 'POST', `/v1/sub-orders/${sub.id}/reopen`, { token, body: { version } });
+          call(t, 'POST', `/v1/sub-orders/${sub.id}/reopen`, { idempotencyKey: newKey(), token, body: { version } });
         expectError(await reopen(priya, closed.version), 403, 'FORBIDDEN');
         const back = expectOk(await reopen(rajesh, closed.version), orderSchema);
         expect(back.status).toBe('partly_dispatched');
@@ -257,7 +258,7 @@ export function register(factory: TargetFactory): void {
         const sub = order.subOrders[0]!;
         const closed = expectOk(await shortClose(t, rajesh, sub.id, sub.version, true), orderSchema);
         expectError(
-          await call(t, 'PATCH', `/v1/orders/${order.id}`, { token: rajesh, body: withLine(editBody(closed), 1, { orderedKg: 60_000 }) }),
+          await call(t, 'PATCH', `/v1/orders/${order.id}`, { idempotencyKey: newKey(), token: rajesh, body: withLine(editBody(closed), 1, { orderedKg: 60_000 }) }),
           409,
           'ORDER_LOCKED',
         );
@@ -272,6 +273,7 @@ export function register(factory: TargetFactory): void {
         const from = o.subOrders[0]!.lines[0]!;
         const moved = expectOk(
           await call(t, 'POST', `/v1/orders/${o.id}/move-quantity`, {
+            idempotencyKey: newKey(),
             token: rajesh,
             body: { fromLineId: from.id, toCompanyId: COMPANY.KRM, kg: 10_000, version: o.version },
           }),
@@ -295,6 +297,7 @@ export function register(factory: TargetFactory): void {
         const l16 = order.subOrders[0]!.lines[0]!; // 40 ordered, 28.4 dispatched, 6 reserved → 5.6 available
         const move = (kg: number, toCompanyId: string) =>
           call(t, 'POST', `/v1/orders/${order.id}/move-quantity`, {
+            idempotencyKey: newKey(),
             token: rajesh,
             body: { fromLineId: l16.id, toCompanyId, kg, version: order.version },
           });
@@ -315,6 +318,7 @@ export function register(factory: TargetFactory): void {
         const krm = o.subOrders.find((s) => s.companyId === COMPANY.KRM)!;
         const moved = expectOk(
           await call(t, 'POST', `/v1/orders/${o.id}/move-quantity`, {
+            idempotencyKey: newKey(),
             token: rajesh,
             body: { fromLineId: aip.lines[0]!.id, toCompanyId: COMPANY.KRM, kg: 1_000, version: o.version },
           }),
@@ -340,7 +344,7 @@ export function register(factory: TargetFactory): void {
         const preview = expectOk(await call(t, 'GET', `/v1/orders/${order.id}/delete-preview`, { token: rajesh }), deletePreviewSchema);
         expect(preview).toEqual({ subOrders: 1, lines: 3, trucks: 2, dispatchedKg: 28_400, weighments: 3 });
         const del = (token: string, confirmNumber: string) =>
-          call(t, 'DELETE', `/v1/orders/${order.id}`, { token, body: { confirmNumber } });
+          call(t, 'DELETE', `/v1/orders/${order.id}`, { idempotencyKey: newKey(), token, body: { confirmNumber } });
         expectError(await del(await tokenFor(t, PEOPLE.priya), order.number), 403, 'FORBIDDEN');
         expectError(await del(rajesh, 'SO-2611-9999'), 409, 'CONFIRMATION_MISMATCH');
         expect((await del(rajesh, ` ${order.number.toLowerCase()} `)).status).toBe(204);
@@ -355,12 +359,99 @@ export function register(factory: TargetFactory): void {
         const { order, rajesh } = await patelInProgress(t);
         expect((await call(t, 'PATCH', '/v1/settings', { token: rajesh, body: { allowHardDeleteAfterDispatch: false } })).status).toBe(200);
         expectError(
-          await call(t, 'DELETE', `/v1/orders/${order.id}`, { token: rajesh, body: { confirmNumber: order.number } }),
+          await call(t, 'DELETE', `/v1/orders/${order.id}`, { idempotencyKey: newKey(), token: rajesh, body: { confirmNumber: order.number } }),
           409,
           'HARD_DELETE_DISABLED',
         );
         const fresh = expectOk(await createOrder(t, rajesh, PATEL), orderSchema, 201);
-        expect((await call(t, 'DELETE', `/v1/orders/${fresh.id}`, { token: rajesh, body: { confirmNumber: fresh.number } })).status).toBe(204);
+        expect((await call(t, 'DELETE', `/v1/orders/${fresh.id}`, { idempotencyKey: newKey(), token: rajesh, body: { confirmNumber: fresh.number } })).status).toBe(204);
+      });
+    });
+
+    describe('order writes are idempotent (F3 carry-over d)', () => {
+      /** Sends the same write twice with one key: the replay is the first answer, flagged. */
+      async function twice(t: ContractTarget, method: 'PATCH' | 'POST' | 'DELETE', path: string, token: string, body: unknown) {
+        const idempotencyKey = newKey();
+        const first = await call(t, method, path, { token, idempotencyKey, body });
+        const second = await call(t, method, path, { token, idempotencyKey, body });
+        expect(first.status).toBeLessThan(300);
+        expect(second.status).toBe(first.status);
+        expect(second.body).toEqual(first.body);
+        expect(second.headers['idempotent-replay']).toBe('true');
+        expect(first.headers['idempotent-replay']).toBeUndefined();
+        return first;
+      }
+      const actions = async (t: ContractTarget, token: string, orderId: string, action: string) =>
+        expectOk(await call(t, 'GET', `/v1/orders/${orderId}/activity`, { token }), z.array(activityEntrySchema)).filter(
+          (e) => e.action === action,
+        );
+
+      it('PATCH /v1/orders/:id: a versioned edit replayed is the same order, not STALE; one activity entry', async () => {
+        const t = target();
+        const rajesh = await tokenFor(t, PEOPLE.rajesh);
+        const o = expectOk(await createOrder(t, rajesh, CANVAS_ORDER), orderSchema, 201);
+        const res = await twice(t, 'PATCH', `/v1/orders/${o.id}`, rajesh, withLine(editBody(o), 0, { orderedKg: 26_000 }));
+        expect(expectOk(res, orderSchema).version).toBe(o.version + 1);
+        expect(await actions(t, rajesh, o.id, 'order.edited')).toHaveLength(1);
+      });
+
+      it('short-close and reopen: each replayed once, one activity entry each', async () => {
+        const t = target();
+        const { order, rajesh } = await patelInProgress(t);
+        const sub = order.subOrders[0]!;
+        const closed = expectOk(
+          await twice(t, 'POST', `/v1/sub-orders/${sub.id}/short-close`, rajesh, {
+            reason: 'Customer stopped lifting',
+            note: '',
+            cancelOpenTrucks: true,
+            version: sub.version,
+          }),
+          orderSchema,
+        );
+        expect(await actions(t, rajesh, order.id, 'order.short_closed')).toHaveLength(1);
+        await twice(t, 'POST', `/v1/sub-orders/${sub.id}/reopen`, rajesh, { version: closed.subOrders[0]!.version });
+        expect(await actions(t, rajesh, order.id, 'order.reopened')).toHaveLength(1);
+      });
+
+      it('move-quantity replayed moves once', async () => {
+        const t = target();
+        const rajesh = await tokenFor(t, PEOPLE.rajesh);
+        const o = expectOk(await createOrder(t, rajesh, CANVAS_ORDER), orderSchema, 201);
+        const from = o.subOrders[0]!.lines[0]!;
+        const res = await twice(t, 'POST', `/v1/orders/${o.id}/move-quantity`, rajesh, {
+          fromLineId: from.id,
+          toCompanyId: COMPANY.KRM,
+          kg: 10_000,
+          version: o.version,
+        });
+        expect(expectOk(res, orderSchema).subOrders[0]!.lines[0]!.orderedKg).toBe(14_000);
+        const now = expectOk(await call(t, 'GET', `/v1/orders/${o.id}`, { token: rajesh }), orderSchema);
+        expect(now.subOrders[0]!.lines[0]!.orderedKg).toBe(14_000);
+        expect(await actions(t, rajesh, o.id, 'order.quantity_moved')).toHaveLength(1);
+      });
+
+      it('DELETE /v1/orders/:id replayed is 204 again, not 404', async () => {
+        const t = target();
+        const rajesh = await tokenFor(t, PEOPLE.rajesh);
+        const o = expectOk(await createOrder(t, rajesh, CANVAS_ORDER), orderSchema, 201);
+        const res = await twice(t, 'DELETE', `/v1/orders/${o.id}`, rajesh, { confirmNumber: o.number });
+        expect(res.status).toBe(204);
+        expectError(await call(t, 'GET', `/v1/orders/${o.id}`, { token: rajesh }), 404, 'NOT_FOUND');
+      });
+
+      it('each of them needs an Idempotency-Key', async () => {
+        const t = target();
+        const rajesh = await tokenFor(t, PEOPLE.rajesh);
+        const o = expectOk(await createOrder(t, rajesh, CANVAS_ORDER), orderSchema, 201);
+        const sub = o.subOrders[0]!;
+        for (const [method, path, body] of [
+          ['PATCH', `/v1/orders/${o.id}`, editBody(o)],
+          ['POST', `/v1/sub-orders/${sub.id}/short-close`, { reason: 'Customer stopped lifting', note: '', cancelOpenTrucks: false, version: sub.version }],
+          ['POST', `/v1/sub-orders/${sub.id}/reopen`, { version: sub.version }],
+          ['POST', `/v1/orders/${o.id}/move-quantity`, { fromLineId: sub.lines[0]!.id, toCompanyId: COMPANY.KRM, kg: 1_000, version: o.version }],
+          ['DELETE', `/v1/orders/${o.id}`, { confirmNumber: o.number }],
+        ] as const)
+          expectError(await call(t, method, path, { token: rajesh, body }), 400, 'IDEMPOTENCY_KEY_REQUIRED');
       });
     });
 

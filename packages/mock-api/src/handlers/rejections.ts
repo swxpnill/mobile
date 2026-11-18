@@ -15,6 +15,7 @@ import { type OrderCtx, ctxFor } from '../order-views.ts';
 import { route, type RouteDef } from '../router.ts';
 import type { MockState, RejectionRec, TruckRec } from '../store.ts';
 import { toTruck } from '../truck-views.ts';
+import { type Warning, overAssignable, vehicleBusy } from './trucks.ts';
 import { type Authed, authed, logActivity } from '../views.ts';
 
 /** What the phone sent, kg fields only (no device clock, no ids but the lines'). */
@@ -149,7 +150,15 @@ export const rejectionRoutes: RouteDef[] = [
           )
           .sort((x, y) => x.event.deviceSeq - y.event.deviceSeq),
       ];
-      if (truck.state === 'cancelled') reinstate(state, a, truck, now);
+      // Back on the road: warn as an assign would (another open truck has the vehicle, or the plan is
+      // over what is left), checked before the truck counts as open again.
+      const warnings: Warning[] = [];
+      if (truck.state === 'cancelled') {
+        const sub = state.subOrders.find((s) => s.id === truck.subOrderId);
+        if (vehicleBusy(state, truck.tenantId, truck.vehicleNo, truck.id)) warnings.push('VEHICLE_BUSY');
+        if (sub && overAssignable(ctxFor(ctx, a), sub, truck.plan)) warnings.push('OVER_ASSIGNABLE');
+        reinstate(state, a, truck, now);
+      }
 
       const at = toIso(now);
       for (const r of chain) {
@@ -167,6 +176,7 @@ export const rejectionRoutes: RouteDef[] = [
         body: {
           rejection: toRejection(c, first),
           truck: toTruck(c, truck, { withWeighments: true }),
+          ...(warnings.length > 0 ? { warnings } : {}),
         } satisfies RestoreRejectionResult,
       };
     },

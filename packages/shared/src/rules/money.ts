@@ -19,6 +19,12 @@ export function roundHalfUp(numerator: number, denominator: number): number {
   return Math.floor((2 * numerator + denominator) / (2 * denominator));
 }
 
+/** `roundHalfUp` for a numerator that can be negative: halves round away from zero. */
+export function roundHalfUpSigned(numerator: number, denominator: number): number {
+  if (numerator < 0) return -roundHalfUp(-numerator, denominator);
+  return roundHalfUp(numerator, denominator);
+}
+
 export interface LineRateInput {
   method: PricingMethod;
   /** Order-level basic rate, ₹/MT; required for `basic_conversion`. */

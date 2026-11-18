@@ -181,6 +181,11 @@ export const tasksPageSchema = z.object({
    * cursor (every resolved one on a pull without a cursor): the phone stops holding them.
    */
   resolved: z.array(idSchema),
+  /**
+   * Trucks purged with their order (hard delete) at or after the cursor; within the last 30 days on a
+   * pull without a cursor. Every waiting outbox row of theirs is over: the owner erased the order.
+   */
+  deleted: z.array(idSchema),
   cursor: z.string(),
   serverTime: z.string(),
 });
@@ -284,7 +289,12 @@ export const rejectionCountSchema = z.object({ open: z.number().int().min(0) });
 export type RejectionCount = z.infer<typeof rejectionCountSchema>;
 
 /** `POST /weighment-rejections/:id/restore`: the restored rejection and its truck afterwards. */
-export const restoreRejectionResultSchema = z.object({ rejection: rejectionSchema, truck: truckSchema });
+/** `warnings`: computed as on assign when the restore reinstates a cancelled truck. */
+export const restoreRejectionResultSchema = z.object({
+  rejection: rejectionSchema,
+  truck: truckSchema,
+  warnings: z.array(z.enum(['VEHICLE_BUSY', 'OVER_ASSIGNABLE'])).optional(),
+});
 export type RestoreRejectionResult = z.infer<typeof restoreRejectionResultSchema>;
 
 export const dismissRejectionBodySchema = z.object({ reason: z.string().trim().min(3).max(200) }).strict();

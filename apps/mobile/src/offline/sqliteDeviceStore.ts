@@ -164,6 +164,18 @@ export async function createSqliteDeviceStore(
              WHERE status IN ('rejected', 'blocked') AND event_id IN (${marks(page.resolved.length)})`,
             ...page.resolved,
           );
+        if (page.deleted.length > 0) {
+          // The owner erased these trucks with their order: nothing of theirs is waiting any more.
+          await tx.runAsync(
+            `DELETE FROM tasks WHERE truck_id IN (${marks(page.deleted.length)})`,
+            ...page.deleted,
+          );
+          await tx.runAsync(
+            `UPDATE outbox SET status = 'resolved'
+             WHERE status NOT IN ('sending', 'accepted') AND truck_id IN (${marks(page.deleted.length)})`,
+            ...page.deleted,
+          );
+        }
         await tx.runAsync('UPDATE sync_meta SET cursor = ? WHERE id = 1', page.cursor);
       });
     },

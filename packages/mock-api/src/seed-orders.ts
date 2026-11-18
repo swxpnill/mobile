@@ -6,6 +6,7 @@ import {
   SAMPLE_MASTERS,
   SAMPLE_WORLD,
   financialYear,
+  istDateOf,
   formatOrderNumber,
   lineRate,
   subOrderSuffix,
@@ -35,8 +36,10 @@ interface DemoTruck {
   /** Time of its latest step (assignment, gate, tare or dispatch). */
   agoMs: number;
   tareKg?: number;
-  /** Line index → net kg (dispatched) or planned kg (open). Dispatched trucks were planned at net. */
+  /** Line index → net kg (dispatched) or planned kg (open). */
   kg: Record<number, number>;
+  /** Dispatched trucks only: the round plan the truck was assigned, which the weighbridge net over- or undershot. */
+  planKg?: Record<number, number>;
   transporter: string | null;
   driver: [name: string, phone: string];
   lrNo?: string;
@@ -87,8 +90,8 @@ const DEMO: DemoOrder[] = [
           { product: PR.tmt10, length: m(12), kg: 24_000, typedRate: 46_000 },
         ],
         trucks: [
-          { vehicleNo: 'CG 07 AK 3321', state: 'dispatched', agoMs: 6 * DAY, tareKg: 11_900, kg: { 0: 24_100 }, transporter: P.golden, driver: ['Imtiyaz Ali', '+919826433107'], lrNo: 'GT/1027/0311' },
-          { vehicleNo: 'CG 07 BT 0912', state: 'dispatched', agoMs: 5 * DAY, tareKg: 12_240, kg: { 1: 24_140 }, transporter: P.golden, driver: ['Harish Sahu', '+919752218840'], lrNo: 'GT/1028/0324' },
+          { vehicleNo: 'CG 07 AK 3321', state: 'dispatched', agoMs: 6 * DAY, tareKg: 11_900, kg: { 0: 24_100 }, planKg: { 0: 24_000 }, transporter: P.golden, driver: ['Imtiyaz Ali', '+919826433107'], lrNo: 'GT/1027/0311' },
+          { vehicleNo: 'CG 07 BT 0912', state: 'dispatched', agoMs: 5 * DAY, tareKg: 12_240, kg: { 1: 24_000 }, planKg: { 1: 24_000 }, transporter: P.golden, driver: ['Harish Sahu', '+919752218840'], lrNo: 'GT/1028/0324' },
         ],
       },
     ],
@@ -109,8 +112,8 @@ const DEMO: DemoOrder[] = [
         company: 'NAP',
         lines: [{ product: PR.ingot, length: m(1), kg: 42_000, typedRate: 42_000 }],
         trucks: [
-          { vehicleNo: 'CG 04 NB 5510', state: 'dispatched', agoMs: 5 * DAY, tareKg: 11_400, kg: { 0: 15_100 }, transporter: P.shreeGanesh, driver: ['Ramesh Yadav', '+919827144012'], lrNo: 'SGR/2610/0388' },
-          { vehicleNo: 'CG 04 NB 7702', state: 'dispatched', agoMs: 3 * DAY, tareKg: 11_620, kg: { 0: 15_100 }, transporter: P.shreeGanesh, driver: ['Dinesh Patel', '+919893320415'], lrNo: 'SGR/2610/0402' },
+          { vehicleNo: 'CG 04 NB 5510', state: 'dispatched', agoMs: 5 * DAY, tareKg: 11_400, kg: { 0: 15_100 }, planKg: { 0: 15_000 }, transporter: P.shreeGanesh, driver: ['Ramesh Yadav', '+919827144012'], lrNo: 'SGR/2610/0388' },
+          { vehicleNo: 'CG 04 NB 7702', state: 'dispatched', agoMs: 3 * DAY, tareKg: 11_620, kg: { 0: 14_820 }, planKg: { 0: 15_000 }, transporter: P.shreeGanesh, driver: ['Dinesh Patel', '+919893320415'], lrNo: 'SGR/2610/0402' },
         ],
       },
     ],
@@ -152,9 +155,9 @@ const DEMO: DemoOrder[] = [
           { product: PR.tmt25, length: m(6), kg: 30_000, typedRate: 45_800 },
         ],
         trucks: [
-          { vehicleNo: 'CG 04 AB 1123', state: 'dispatched', agoMs: 20 * HOUR, tareKg: 12_100, kg: { 1: 30_120 }, transporter: P.golden, driver: ['Mahesh Dhruw', '+919425210877'], lrNo: 'GT/1102/0417' },
-          { vehicleNo: 'CG 07 KL 4410', state: 'dispatched', agoMs: 6 * HOUR, tareKg: 11_860, kg: { 1: 13_880 }, transporter: null, driver: ['Sunil Netam', '+919907123345'] },
-          { vehicleNo: 'CG 04 PQ 7781', state: 'dispatched', agoMs: 1 * HOUR, tareKg: 12_020, kg: { 0: 28_400 }, transporter: P.shreeGanesh, driver: ['Gopal Verma', '+919826655231'], lrNo: 'SGR/2611/0415' },
+          { vehicleNo: 'CG 04 AB 1123', state: 'dispatched', agoMs: 20 * HOUR, tareKg: 12_100, kg: { 1: 30_120 }, planKg: { 1: 31_000 }, transporter: P.golden, driver: ['Mahesh Dhruw', '+919425210877'], lrNo: 'GT/1102/0417' },
+          { vehicleNo: 'CG 07 KL 4410', state: 'dispatched', agoMs: 6 * HOUR, tareKg: 11_860, kg: { 1: 13_880 }, planKg: { 1: 14_000 }, transporter: null, driver: ['Sunil Netam', '+919907123345'] },
+          { vehicleNo: 'CG 04 PQ 7781', state: 'dispatched', agoMs: 1 * HOUR, tareKg: 12_020, kg: { 0: 28_400 }, planKg: { 0: 28_000 }, transporter: P.shreeGanesh, driver: ['Gopal Verma', '+919826655231'], lrNo: 'SGR/2611/0415' },
           { vehicleNo: 'CG 07 BR 8810', state: 'loading', agoMs: 42 * MINUTE, tareKg: 12_460, kg: { 2: 30_000 }, transporter: P.golden, driver: ['Rakesh Kumar', '+919617702268'] },
         ],
       },
@@ -283,7 +286,7 @@ export function seedDemoOrders(state: MockState, clock: Clock): void {
         const rows = Object.entries(t.kg).map(([i, kg]) => {
           const line = lines[Number(i)];
           if (!line) throw new Error(`seedDemoOrders: no line ${i} for ${t.vehicleNo}`);
-          return { orderLineId: line.id, kg };
+          return { orderLineId: line.id, kg, index: Number(i) };
         });
         const weigher = WEIGHER[s.company];
         addTruck(
@@ -300,7 +303,7 @@ export function seedDemoOrders(state: MockState, clock: Clock): void {
             weighedBy: weigher.userId,
             deviceId: weigher.deviceId,
             ...(t.tareKg !== undefined ? { tareKg: t.tareKg } : {}),
-            plan: rows.map((r) => ({ orderLineId: r.orderLineId, plannedKg: r.kg })),
+            plan: rows.map((r) => ({ orderLineId: r.orderLineId, plannedKg: t.planKg?.[r.index] ?? r.kg })),
             ...(t.state === 'dispatched'
               ? { allocations: rows.map((r) => ({ orderLineId: r.orderLineId, netKg: r.kg })) }
               : {}),
@@ -327,6 +330,32 @@ export function seedDemoOrders(state: MockState, clock: Clock): void {
 
     const fy = financialYear(at);
     lastSeqByFy.set(fy, Math.max(lastSeqByFy.get(fy) ?? 0, d.seq));
+  }
+
+  // R.K. Agarwal has been paid part of what he earned: half, rounded down to Rs 1,000 (canvas 06).
+  const earned = state.brokerLedger
+    .filter((r) => r.brokerId === P.rkAgarwal && r.kind === 'earning')
+    .reduce((sum, r) => sum + r.amountRupees, 0);
+  const paidRupees = Math.floor(earned / 2 / 1_000) * 1_000;
+  if (paidRupees > 0) {
+    state.brokerLedger.push({
+      id: newId(),
+      tenantId: tenant.id,
+      brokerId: P.rkAgarwal,
+      kind: 'payment',
+      truckId: null,
+      amountRupees: -paidRupees,
+      breakdown: [],
+      reversesId: null,
+      createdAt: toIso(now - DAY),
+      createdBy: U.rajesh,
+      mode: 'neft',
+      utr: '223614',
+      tdsRupees: 0,
+      paidRupees,
+      paidOn: istDateOf(now - DAY),
+      note: null,
+    });
   }
 
   for (const [fy, last] of lastSeqByFy) {

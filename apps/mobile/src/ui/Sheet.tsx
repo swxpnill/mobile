@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Modal, Pressable, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSession } from '../auth/session';
 import { useTheme } from '../theme/ThemeProvider';
@@ -15,9 +15,13 @@ export function Sheet({
   children,
   onClose,
   busy,
+  header,
 }: {
   visible: boolean;
+  /** Shown as the heading, and the sheet's spoken name when `header` replaces it. */
   title: string;
+  /** A custom heading row (avatar, title, close) in place of the plain title. */
+  header?: ReactNode;
   children: ReactNode;
   onClose(): void;
   busy?: boolean;
@@ -38,7 +42,8 @@ export function Sheet({
       navigationBarTranslucent
       onRequestClose={close}
     >
-      <View style={styles.root}>
+      {/* The sheet rides above the on-screen keyboard (Android is edge-to-edge, so nothing resizes by itself). */}
+      <KeyboardAvoidingView behavior="padding" style={styles.root}>
         <Pressable
           style={styles.backdrop}
           onPress={close}
@@ -48,18 +53,21 @@ export function Sheet({
         />
         <View
           accessibilityViewIsModal
+          accessibilityLabel={header ? title : undefined}
           style={[
             styles.sheet,
             { backgroundColor: t.card, borderColor: t.bd, paddingBottom: insets.bottom + 20 },
           ]}
         >
           <View style={[styles.grip, { backgroundColor: t.bd2 }]} />
-          <Text variant="subtitle" weight="semibold" accessibilityRole="header">
-            {title}
-          </Text>
+          {header ?? (
+            <Text variant="subtitle" weight="semibold" accessibilityRole="header">
+              {title}
+            </Text>
+          )}
           {children}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -75,6 +83,7 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     gap: 14,
     maxWidth: 560,
+    maxHeight: '94%',
     width: '100%',
     alignSelf: 'center',
   },

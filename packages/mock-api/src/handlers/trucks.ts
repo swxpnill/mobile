@@ -25,7 +25,7 @@ import { boardOrder, newestFirst, sameIstDay, toTruck, vehicleKey } from '../tru
 import { type Authed, authed, logActivity, newId, plantInScope as inScope } from '../views.ts';
 import { findSubOrder } from './order-lifecycle.ts';
 
-type Warning = NonNullable<Truck['warnings']>[number];
+export type Warning = NonNullable<Truck['warnings']>[number];
 
 const plantInScope = (a: Authed, plantId: string) => inScope(a.scope, plantId);
 
@@ -42,7 +42,7 @@ const withWarnings = (truck: Truck, warnings: Warning[]): Truck =>
   warnings.length > 0 ? { ...truck, warnings } : truck;
 
 /** Another open truck of the tenant with the same vehicle number. */
-function vehicleBusy(state: MockState, tenantId: string, vehicleNo: string, exceptId?: string): boolean {
+export function vehicleBusy(state: MockState, tenantId: string, vehicleNo: string, exceptId?: string): boolean {
   const key = vehicleKey(vehicleNo);
   return state.trucks.some(
     (t) => t.tenantId === tenantId && t.id !== exceptId && isOpenTruck(t) && vehicleKey(t.vehicleNo) === key,
@@ -57,7 +57,7 @@ function assertPlanLines(c: OrderCtx, sub: SubOrderRec, plan: { orderLineId: str
 }
 
 /** A plan row bigger than what is left to assign (the truck's own current plan is given back on edit). */
-function overAssignable(
+export function overAssignable(
   c: OrderCtx,
   sub: SubOrderRec,
   plan: { orderLineId: string; plannedKg: number }[],

@@ -57,13 +57,14 @@ export function useRecentVehicles(enabled = true) {
 
 /**
  * After any truck change: the server's truck into its detail cache, then refetch everything that
- * shows trucks or quantities (board, Home, orders, that order, transporter stats). Skipped for a
+ * shows trucks or quantities (board, Home, orders, that order, transporter stats) or money a
+ * dispatch earns or a correction rewrites (broker dues and ledgers, reports). Skipped for a
  * late answer after a person switch.
  */
 export function afterTruckChange(qc: QueryClient, identity: number, truck?: Truck): void {
   if (useSession.getState().identity !== identity) return;
   if (truck) qc.setQueryData(truckKey(truck.id), truck);
-  const keys: readonly (readonly string[])[] = [DISPATCH_KEY, HOME_KEY, ORDERS_KEY, PARTIES_KEY, RECENT_VEHICLES_KEY, ['order-activity'], ['party']];
+  const keys: readonly (readonly string[])[] = [DISPATCH_KEY, HOME_KEY, ORDERS_KEY, PARTIES_KEY, RECENT_VEHICLES_KEY, ['order-activity'], ['party'], ['broker'], ['report']];
   for (const key of truck ? [...keys, orderKey(truck.orderId)] : keys) void qc.invalidateQueries({ queryKey: key });
 }
 

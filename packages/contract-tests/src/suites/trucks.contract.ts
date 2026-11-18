@@ -148,6 +148,7 @@ export function register(factory: TargetFactory): void {
         const t = target();
         const { owner, a, aLine } = await canvas(t);
         const closed = await call(t, 'POST', `/v1/sub-orders/${a.id}/short-close`, {
+          idempotencyKey: newKey(),
           token: owner,
           body: { reason: 'Customer stopped lifting', note: '', cancelOpenTrucks: false, version: a.version },
         });

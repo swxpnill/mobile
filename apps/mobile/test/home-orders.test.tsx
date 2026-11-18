@@ -113,8 +113,8 @@ describe('OrdersScreen', () => {
     const partly = screen.getByRole('button', { name: /^SO-2611-0141, Partly dispatched/ });
     expect(within(partly).getByText('72.400')).toBeOnTheScreen();
     expect(within(partly).getByText('/ 120.000 MT')).toBeOnTheScreen();
-    expect(screen.getByRole('button', { name: /^SO-2610-0131, Completed.*\+0\.240 over/ })).toBeOnTheScreen();
-    expect(screen.getByRole('button', { name: /^SO-2610-0136, Short closed.*11\.800 closed/ })).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: /^SO-2610-0131, Completed.*\+0\.100 over/ })).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: /^SO-2610-0136, Short closed.*12\.080 closed/ })).toBeOnTheScreen();
   });
 
   it('a broker-only order reads "Customer not added yet"', async () => {

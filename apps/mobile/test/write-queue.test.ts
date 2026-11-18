@@ -87,7 +87,7 @@ describe('SQLite device store writes', () => {
     seen.maxWriters = 0;
 
     await Promise.all([
-      store.replaceTasks({ items: [], removed: [], resolved: [], cursor: 'c', serverTime: 'c' }),
+      store.replaceTasks({ items: [], removed: [], resolved: [], deleted: [], cursor: 'c', serverTime: 'c' }),
       store.setMeta({ cursor: 'c2' }),
       store.markSending(['e1']),
       store.setDoneToday({ items: [], totalNetKg: 0 }),

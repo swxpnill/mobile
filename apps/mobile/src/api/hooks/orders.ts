@@ -109,7 +109,7 @@ export function useDeletePreview(id: string, enabled: boolean) {
 export function afterOrderChange(qc: QueryClient, identity: number, order?: z.infer<typeof orderSchema>): void {
   if (useSession.getState().identity !== identity) return;
   if (order) qc.setQueryData(orderKey(order.id), order);
-  for (const key of [ORDERS_KEY, HOME_KEY, PARTIES_KEY, DRAFTS_KEY, DISPATCH_KEY, TRUCK_KEY, ['order-activity']]) {
+  for (const key of [ORDERS_KEY, HOME_KEY, PARTIES_KEY, DRAFTS_KEY, DISPATCH_KEY, TRUCK_KEY, ['order-activity'], ['broker'], ['report']]) {
     void qc.invalidateQueries({ queryKey: key });
   }
 }
@@ -140,22 +140,22 @@ export const useCreateOrder = () =>
 
 export const useUpdateOrder = () =>
   useOrderMutation(({ id, body }: { id: string; body: UpdateOrderBody }) =>
-    api(`/v1/orders/${id}`, { method: 'PATCH', body, schema: orderSchema }),
+    api(`/v1/orders/${id}`, { method: 'PATCH', body, idempotent: true, schema: orderSchema }),
   );
 
 export const useShortClose = () =>
   useOrderMutation(({ subOrderId, body }: { subOrderId: string; body: ShortCloseBody }) =>
-    api(`/v1/sub-orders/${subOrderId}/short-close`, { method: 'POST', body, schema: orderSchema }),
+    api(`/v1/sub-orders/${subOrderId}/short-close`, { method: 'POST', body, idempotent: true, schema: orderSchema }),
   );
 
 export const useReopen = () =>
   useOrderMutation(({ subOrderId, version }: { subOrderId: string; version: number }) =>
-    api(`/v1/sub-orders/${subOrderId}/reopen`, { method: 'POST', body: { version }, schema: orderSchema }),
+    api(`/v1/sub-orders/${subOrderId}/reopen`, { method: 'POST', body: { version }, idempotent: true, schema: orderSchema }),
   );
 
 export const useMoveQuantity = () =>
   useOrderMutation(({ orderId, body }: { orderId: string; body: MoveQuantityBody }) =>
-    api(`/v1/orders/${orderId}/move-quantity`, { method: 'POST', body, schema: orderSchema }),
+    api(`/v1/orders/${orderId}/move-quantity`, { method: 'POST', body, idempotent: true, schema: orderSchema }),
   );
 
 export function useDeleteOrder() {
@@ -163,7 +163,7 @@ export function useDeleteOrder() {
   return useMutation({
     mutationFn: async ({ id, confirmNumber }: { id: string; confirmNumber: string }) => {
       const identity = currentIdentity();
-      await api(`/v1/orders/${id}`, { method: 'DELETE', body: { confirmNumber } });
+      await api(`/v1/orders/${id}`, { method: 'DELETE', body: { confirmNumber }, idempotent: true });
       if (useSession.getState().identity !== identity) return;
       qc.removeQueries({ queryKey: orderKey(id) });
       afterOrderChange(qc, identity);

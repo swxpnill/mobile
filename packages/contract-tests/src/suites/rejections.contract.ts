@@ -155,6 +155,31 @@ export function register(factory: TargetFactory): void {
         expectError(await restore(t, owner, gross.id), 409, 'ALREADY_RESOLVED');
       });
 
+      it('restore warns as assign does: the same vehicle on a replacement truck is VEHICLE_BUSY', async () => {
+        const t = target();
+        const { owner, a, truck } = await cancelledBeforeSync(t);
+        // The replacement truck: same vehicle, on another line (so nothing is over-planned).
+        await assign(t, owner, a.id, a.lines[1]!.id, 1_000, 'CG 04 MK 2291');
+        const tare = (await list(t, owner)).find((r) => r.eventType === 'TARE')!;
+        const r = expectOk(await restore(t, owner, tare.id), restoreRejectionResultSchema);
+        expect(r.warnings).toEqual(['VEHICLE_BUSY']);
+        expect(r.truck).toMatchObject({ id: truck.id, state: 'dispatched' });
+      });
+
+      it('restore warns OVER_ASSIGNABLE when the plan is over what is left to assign; none when all is clear', async () => {
+        const t = target();
+        const { owner, a, aLine } = await cancelledBeforeSync(t);
+        await assign(t, owner, a.id, aLine.id, 1_000, 'CG 04 AA 1111');
+        const tare = (await list(t, owner)).find((r) => r.eventType === 'TARE')!;
+        const r = expectOk(await restore(t, owner, tare.id), restoreRejectionResultSchema);
+        expect(r.warnings).toEqual(['OVER_ASSIGNABLE']);
+
+        const clear = target();
+        const other = await cancelledBeforeSync(clear);
+        const first = (await list(clear, other.owner)).find((x) => x.eventType === 'TARE')!;
+        expect(expectOk(await restore(clear, other.owner, first.id), restoreRejectionResultSchema).warnings).toBeUndefined();
+      });
+
       it('a restore refused again is 409 with that code: everything rolls back and the rejections stay open', async () => {
         const t = target();
         // The gross split is 1 kg short of the net, so it is refused again once the truck is back.
@@ -210,6 +235,7 @@ export function register(factory: TargetFactory): void {
         const p = phone(truck.id, () => t.clock.now());
         expectOk(
           await call(t, 'POST', `/v1/sub-orders/${a.id}/short-close`, {
+            idempotencyKey: newKey(),
             token: owner,
             body: { reason: 'Customer stopped lifting', note: '', cancelOpenTrucks: true, version: a.version },
           }),
@@ -221,7 +247,7 @@ export function register(factory: TargetFactory): void {
         expect(await openCount(t, owner)).toBe(2);
 
         const closed = (await getOrder(t, owner, order.id)).subOrders[0]!;
-        expectOk(await call(t, 'POST', `/v1/sub-orders/${a.id}/reopen`, { token: owner, body: { version: closed.version } }), orderSchema);
+        expectOk(await call(t, 'POST', `/v1/sub-orders/${a.id}/reopen`, { idempotencyKey: newKey(), token: owner, body: { version: closed.version } }), orderSchema);
         const r = expectOk(await restore(t, owner, tare.id), restoreRejectionResultSchema);
         expect(r.truck).toMatchObject({ state: 'dispatched', netKg: 24_180 });
         expect(await openCount(t, owner)).toBe(0);

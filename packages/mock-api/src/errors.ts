@@ -49,6 +49,8 @@ const MESSAGES: Record<ErrorCode, string> = {
   TARE_REQUIRED: 'Record the tare weight first',
   ALREADY_DISPATCHED: 'This vehicle is already dispatched',
   INVALID_STATE: 'This vehicle is not in the right step for that',
+  NOT_REVERSIBLE: 'Only a payment can be reversed',
+  ALREADY_REVERSED: 'This payment was already reversed',
 };
 
 /** The user-facing message for an error code (also used for sync rejections, which are not thrown). */

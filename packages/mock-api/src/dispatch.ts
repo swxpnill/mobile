@@ -4,6 +4,7 @@ import {
   type SyncRejectCode,
   type SyncResult,
   checkAllocations,
+  earningFromRates,
   formatLoadingSlip,
   netKg,
   overToleranceKg,
@@ -288,16 +289,20 @@ export function rewriteEarning(state: MockState, truck: TruckRec, at: string, ac
   }
   const order = state.orders.find((o) => o.id === truck.orderId);
   if (!order) throw new Error(`truck ${truck.id} has no order`);
-  const atDispatch = new Map(old.breakdown.map((b) => [b.orderLineId, b.perMt]));
+  const atDispatch = new Map(
+    old.breakdown.map((b) => [b.orderLineId, { commissionPerMt: b.commissionPerMt, overpricePerMt: b.overpricePerMt }]),
+  );
   const commission = order.commissionPerMtSnapshot ?? 0;
-  // Each line's whole per-MT rate as its "overprice", over a zero commission.
   const rates = new Map(
     state.orderLines
       .filter((l) => l.subOrderId === truck.subOrderId)
-      .map((l) => [l.id, { overpricePerMt: atDispatch.get(l.id) ?? commission + l.overpricePerMt }]),
+      .map((l) => [l.id, atDispatch.get(l.id) ?? { commissionPerMt: commission, overpricePerMt: l.overpricePerMt }]),
   );
-  pushEarning(state, truck, old.brokerId, truckEarning(truck.allocations, rates, 0), at, actorId);
+  pushEarning(state, truck, old.brokerId, earningFromRates(truck.allocations, rates), at, actorId);
 }
+
+/** The payment-only fields of a ledger row that is not a payment. */
+const NO_PAYMENT = { mode: null, utr: null, tdsRupees: null, paidRupees: null, paidOn: null, note: null } as const;
 
 function pushEarning(
   state: MockState,
@@ -318,6 +323,7 @@ function pushEarning(
     reversesId: null,
     createdAt: at,
     createdBy: actorId,
+    ...NO_PAYMENT,
   });
 }
 
@@ -341,6 +347,7 @@ export function reverseEarning(state: MockState, truck: TruckRec, at: string, ac
     reversesId: earning.id,
     createdAt: at,
     createdBy: actorId,
+    ...NO_PAYMENT,
   });
   return earning;
 }

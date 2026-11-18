@@ -39,6 +39,7 @@ export function MenuRow({
   tone,
   label,
   value,
+  valueColor,
   onPress,
   comingSoon,
   danger,
@@ -49,6 +50,8 @@ export function MenuRow({
   tone: Tone;
   label: string;
   value?: string;
+  /** Token colour of the value (e.g. `wnt` for "₹4.82 L due"); default caption grey. */
+  valueColor?: keyof Tokens;
   onPress?: () => void;
   comingSoon?: boolean;
   danger?: boolean;
@@ -71,7 +74,9 @@ export function MenuRow({
       {comingSoon ? (
         <Text variant="caption">Coming soon</Text>
       ) : value ? (
-        <Text variant="caption">{value}</Text>
+        <Text variant="caption" color={valueColor}>
+          {value}
+        </Text>
       ) : null}
       {badge ? (
         <View style={[styles.badge, { backgroundColor: t.dgs }]}>

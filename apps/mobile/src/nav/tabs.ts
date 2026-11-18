@@ -16,6 +16,15 @@ export function tabsForRole(role: Role): TabKey[] {
   }
 }
 
+/**
+ * Every tab route in the order the tabs layout declares them for `role`: the role's own tabs
+ * first (the tab router sends Back to the first declared route), then the hidden ones.
+ */
+export function tabOrder(role: Role): TabKey[] {
+  const allowed = tabsForRole(role);
+  return [...allowed, ...(Object.keys(TAB_META) as TabKey[]).filter((x) => !allowed.includes(x))];
+}
+
 export function firstTab(role: Role): TabKey {
   return tabsForRole(role)[0]!;
 }

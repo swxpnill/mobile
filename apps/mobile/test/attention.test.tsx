@@ -165,6 +165,32 @@ describe('Needs attention (Ruling 8)', () => {
     await view.unmount();
   });
 
+  it('a restore that puts back a vehicle already on another open truck says so in the toast', async () => {
+    const gh = await rejectedSync();
+    // A replacement truck with the same vehicle, on another sub-order (nothing over-planned).
+    const board = await api('/v1/dispatch', { schema: dispatchBoardSchema });
+    const elsewhere = board.items.find((t) => t.subOrderId !== gh.subOrderId && t.state !== 'dispatched');
+    if (!elsewhere) throw new Error('no other open truck');
+    const other = await api(`/v1/trucks/${elsewhere.id}`, { schema: truckSchema });
+    await api(`/v1/sub-orders/${other.subOrderId}/trucks`, {
+      method: 'POST',
+      idempotent: true,
+      body: {
+        vehicleNo: gh.vehicleNo,
+        transporterId: null,
+        driverName: 'Ramesh',
+        driverPhone: '98261 00099',
+        lrNo: null,
+        plan: [{ orderLineId: other.plan[0]!.orderLineId, plannedKg: 1_000 }],
+      },
+    });
+    await wrap(<NeedsAttentionScreen />);
+    await fireEvent.press(await screen.findByRole('button', { name: /^CG 10 GH 4471, tare/ }));
+    await screen.findByText(/^Puts CG 10 GH 4471 back/);
+    await press('Restore');
+    expect(await screen.findByText('Restored · CG 10 GH 4471 is also on another open truck')).toBeOnTheScreen();
+  });
+
   it('a restore refused again says why in plain words and keeps the rejection open', async () => {
     await rejectedSync();
     await wrap(<NeedsAttentionScreen />);

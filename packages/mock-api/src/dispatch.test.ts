@@ -130,6 +130,11 @@ describe('applyEvent: TARE then GROSS on the seeded loading truck (Siltara, CG 0
         createdBy: U.ravi,
       }),
     ]);
+    // Split breakdown with fixed numbers: 24.180 MT at ₹150 commission + ₹300 overprice.
+    expect(ledger[0]!.breakdown).toEqual([
+      { orderLineId: line, netKg: 24_180, perMt: 450, commissionPerMt: 150, overpricePerMt: 300 },
+    ]);
+    expect(ledger[0]).toMatchObject({ kind: 'earning', truckId: truck.id, mode: null, utr: null, paidRupees: null, tdsRupees: null, paidOn: null, note: null });
 
     const acts = s.activity.filter((e) => e.entityType === 'order' && e.entityId === order.id).map((e) => e.action);
     expect(acts).toEqual(['truck.tare_corrected', 'truck.dispatched']);
@@ -400,8 +405,36 @@ describe('earnings and views', () => {
       ['earning', 2_100, null], // 14.000 MT × ₹150
     ]);
     expect(rows[1]!.breakdown).toEqual(first!.breakdown.map((b) => ({ ...b, netKg: -b.netKg })));
-    expect(rows[2]!.breakdown).toEqual([{ orderLineId: gupta.allocations[0]!.orderLineId, netKg: 14_000, perMt: 150 }]);
+    const b0 = first!.breakdown[0]!;
+    expect(rows[2]!.breakdown).toEqual([
+      {
+        orderLineId: gupta.allocations[0]!.orderLineId,
+        netKg: 14_000,
+        perMt: 150,
+        commissionPerMt: b0.commissionPerMt,
+        overpricePerMt: b0.overpricePerMt,
+      },
+    ]);
     expect(rows.reduce((n, x) => n + x.amountRupees, 0)).toBe(2_100);
+  });
+
+  it("a correction of the canvas truck (150 + 300) keeps both dispatch rates, not today's", () => {
+    const s = world();
+    const truck = truckBy(s, 'CG 04 MK 2291');
+    const line = truck.plan[0]!.orderLineId;
+    const ctx = ctxFor(s, U.ravi, truck.tareDeviceId!);
+    applyEvent(s, ctx, gross(truck.id, 36_640, [{ orderLineId: line, netKg: 24_180 }]));
+    const order = s.orders.find((o) => o.id === truck.orderId)!;
+    order.commissionPerMtSnapshot = 999;
+    s.orderLines.find((l) => l.id === line)!.overpricePerMt = 999;
+    truck.allocations = [{ orderLineId: line, netKg: 24_000 }];
+    rewriteEarning(s, truck, toIso(NOW), U.rajesh);
+    const rows = s.brokerLedger.filter((x) => x.truckId === truck.id);
+    expect(rows.map((x) => x.kind)).toEqual(['earning', 'reversal', 'earning']);
+    expect(rows[2]!.breakdown).toEqual([{ orderLineId: line, netKg: 24_000, perMt: 450, commissionPerMt: 150, overpricePerMt: 300 }]);
+    expect(rows[2]!.amountRupees).toBe(10_800);
+    // The reversal carries the negated kg, which the reports rely on.
+    expect(rows[1]!.breakdown).toEqual([{ orderLineId: line, netKg: -24_180, perMt: 450, commissionPerMt: 150, overpricePerMt: 300 }]);
   });
 
   it('toTruck carries the earning only on broker orders; toTask carries no money', () => {
@@ -462,6 +495,13 @@ describe('demo seed trucks', () => {
 });
 
 describe('snapshot version', () => {
+  it('a version 4 snapshot is discarded on load (the seed comes back in the v5 ledger shape)', async () => {
+    const old = { ...seedState(createFakeClock(NOW)), schemaVersion: 4 };
+    const storage = createMemoryStorage({ 'tonnage.mockState': JSON.stringify(old) });
+    const api = await createMockApi({ clock: createFakeClock(NOW), storage, seedOrders: true });
+    expect(await api.controls.stats()).toMatchObject({ orders: 5, trucks: 11 });
+  });
+
   it('a version 3 snapshot is discarded on load (the seed comes back)', async () => {
     const old = { ...seedState(createFakeClock(NOW)), schemaVersion: 3 };
     const storage = createMemoryStorage({ 'tonnage.mockState': JSON.stringify(old) });

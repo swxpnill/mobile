@@ -7,6 +7,8 @@ import {
   type PricingMethod,
   SAMPLE_MASTERS,
   SAMPLE_WORLD,
+  type EarningLine,
+  type PaymentMode,
   type SyncEvent,
   type SyncRejectCode,
   type TruckState,
@@ -19,7 +21,7 @@ import { type Clock, toIso } from './clock.ts';
 import { errorMessage } from './errors.ts';
 
 /** Bump when the shape of `MockState` changes; older snapshots are discarded for the seed. */
-export const SNAPSHOT_VERSION = 4;
+export const SNAPSHOT_VERSION = 5;
 export const DEFAULT_STORAGE_KEY = 'tonnage.mockState';
 const PERSIST_DEBOUNCE_MS = 250;
 
@@ -278,6 +280,8 @@ export interface TruckTombstoneRec {
   tenantId: string;
   plantId: string;
   removedAt: string;
+  /** Why the truck left the phone: `deleted` = purged by an order hard delete (the owner erased it on purpose). Snapshots saved before it was kept read as `deleted` (hard delete was the only writer). */
+  reason: 'gone' | 'deleted';
 }
 /**
  * A sync event already seen: what de-duplication needs and nothing else. A rejected one keeps its
@@ -287,18 +291,30 @@ export interface TruckTombstoneRec {
 export type AppliedEventRec =
   | { truckId: string; status: 'accepted' }
   | { truckId: string; status: 'rejected'; code: SyncRejectCode; message: string };
-/** Append-only broker ledger (§5.4): earnings positive, a reversal is the exact negation. F4 adds payments. */
+/**
+ * Append-only broker ledger (§5.4): earnings positive, a payment `-(paid + tds)`, a reversal the
+ * exact negation of the row it reverses. A payment has no truck and an empty breakdown.
+ */
 export interface BrokerLedgerRec {
   id: string;
   tenantId: string;
   brokerId: string;
-  kind: 'earning' | 'reversal';
-  truckId: string;
+  kind: 'earning' | 'payment' | 'reversal';
+  truckId: string | null;
   amountRupees: number;
-  breakdown: { orderLineId: string; netKg: number; perMt: number }[];
+  /** An earning's lines (a reversal's carry negated kg); empty on a payment. */
+  breakdown: EarningLine[];
   reversesId: string | null;
   createdAt: string;
   createdBy: string;
+  mode: PaymentMode | null;
+  utr: string | null;
+  tdsRupees: number | null;
+  paidRupees: number | null;
+  /** IST date `YYYY-MM-DD` a payment counts on. */
+  paidOn: string | null;
+  /** A reversal's reason. */
+  note: string | null;
 }
 export interface DraftRec {
   id: string;
@@ -452,6 +468,7 @@ export function parseSnapshot(raw: string | null): MockState | null {
   if (!isObj(v) || v.schemaVersion !== SNAPSHOT_VERSION) return null;
   // Added within v4: a snapshot saved before it has none yet.
   v.truckTombstones ??= [];
+  for (const g of v.truckTombstones as Record<string, unknown>[]) if (isObj(g)) g.reason ??= 'deleted';
   const arrays = [
     'tenants',
     'companies',

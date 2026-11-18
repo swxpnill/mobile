@@ -8,6 +8,12 @@ export function istDateParts(at: string | number): { year: number; month: number
   return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
 }
 
+/** IST `YYYY-MM-DD` of an instant. */
+export function istDateOf(at: string | number): string {
+  const { year, month, day } = istDateParts(at);
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
 /** Indian financial year, 1 April – 31 March IST, as "2026-27". */
 export function financialYear(at: string | number): string {
   const { year, month } = istDateParts(at);

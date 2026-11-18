@@ -332,7 +332,7 @@ describe('Owner weighs the step the server is at', () => {
     const store = await openDeviceStore(ids.users.rajesh);
     const stale = { ...truckToTask(server), state: 'assigned' as const, tareKg: null, tareAt: null, version: server.version - 1 };
     const at = new Date(NOW).toISOString();
-    await store.replaceTasks({ items: [stale], removed: [], resolved: [], cursor: at, serverTime: at });
+    await store.replaceTasks({ items: [stale], removed: [], resolved: [], deleted: [], cursor: at, serverTime: at });
     useDeviceStore.setState({ store });
 
     await wrap(<OwnerWeighScreen truckId={mk.id} />, { sync: false });

@@ -88,19 +88,48 @@ export function overToleranceKg(lines: LineQty[], toleranceKg: number): number {
   return total > toleranceKg ? total : 0;
 }
 
-export function truckEarning(
+export interface EarningLine {
+  orderLineId: string;
+  netKg: number;
+  /** Whole per-MT rate at dispatch: `commissionPerMt + overpricePerMt`. */
+  perMt: number;
+  commissionPerMt: number;
+  overpricePerMt: number;
+}
+
+/** A broker earning from per-line commission and overprice rates, rounded once over the truck. */
+export function earningFromRates(
   allocations: { orderLineId: string; netKg: number }[],
-  lines: ReadonlyMap<string, { overpricePerMt: number }>,
-  commissionPerMt: number,
-): { earningRupees: number; breakdown: { orderLineId: string; netKg: number; perMt: number }[] } {
-  const breakdown = allocations.map((a) => {
-    const line = lines.get(a.orderLineId);
-    if (!line) throw new Error(`no order line ${a.orderLineId} for earning`);
-    return { orderLineId: a.orderLineId, netKg: a.netKg, perMt: commissionPerMt + line.overpricePerMt };
+  rates: ReadonlyMap<string, { commissionPerMt: number; overpricePerMt: number }>,
+): { earningRupees: number; breakdown: EarningLine[] } {
+  const breakdown = allocations.map((a): EarningLine => {
+    const r = rates.get(a.orderLineId);
+    if (!r) throw new Error(`no order line ${a.orderLineId} for earning`);
+    return {
+      orderLineId: a.orderLineId,
+      netKg: a.netKg,
+      perMt: r.commissionPerMt + r.overpricePerMt,
+      commissionPerMt: r.commissionPerMt,
+      overpricePerMt: r.overpricePerMt,
+    };
   });
   const earningRupees = roundHalfUp(
     breakdown.reduce((s, b) => s + b.netKg * b.perMt, 0),
     1000,
   );
   return { earningRupees, breakdown };
+}
+
+export function truckEarning(
+  allocations: { orderLineId: string; netKg: number }[],
+  lines: ReadonlyMap<string, { overpricePerMt: number }>,
+  commissionPerMt: number,
+): { earningRupees: number; breakdown: EarningLine[] } {
+  const rates = new Map<string, { commissionPerMt: number; overpricePerMt: number }>();
+  for (const a of allocations) {
+    const line = lines.get(a.orderLineId);
+    if (!line) throw new Error(`no order line ${a.orderLineId} for earning`);
+    rates.set(a.orderLineId, { commissionPerMt, overpricePerMt: line.overpricePerMt });
+  }
+  return earningFromRates(allocations, rates);
 }

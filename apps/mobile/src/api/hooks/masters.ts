@@ -50,13 +50,17 @@ export function useParty(id: string | undefined) {
   });
 }
 
-/** Writes the saved party into its detail cache (same person only) and refreshes every list. */
+/**
+ * Writes the saved party into its detail cache (same person only) and refreshes every list, and
+ * the broker ledger caches, which carry the broker's name and active state.
+ */
 function useSavedParty() {
   const qc = useQueryClient();
   return (p: z.infer<typeof partySchema>, identity: number) => {
     if (useSession.getState().identity !== identity) return;
     qc.setQueryData(partyKey(p.id), p);
     void qc.invalidateQueries({ queryKey: PARTIES_KEY });
+    void qc.invalidateQueries({ queryKey: ['broker'] });
   };
 }
 

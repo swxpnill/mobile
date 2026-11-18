@@ -82,7 +82,7 @@ export function DemoPeopleList({
     const fromInsideApp = useSession.getState().status !== 'signedOut';
     try {
       await signInAsDemo(u.id);
-      if (fromInsideApp) freshStartOn(navigation, firstTab(u.role));
+      if (fromInsideApp) freshStartOn(navigation, u.role);
       else router.replace(`/${firstTab(u.role)}`);
     } catch (e) {
       busy.current = false;

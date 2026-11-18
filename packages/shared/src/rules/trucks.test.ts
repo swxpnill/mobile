@@ -4,6 +4,7 @@ import {
   CLOCK_SKEW_FLAG_MS,
   TRUCK_CANCEL_REASONS,
   checkAllocations,
+  earningFromRates,
   netKg,
   nextTruckState,
   overToleranceKg,
@@ -18,7 +19,9 @@ describe('truckEarning', () => {
     const lines = new Map([['l1', { overpricePerMt: 300 }]]);
     const r = truckEarning([{ orderLineId: 'l1', netKg: 24_180 }], lines, 150);
     expect(r.earningRupees).toBe(10_881);
-    expect(r.breakdown).toEqual([{ orderLineId: 'l1', netKg: 24_180, perMt: 450 }]);
+    expect(r.breakdown).toEqual([
+      { orderLineId: 'l1', netKg: 24_180, perMt: 450, commissionPerMt: 150, overpricePerMt: 300 },
+    ]);
   });
   it('rounds once over all allocations', () => {
     const lines = new Map([
@@ -38,6 +41,16 @@ describe('truckEarning', () => {
   });
   it('throws when a line is missing', () => {
     expect(() => truckEarning([{ orderLineId: 'x', netKg: 1 }], new Map(), 1)).toThrow();
+  });
+});
+
+describe('earningFromRates', () => {
+  const rates = new Map([['l1', { commissionPerMt: 150, overpricePerMt: 300 }]]);
+  it('same rates give the canvas ₹10,881', () => {
+    expect(earningFromRates([{ orderLineId: 'l1', netKg: 24_180 }], rates).earningRupees).toBe(10_881);
+  });
+  it('a correction to 22,000 kg at those rates gives ₹9,900', () => {
+    expect(earningFromRates([{ orderLineId: 'l1', netKg: 22_000 }], rates).earningRupees).toBe(9_900);
   });
 });
 

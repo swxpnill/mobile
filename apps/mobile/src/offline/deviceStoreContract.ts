@@ -53,7 +53,7 @@ export function page(
   removed: string[] = [],
   cursor = new Date(T0).toISOString(),
 ): TasksPage {
-  return { items, removed, resolved: [], cursor, serverTime: cursor };
+  return { items, removed, resolved: [], deleted: [], cursor, serverTime: cursor };
 }
 
 type Capture = Parameters<DeviceStore['saveCapture']>[0];
@@ -334,6 +334,38 @@ export const deviceStoreContract: DeviceStoreCase[] = [
       eq((await store.outbox({ status: ['resolved'] })).length, 3, 'all three resolved');
       eq((await store.saveCapture(tare(TRUCK_A))).status, 'pending', 'no longer held');
       eq(g.status, 'pending', 'saved pending before the refusal');
+    },
+  },
+  {
+    name: 'replaceTasks: deleted trucks (order erased) resolve every waiting row; a sending row is left alone',
+    async run(makeStore) {
+      const store = await seeded(makeStore);
+      const waiting = await store.saveCapture(atGate(TRUCK_A));
+      const inFlight = await store.saveCapture(atGate(TRUCK_A));
+      await store.markSending([inFlight.eventId]);
+      const t = await store.saveCapture(tare(TRUCK_A));
+      const g = await store.saveCapture(gross(TRUCK_A));
+      const other = await store.saveCapture(tare(TRUCK_B));
+      await store.markResults([
+        { status: 'rejected', eventId: t.eventId, code: 'TRUCK_CANCELLED', message: 'x' },
+      ]);
+      const status = async () => new Map((await store.outbox()).map((r) => [r.eventId, r.status]));
+      let st = await status();
+      eq([st.get(t.eventId), st.get(g.eventId)], ['rejected', 'blocked'], 'refused and held before');
+      const cursor = (await store.meta()).cursor ?? new Date(T0).toISOString();
+      await store.replaceTasks({ ...page([], [TRUCK_A], cursor), deleted: [TRUCK_A] });
+      st = await status();
+      eq(
+        [waiting, inFlight, t, g, other].map((r) => st.get(r.eventId)),
+        ['resolved', 'sending', 'resolved', 'resolved', 'pending'],
+        'truck A settled except the row in flight; truck B untouched',
+      );
+      eq(
+        (await store.outbox({ status: ['pending'] })).filter((r) => r.truckId === TRUCK_A).length,
+        0,
+        'nothing of truck A pending',
+      );
+      eq((await store.getTasks()).map((x) => x.truckId), [TRUCK_B, TRUCK_C], 'task gone');
     },
   },
   {
