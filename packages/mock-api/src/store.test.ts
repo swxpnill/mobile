@@ -172,6 +172,12 @@ describe('store', () => {
     expect(parseSnapshot(JSON.stringify({ ...old, truckTombstones: 'x' }))).toBeNull();
   });
 
+  it('a tombstone saved before it had a reason reads as deleted (hard delete was its only writer)', () => {
+    const grave = { truckId: 't1', tenantId: 'x', plantId: 'p', removedAt: new Date(START).toISOString() };
+    const old = { ...seedState(createFakeClock(START)), truckTombstones: [grave] };
+    expect(parseSnapshot(JSON.stringify(old))?.truckTombstones).toEqual([{ ...grave, reason: 'deleted' }]);
+  });
+
   it('a refused event saved before refusals kept their code gets one back (its rejection row, else INVALID_STATE)', () => {
     const old = seedState(createFakeClock(START));
     const legacy = { truckId: 't1', status: 'rejected' };

@@ -67,6 +67,7 @@ function removeLines(state: MockState, ids: ReadonlySet<string>): void {
 export const orderLifecycleRoutes: RouteDef[] = [
   route('PATCH', '/v1/orders/:id', {
     action: 'order.edit',
+    idempotent: true,
     transactional: true,
     body: updateOrderBodySchema,
     async handler(ctx) {
@@ -214,6 +215,7 @@ export const orderLifecycleRoutes: RouteDef[] = [
 
   route('POST', '/v1/sub-orders/:id/short-close', {
     action: 'order.shortClose',
+    idempotent: true,
     transactional: true,
     body: shortCloseBodySchema,
     async handler(ctx) {
@@ -262,6 +264,7 @@ export const orderLifecycleRoutes: RouteDef[] = [
 
   route('POST', '/v1/sub-orders/:id/reopen', {
     action: 'order.reopen',
+    idempotent: true,
     transactional: true,
     body: reopenBodySchema,
     async handler(ctx) {
@@ -293,6 +296,7 @@ export const orderLifecycleRoutes: RouteDef[] = [
 
   route('POST', '/v1/orders/:id/move-quantity', {
     action: 'order.edit',
+    idempotent: true,
     transactional: true,
     body: moveQuantityBodySchema,
     async handler(ctx) {
@@ -372,6 +376,7 @@ export const orderLifecycleRoutes: RouteDef[] = [
 
   route('DELETE', '/v1/orders/:id', {
     action: 'order.hardDelete',
+    idempotent: true,
     transactional: true,
     body: deleteOrderBodySchema,
     async handler(ctx) {
@@ -392,7 +397,7 @@ export const orderLifecycleRoutes: RouteDef[] = [
       const truckIds = new Set(purged.map((t) => t.id));
       const removedAt = toIso(ctx.now);
       for (const t of purged) {
-        state.truckTombstones.push({ truckId: t.id, tenantId: t.tenantId, plantId: t.plantId, removedAt });
+        state.truckTombstones.push({ truckId: t.id, tenantId: t.tenantId, plantId: t.plantId, removedAt, reason: 'deleted' });
       }
       state.weighments = state.weighments.filter((w) => !truckIds.has(w.truckId));
       state.rejections = state.rejections.filter((r) => !truckIds.has(r.truckId));

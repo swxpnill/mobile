@@ -1,6 +1,6 @@
 import { Redirect, Tabs, useSegments } from 'expo-router';
 import { useMe } from '../../../src/api/hooks/me';
-import { type TabKey, tabsForRole, TAB_META } from '../../../src/nav/tabs';
+import { type TabKey, tabOrder, tabsForRole, TAB_META } from '../../../src/nav/tabs';
 import { LoadError, LoadingScreen } from '../../../src/screens/Loading';
 import { TabBar } from '../../../src/ui';
 
@@ -42,7 +42,7 @@ export default function TabsLayout() {
         route, so declaring Home first left supervisors bouncing between a hidden Home and the
         redirect — they could never leave the app with Back.
       */}
-      {[...allowed, ...ALL_TABS.filter((x) => !allowed.includes(x))].map((tab) => (
+      {tabOrder(me.role).map((tab) => (
         <Tabs.Screen
           key={tab}
           name={tab}

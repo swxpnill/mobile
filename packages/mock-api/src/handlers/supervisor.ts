@@ -7,7 +7,7 @@ import {
   syncBodySchema,
 } from '@tonnage/shared';
 import { z } from 'zod';
-import { fromIso, toIso } from '../clock.ts';
+import { DAY, fromIso, toIso } from '../clock.ts';
 import { applyEvent, remember, replayed } from '../dispatch.ts';
 import { isOpenTruck } from '../orders-math.ts';
 import { runEventTransaction } from '../pipeline.ts';
@@ -19,6 +19,12 @@ import { type Authed, authed, newId, plantInScope } from '../views.ts';
 const tasksQuerySchema = z.object({ cursor: z.iso.datetime({ offset: true }).optional() });
 
 const BLOCKED_MESSAGE = 'Blocked by an earlier rejected weight';
+
+/**
+ * How far back a pull without a cursor reports `resolved` and `deleted`. Such a pull only comes
+ * from a fresh device store, which has no outbox rows to settle, so older ones are dead weight.
+ */
+export const RESOLVED_HORIZON_MS = 30 * DAY;
 
 /** Trucks of the tenant at the caller's plant(s): every plant for owner, one for a supervisor. */
 const myTrucks = (state: MockState, a: Authed): TruckRec[] =>
@@ -98,8 +104,12 @@ export const supervisorRoutes: RouteDef[] = [
         (r): r is typeof r & { resolvedAt: string } =>
           r.tenantId === a.user.tenantId && r.userId === a.user.id && r.resolvedAt !== null,
       );
-      const resolved = [
-        ...new Set(settled.filter((r) => since === null || fromIso(r.resolvedAt) >= since).map((r) => r.clientEventId)),
+      // Without a cursor: only what changed within the horizon.
+      const from = since ?? now - RESOLVED_HORIZON_MS;
+      const resolved = [...new Set(settled.filter((r) => fromIso(r.resolvedAt) >= from).map((r) => r.clientEventId))];
+      // Trucks erased with their order: the phone settles every row of theirs still waiting.
+      const deleted = [
+        ...new Set(graves.filter((g) => g.reason === 'deleted' && fromIso(g.removedAt) >= from).map((g) => g.truckId)),
       ];
       // The newest change seen, deletions and resolutions included (never moving back); the server time when there is nothing yet.
       const times = [
@@ -109,7 +119,7 @@ export const supervisorRoutes: RouteDef[] = [
       ];
       if (since !== null) times.push(since);
       const cursor = toIso(times.length > 0 ? Math.max(...times) : now);
-      return { body: { items, removed, resolved, cursor, serverTime: toIso(now) } satisfies TasksPage };
+      return { body: { items, removed, resolved, deleted, cursor, serverTime: toIso(now) } satisfies TasksPage };
     },
   }),
 

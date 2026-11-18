@@ -1,6 +1,7 @@
 import {
   type CorrectWeightBody,
   type Rejection,
+  type RestoreRejectionResult,
   type Truck,
   rejectionCountSchema,
   rejectionSchema,
@@ -97,7 +98,7 @@ export function useResolveRejection() {
   return useMutation({
     mutationFn: async (
       v: { id: string; key: string } & ({ kind: 'restore' } | { kind: 'dismiss'; reason: string }),
-    ): Promise<{ truck?: Truck; rejection: Rejection }> => {
+    ): Promise<{ truck?: Truck; rejection: Rejection; warnings?: RestoreRejectionResult['warnings'] }> => {
       const identity = currentIdentity();
       try {
         if (v.kind === 'restore') {

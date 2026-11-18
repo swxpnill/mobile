@@ -7,13 +7,15 @@ import { renderRouter, screen } from 'expo-router/testing-library';
 import type { ReactNode } from 'react';
 import { Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { act } from '@testing-library/react-native';
+import { act, fireEvent } from '@testing-library/react-native';
 import { tokenPairSchema } from '@tonnage/shared';
 import { createFakeClock, createMockApi, type MockApi } from '@tonnage/mock-api';
 import TabsLayout from '../app/(app)/(tabs)/_layout';
 import { freshStartOn } from '../src/nav/freshStart';
+import { tabOrder } from '../src/nav/tabs';
 import { UnitBasisProvider } from '../src/api/hooks/me';
-import { setTransport } from '../src/api/transport';
+import { setMockApi, setTransport } from '../src/api/transport';
+import { DemoPeopleList } from '../src/screens/DemoPeopleList';
 import { resetSessionForTests, useSession } from '../src/auth/session';
 import { ThemeProvider } from '../src/theme/ThemeProvider';
 
@@ -136,7 +138,7 @@ describe('person switch (F1.11)', () => {
 
     // What DemoPeopleList does: new session, then a fresh start on the first tab.
     await act(async () => signInAs('9826100013')); // Priya, city staff
-    await act(async () => freshStartOn(demoNav, 'home'));
+    await act(async () => freshStartOn(demoNav, 'city_staff'));
     expect(await screen.findByText('home screen')).toBeOnTheScreen();
     // Android Back from the new person's first tab must leave the app, not visit a tab left
     // over from the previous person (a supervisor's Profile, or a hidden tab that redirects).
@@ -145,5 +147,66 @@ describe('person switch (F1.11)', () => {
     });
     const after = tree(lastState);
     expect(after).toBe('[*__root[*(tabs)[*home]]]');
+  });
+
+  it('a supervisor → owner switch through Demo tools lands on Home with no ROUTE_NAMES_CHANGED (F3 carry-over c)', async () => {
+    const error = jest.spyOn(console, 'error');
+    const warn = jest.spyOn(console, 'warn');
+    // Every (tabs) navigator state the root ever held, by key: the route names it carried.
+    const tabsSeen = new Map<string, string[][]>();
+    type Node = { key?: string; routeNames?: string[]; routes?: { name: string; state?: Node }[] };
+    const collect = (st: Node | undefined) => {
+      for (const r of st?.routes ?? []) {
+        if (r.name === '(tabs)' && r.state?.key && r.state.routeNames) {
+          const seen = tabsSeen.get(r.state.key) ?? [];
+          const last = seen.at(-1);
+          if (!last || last.join() !== r.state.routeNames.join()) seen.push([...r.state.routeNames]);
+          tabsSeen.set(r.state.key, seen);
+        }
+        collect(r.state);
+      }
+    };
+    // The app's own shape: root stack → (app) stack → (tabs); Demo tools is a screen of (app).
+    const appRoutes = {
+      _layout: function Root() {
+        collect(useRootNavigationState() as unknown as Node);
+        return <Stack screenOptions={{ headerShown: false }} />;
+      },
+      '(app)/_layout': function AppLayout() {
+        collect(useRootNavigationState() as unknown as Node);
+        return <Stack screenOptions={{ headerShown: false }} />;
+      },
+      ...Object.fromEntries(Object.entries(routes).map(([k, v]) => [`(app)/${k}`, v])),
+      '(app)/demo-tools': function DemoTools() {
+        return <DemoPeopleList controls={mock.controls} />;
+      },
+    };
+    setMockApi(mock);
+    try {
+      await signInAs('9826100014'); // Ravi, supervisor
+      await renderRouter(appRoutes, { initialUrl: '/tasks', wrapper: Providers });
+      await screen.findByText('tasks screen');
+      await act(async () => router.navigate('/profile'));
+      await screen.findByText('profile screen');
+      await act(async () => router.push('/demo-tools'));
+      const before = new Set(tabsSeen.keys());
+
+      await fireEvent.press(await screen.findByRole('button', { name: /^Rajesh Agrawal/ }));
+      expect(await screen.findByText('home screen')).toBeOnTheScreen();
+      expect(screen).toHavePathname('/home');
+
+      // The tabs the reset created carry the owner's tab order from the start: the mounted
+      // navigator never has to send ROUTE_NAMES_CHANGED (which a switch could leave unhandled).
+      const created = [...tabsSeen.entries()].filter(([k]) => !before.has(k)).map(([, v]) => v);
+      expect(created).toEqual([[tabOrder('owner')]]);
+      const mentions = [...error.mock.calls, ...warn.mock.calls].filter((args) =>
+        args.some((a) => String(a).includes('ROUTE_NAMES_CHANGED')),
+      );
+      expect(mentions).toEqual([]);
+    } finally {
+      error.mockRestore();
+      warn.mockRestore();
+      setMockApi(null);
+    }
   });
 });

@@ -280,6 +280,8 @@ export interface TruckTombstoneRec {
   tenantId: string;
   plantId: string;
   removedAt: string;
+  /** Why the truck left the phone: `deleted` = purged by an order hard delete (the owner erased it on purpose). Snapshots saved before it was kept read as `deleted` (hard delete was the only writer). */
+  reason: 'gone' | 'deleted';
 }
 /**
  * A sync event already seen: what de-duplication needs and nothing else. A rejected one keeps its
@@ -466,6 +468,7 @@ export function parseSnapshot(raw: string | null): MockState | null {
   if (!isObj(v) || v.schemaVersion !== SNAPSHOT_VERSION) return null;
   // Added within v4: a snapshot saved before it has none yet.
   v.truckTombstones ??= [];
+  for (const g of v.truckTombstones as Record<string, unknown>[]) if (isObj(g)) g.reason ??= 'deleted';
   const arrays = [
     'tenants',
     'companies',

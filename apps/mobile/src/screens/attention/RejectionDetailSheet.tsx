@@ -15,6 +15,23 @@ import { EVENT_LABEL, chainOf, firstName, hasEarlierOpen, rejectionReason, resto
 
 const MIN_REASON = 3;
 
+/**
+ * The toast after a restore. A truck put back on the road warns as an assign would (Ruling b):
+ * its vehicle is on another open truck, or its plan is over what is left to assign.
+ */
+export function restoredToast(
+  vehicleNo: string,
+  state: string | undefined,
+  warnings: ('VEHICLE_BUSY' | 'OVER_ASSIGNABLE')[] | undefined,
+): string {
+  const notes = [
+    warnings?.includes('VEHICLE_BUSY') ? `${vehicleNo} is also on another open truck` : null,
+    warnings?.includes('OVER_ASSIGNABLE') ? "the plan is over what's left to assign" : null,
+  ].filter((x): x is string => x !== null);
+  if (notes.length > 0) return ['Restored', ...notes].join(' · ');
+  return `${vehicleNo} restored · ${state === 'dispatched' ? 'dispatched' : 'weights saved'}`;
+}
+
 /** Why a restore was refused, in plain words; the rejections stay open. */
 function restoreRefused(e: unknown): string {
   if (e instanceof ApiError) {
@@ -74,7 +91,7 @@ export function RejectionDetailSheet({
     try {
       const res = await resolve.mutateAsync({ kind: 'restore', id: r.id, key });
       restoreKey.settle();
-      done(`${r.vehicleNo} restored · ${res.truck?.state === 'dispatched' ? 'dispatched' : 'weights saved'}`);
+      done(restoredToast(r.vehicleNo, res.truck?.state, res.warnings));
     } catch (e) {
       restoreKey.settle(e);
       failed(e, 'restore');

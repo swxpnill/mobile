@@ -141,7 +141,7 @@ describe('WizardScreen', () => {
     const now = await api(`/v1/orders/${id}`, { schema: orderSchema });
     const built = toUpdateBody(fromOrder(now, 'mt'), 'mt');
     if (!built.ok) throw new Error('body');
-    await api(`/v1/orders/${id}`, { method: 'PATCH', body: built.body, schema: orderSchema });
+    await api(`/v1/orders/${id}`, { method: 'PATCH', body: built.body, idempotent: true, schema: orderSchema });
     await fireEvent.press(screen.getByRole('button', { name: 'Continue' }));
     await fireEvent.press(await screen.findByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(mockRouter.back).not.toHaveBeenCalled());

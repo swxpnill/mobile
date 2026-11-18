@@ -193,6 +193,7 @@ export function register(factory: TargetFactory): void {
       expect(fix.status).toBe(200);
       expect((await ledger(t, owner)).summary.dueRupees).toBe(15_399 - 981 - 10_000);
       const del = await call(t, 'DELETE', `/v1/orders/${one.order.id}`, {
+        idempotencyKey: newKey(),
         token: owner,
         body: { confirmNumber: one.order.number },
       });

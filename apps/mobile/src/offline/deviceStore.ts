@@ -64,7 +64,8 @@ export interface DeviceStore {
    * Applies a pull and stores its cursor, in one transaction. With no stored cursor the page is
    * a full snapshot and replaces every task; with one, `items` are upserted and `removed` deleted
    * (idempotent: a change at the cursor may come back again). `resolved` event ids move their
-   * `rejected`/`blocked` rows to `resolved`.
+   * `rejected`/`blocked` rows to `resolved`. `deleted` trucks (order erased) lose their task, and
+   * every row of theirs not `sending` or `accepted` becomes `resolved`.
    */
   replaceTasks(page: TasksPage): Promise<void>;
   getDoneToday(): Promise<DoneToday | null>;
@@ -227,6 +228,12 @@ export function createMemoryDeviceStore(opts: DeviceStoreOptions = {}): DeviceSt
         const resolved = new Set(page.resolved);
         for (const r of st.outbox)
           if (resolved.has(r.eventId) && (r.status === 'rejected' || r.status === 'blocked'))
+            r.status = 'resolved';
+        // The owner erased these trucks with their order: nothing of theirs is waiting any more.
+        const deleted = new Set(page.deleted);
+        st.tasks = st.tasks.filter((t) => !deleted.has(t.truckId));
+        for (const r of st.outbox)
+          if (deleted.has(r.truckId) && r.status !== 'sending' && r.status !== 'accepted')
             r.status = 'resolved';
         st.meta.cursor = page.cursor;
       });
