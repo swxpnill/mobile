@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   brokerStatementQuerySchema,
+  isoDateSchema,
   ledgerEntrySchema,
   ledgerQuerySchema,
   recordPaymentBodySchema,
@@ -68,5 +69,18 @@ describe('other money schemas', () => {
     };
     expect(ledgerEntrySchema.safeParse(entry).success).toBe(true);
     expect(ledgerEntrySchema.safeParse({ ...entry, extra: 1 }).success).toBe(false);
+  });
+});
+
+describe('isoDateSchema', () => {
+  it('refuses impossible calendar dates, keeps real ones', () => {
+    expect(isoDateSchema.safeParse('2026-02-31').success).toBe(false);
+    expect(isoDateSchema.safeParse('2026-13-01').success).toBe(false);
+    expect(isoDateSchema.safeParse('2026-00-10').success).toBe(false);
+    expect(isoDateSchema.safeParse('2026-04-31').success).toBe(false);
+    expect(isoDateSchema.safeParse('2026-02-29').success).toBe(false);
+    expect(isoDateSchema.safeParse('2028-02-29').success).toBe(true);
+    expect(isoDateSchema.safeParse('2026-11-30').success).toBe(true);
+    expect(recordPaymentBodySchema.safeParse({ ...base, paidOn: '2026-02-31' }).success).toBe(false);
   });
 });

@@ -2,7 +2,18 @@ import { z } from 'zod';
 import { PAYMENT_MODES, UTR_REQUIRED } from '../rules/ledger.ts';
 import { idSchema } from './common.ts';
 
-export const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+/** `YYYY-MM-DD` that is a real calendar date (2026-02-31 is refused). */
+export const isoDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine(
+    (s) => {
+      const [y, m, d] = s.split('-').map(Number) as [number, number, number];
+      const at = new Date(Date.UTC(y, m - 1, d));
+      return at.getUTCFullYear() === y && at.getUTCMonth() === m - 1 && at.getUTCDate() === d;
+    },
+    { message: 'Not a real date' },
+  );
 
 const refSchema = z.object({ id: idSchema, name: z.string() }).strict();
 const rupeesSchema = z.number().int();
