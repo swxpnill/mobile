@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
 import type { ReactElement } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { type LedgerEntry, SAMPLE_MASTERS, SAMPLE_WORLD, orderSchema } from '@tonnage/shared';
+import { type LedgerEntry, NetworkError, SAMPLE_MASTERS, SAMPLE_WORLD, orderSchema } from '@tonnage/shared';
 import { createFakeClock, createMockApi, type MockApi } from '@tonnage/mock-api';
 import Brokers from '../app/(app)/brokers';
 import { api } from '../src/api/client';
@@ -19,6 +19,7 @@ import { MoreScreen } from '../src/screens/MoreScreen';
 import { ledgerCaption, ledgerTitle } from '../src/screens/money/captions';
 import { PartyDetailScreen } from '../src/screens/parties/PartyDetailScreen';
 import { ThemeProvider } from '../src/theme/ThemeProvider';
+import { lightTokens } from '../src/theme/tokens';
 import { CalendarSheet, ToastHost } from '../src/ui';
 import { monthGrid } from '../src/ui/CalendarSheet';
 
@@ -154,6 +155,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   client.clear();
+  setTransport(null);
   setMockApi(null);
 });
 
@@ -206,10 +208,18 @@ describe('Record payment (board 33)', () => {
     await openProfile();
     await openRecordPayment();
     expect(screen.getByText('Due now ₹15,399')).toBeOnTheScreen();
+    // Empty, the amount is grey; once entered it is red (board 33).
+    expect(screen.getByLabelText('Amount paid')).toHaveStyle({ color: lightTokens.tx3 });
     await press('Full ₹15,399');
     expect(screen.getByLabelText('Amount paid').props.value).toBe('15,399');
+    expect(screen.getByLabelText('Amount paid')).toHaveStyle({ color: lightTokens.dgt });
+    // The input is as wide as its text, so the ₹ sits against the digits.
+    const measure = screen.getByTestId('amount-measure', { includeHiddenElements: true });
+    expect(measure).toHaveTextContent('15,399');
+    await fireEvent(measure, 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 150, height: 52 } } });
+    expect(screen.getByLabelText('Amount paid')).toHaveStyle({ width: 156 });
     // NEFT is the default mode and has no UTR yet.
-    expect(screen.getByRole('button', { name: 'NEFT' }).props.accessibilityState).toMatchObject({ selected: true });
+    expect(screen.getByRole('radio', { name: 'NEFT' })).toBeChecked();
     expect(screen.getByText('UTR is needed for NEFT and UPI')).toBeOnTheScreen();
     expect(screen.getByRole('button', { name: 'Record ₹15,399 payment' })).toBeDisabled();
 
@@ -235,7 +245,9 @@ describe('Record payment (board 33)', () => {
     await fillPayment({ paid: '1000', tds: '1001', utr: '223614' });
     expect(screen.getByText("TDS can't be more than the amount")).toBeOnTheScreen();
     expect(screen.getByRole('button', { name: 'Record ₹1,000 payment' })).toBeDisabled();
-    await press('Cheque');
+    await fireEvent.press(screen.getByRole('radio', { name: 'Cheque' }));
+    expect(screen.getByRole('radio', { name: 'Cheque' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'NEFT' })).not.toBeChecked();
     expect(screen.getByLabelText('UTR / reference').props.placeholder).toBe('Cheque no.');
     await fireEvent.changeText(screen.getByLabelText('TDS deducted (optional)'), '');
     await fireEvent.changeText(screen.getByLabelText('UTR / reference'), '');
@@ -253,16 +265,34 @@ describe('Record payment (board 33)', () => {
     expect(await screen.findByRole('button', { name: 'Date, 12 Nov 2026' })).toBeOnTheScreen();
   });
 
-  it('Review Focus 1: a dropped request shows the error; Record again records one payment', async () => {
+  it('Review Focus 1: the answer is lost after the server committed; Record again reuses the key and pays once', async () => {
     await openProfile();
     await openRecordPayment();
     await fillPayment({ paid: '10000', tds: '500', utr: '223614' });
-    mock.controls.dropNext({ writesOnly: true });
+    // The first payment POST reaches the server and commits, then its answer is lost on the way back.
+    const keys: string[] = [];
+    let lose = true;
+    setTransport({
+      async request(req) {
+        const res = await mock.transport.request(req);
+        if (req.method === 'POST' && req.path === `/v1/brokers/${BROKER}/payments`) {
+          keys.push(req.headers?.['idempotency-key'] ?? '');
+          if (lose) {
+            lose = false;
+            throw new NetworkError('answer lost');
+          }
+        }
+        return res;
+      },
+    });
     await press('Record ₹10,000 payment');
     expect(await screen.findByText("Can't reach the server. Check your connection and try again.")).toBeOnTheScreen();
     expect(screen.getByText('Pay R.K. Agarwal')).toBeOnTheScreen();
     await press('Record ₹10,000 payment');
     expect(await screen.findByText('Payment recorded')).toBeOnTheScreen();
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe('');
+    expect(keys[1]).toBe(keys[0]);
     await waitFor(() => expect(dueCard().getByText('₹4,899')).toBeOnTheScreen());
     const ledger = await api<{ items: LedgerEntry[] }>(`/v1/brokers/${BROKER}/ledger?view=payments`);
     expect(ledger.items.filter((i) => i.kind === 'payment')).toHaveLength(1);

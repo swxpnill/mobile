@@ -7,7 +7,7 @@ import {
   toDisplayQty,
   toDisplayRate,
 } from '@tonnage/shared';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useReversePayment } from '../../api/hooks/money';
 import { useSingleFlight, useSubmitKey } from '../../api/submitKey';
@@ -37,12 +37,13 @@ function Line({ label, value }: { label: string; value: string }) {
  * roles with a reason (Ruling 6); earnings change only through a weight correction.
  */
 export function LedgerEntrySheet({
-  entry,
-  reversed,
+  entry: entryIn,
+  reversed: reversedIn,
   basis,
   canReverse,
   onClose,
 }: {
+  /** The row to show; `null` closes the sheet. */
   entry: LedgerEntry | null;
   /** The row this reversal undoes, when loaded. */
   reversed?: LedgerEntry;
@@ -62,9 +63,14 @@ export function LedgerEntrySheet({
     setAsking(false);
     setReason('');
     setError(undefined);
-  }, [entry?.id]);
+  }, [entryIn?.id]);
 
-  if (!entry) return null;
+  // The last entry stays rendered while the sheet slides out after `entry` turns null.
+  const lastRef = useRef<{ entry: LedgerEntry; reversed?: LedgerEntry } | null>(null);
+  if (entryIn) lastRef.current = { entry: entryIn, reversed: reversedIn };
+  const shown = lastRef.current;
+  if (!shown) return null;
+  const { entry, reversed } = shown;
   const p = entry.payment;
   const total = -entry.amountRupees;
   const reversible = canReverse && entry.kind === 'payment' && entry.reversedById === null;
@@ -86,7 +92,7 @@ export function LedgerEntrySheet({
   };
 
   return (
-    <Sheet visible title={ledgerTitle(entry, reversed)} onClose={onClose} busy={reverse.isPending}>
+    <Sheet visible={entryIn !== null} title={ledgerTitle(entry, reversed)} onClose={onClose} busy={reverse.isPending}>
       <View style={styles.amountRow}>
         <Text
           variant="title"

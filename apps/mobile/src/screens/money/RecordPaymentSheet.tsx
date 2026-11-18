@@ -72,6 +72,7 @@ export function RecordPaymentSheet({
   const [tdsText, setTdsText] = useState('');
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState<string>();
+  const [amountWidth, setAmountWidth] = useState<number | null>(null);
 
   useEffect(() => {
     if (!visible) return;
@@ -85,6 +86,8 @@ export function RecordPaymentSheet({
   }, [visible]);
 
   const paid = toRupees(amount);
+  const shownAmount = amount === '' ? '' : groupIndian(amount);
+  const amountFont = { fontFamily: fontFamily.semibold, fontSize: 44 * scale, lineHeight: 52 * scale };
   const tds = toRupees(tdsText);
   const problem = paymentProblem({ paid, tds, mode, utr });
   const valid = paid >= 1 && problem === undefined;
@@ -143,15 +146,30 @@ export function RecordPaymentSheet({
             <Text weight="medium" color="tx3" style={styles.rupee}>
               ₹
             </Text>
+            {/* Sized to its text (measured below), so the ₹ sits against the digits as one centred group. */}
             <TextInput
               accessibilityLabel="Amount paid"
-              value={amount === '' ? '' : groupIndian(amount)}
+              value={shownAmount}
               onChangeText={(s) => setAmount(digits(s))}
               keyboardType="number-pad"
               placeholder="0"
               placeholderTextColor={t.tx3}
-              style={[styles.amount, { color: t.dgt, fontFamily: fontFamily.semibold, fontSize: 44 * scale, lineHeight: 52 * scale }]}
+              style={[
+                styles.amount,
+                amountFont,
+                { color: amount === '' ? t.tx3 : t.dgt, width: amountWidth === null ? undefined : amountWidth + 6 },
+              ]}
             />
+            <Text
+              testID="amount-measure"
+              numberOfLines={1}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              onLayout={(e) => setAmountWidth(Math.ceil(e.nativeEvent.layout.width))}
+              style={[styles.amount, styles.measure, amountFont]}
+            >
+              {shownAmount || '0'}
+            </Text>
           </View>
           {now.kind === 'due' ? (
             <View style={styles.quick}>
@@ -271,9 +289,9 @@ function ModeChip({ label, selected, onPress }: { label: string; selected: boole
   const { t } = useTheme();
   return (
     <Pressable
-      accessibilityRole="button"
+      accessibilityRole="radio"
       accessibilityLabel={label}
-      accessibilityState={{ selected }}
+      accessibilityState={{ checked: selected, selected }}
       onPress={onPress}
       hitSlop={{ top: 2, bottom: 2 }}
       style={[
@@ -298,7 +316,8 @@ const styles = StyleSheet.create({
   amountLabel: { fontSize: 13 },
   amountRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', gap: 4, marginTop: 4 },
   rupee: { fontSize: 28, lineHeight: 34 },
-  amount: { minWidth: 120, maxWidth: 260, textAlign: 'center', letterSpacing: -1.3, padding: 0 },
+  amount: { maxWidth: 280, textAlign: 'center', letterSpacing: -1.3, padding: 0 },
+  measure: { position: 'absolute', opacity: 0, left: 0, top: 0 },
   quick: { flexDirection: 'row', gap: 8, justifyContent: 'center', marginTop: 10 },
   pill: { minHeight: 32, paddingHorizontal: 12, borderRadius: 16, justifyContent: 'center' },
   pillText: { fontSize: 13 },
