@@ -26,7 +26,7 @@ const LIFTED: ReadonlySet<ReportKind> = new Set([
   'loading-variance',
 ]);
 
-/** One fact per allocation of every dispatched truck (a line with a plan but no net weight is not a lifted line). */
+/** One fact per allocation of every dispatched truck (plan on a line with no net weight rides on the truck's first fact). */
 function truckLines(state: MockState, tenantId: string): TruckLineFact[] {
   const orders = byId(state.orders);
   const subs = byId(state.subOrders);
@@ -43,6 +43,10 @@ function truckLines(state: MockState, tenantId: string): TruckLineFact[] {
     const company = sub ? companies.get(sub.companyId) : undefined;
     if (!order || !sub || !company) continue;
     const plannedByLine = new Map(t.plan.map((p) => [p.orderLineId, p.plannedKg]));
+    // Plan on a line that took no net weight has no fact of its own: it rides on the truck's first fact.
+    const allocated = new Set(t.allocations.map((a) => a.orderLineId));
+    const orphanPlanKg = t.plan.filter((p) => !allocated.has(p.orderLineId)).reduce((n, p) => n + p.plannedKg, 0);
+    let first = true;
     for (const a of t.allocations) {
       const line = lines.get(a.orderLineId);
       const product = line ? products.get(line.productId) : undefined;
@@ -69,11 +73,12 @@ function truckLines(state: MockState, tenantId: string): TruckLineFact[] {
         sizeLabel: product.sizeLabel,
         lengthValue: line.length.value,
         lengthUnit: line.length.unit,
-        plannedKg: plannedByLine.get(line.id) ?? 0,
+        plannedKg: (plannedByLine.get(line.id) ?? 0) + (first ? orphanPlanKg : 0),
         netKg: a.netKg,
         ratePerMt: line.rate,
         overpricePerMt: line.overpricePerMt,
       });
+      first = false;
     }
   }
   return out;

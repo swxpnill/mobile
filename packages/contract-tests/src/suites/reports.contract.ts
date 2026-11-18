@@ -243,6 +243,30 @@ export function register(factory: TargetFactory): void {
       expect(r.summary).toMatchObject({ trucks: 1, overTrucks: 1, underTrucks: 0, overKg: 180, underKg: 0 });
     });
 
+    it('loading variance: planned kg of a line that took no net weight still counts toward the truck plan', async () => {
+      const t = target();
+      const owner = await tokenFor(t, PEOPLE.rajesh);
+      const src = CANVAS_ORDER.subOrders[0]!;
+      const body = { ...CANVAS_ORDER, subOrders: [{ companyId: COMPANY.AIP, lines: [src.lines[0]!, src.lines[1]!] }] };
+      const order = expectOk(await createOrder(t, owner, body), orderSchema, 201);
+      const [a, b] = order.subOrders[0]!.lines;
+      const { truckId } = await t.fixtures.addTruck({
+        subOrderId: order.subOrders[0]!.id,
+        state: 'dispatched',
+        vehicleNo: 'CG 04 AA 0011',
+        tareKg: 12_000,
+        plan: [
+          { orderLineId: a!.id, plannedKg: 14_000 },
+          { orderLineId: b!.id, plannedKg: 10_000 },
+        ],
+        allocations: [{ orderLineId: a!.id, netKg: 24_180 }],
+      });
+      const r = await report(t, owner, 'loading-variance', monthRange(t));
+      if (r.kind !== 'loading-variance') throw new Error('kind');
+      expect(r.rows).toHaveLength(1);
+      expect(r.rows[0]).toMatchObject({ truckId, plannedKg: 24_000, netKg: 24_180, diffKg: 180 });
+    });
+
     it('Review Focus 2: plant roles get 403 for every kind; city staff can read; an unknown kind is 404', async () => {
       const t = target();
       await twoOrders(t);
