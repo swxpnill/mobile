@@ -38,7 +38,7 @@ const payBody = (over: Record<string, unknown>, now: number) => ({
   paidOn: istDateOf(now),
   ...over,
 });
-const pay = (t: ContractTarget, token: string, over: Record<string, unknown> = {}, key = newKey(), id = BROKER) =>
+export const pay = (t: ContractTarget, token: string, over: Record<string, unknown> = {}, key = newKey(), id = BROKER) =>
   call(t, 'POST', `/v1/brokers/${id}/payments`, { token, idempotencyKey: key, body: payBody(over, t.clock.now()) });
 const reverse = (t: ContractTarget, token: string, id: string, reason = 'Wrong UTR') =>
   call(t, 'POST', `/v1/ledger/${id}/reverse`, { token, idempotencyKey: newKey(), body: { reason } });
@@ -48,7 +48,7 @@ const paths = (body: unknown) =>
   validationDetailsSchema.parse((body as { details: unknown }).details).map((d) => d.path);
 
 /** Two single-line orders for R.K. Agarwal, each with one dispatched truck (24,180 kg, 30,120 kg). */
-async function twoOrders(t: ContractTarget) {
+export async function twoOrders(t: ContractTarget) {
   const owner = await tokenFor(t, PEOPLE.rajesh);
   const lines = CANVAS_ORDER.subOrders[0]!.lines;
   const make = async (line: (typeof lines)[number], netKg: number, vehicleNo: string) => {
