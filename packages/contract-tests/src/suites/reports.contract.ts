@@ -3,6 +3,8 @@ import {
   SAMPLE_MASTERS,
   type Report,
   REPORT_KINDS,
+  brokerLedgerSchema,
+  brokerStatementSchema,
   istDateOf,
   lineValue,
   orderSchema,
@@ -21,6 +23,7 @@ import {
   call,
   expectError,
   expectOk,
+  newKey,
   tokenFor,
   useTarget,
 } from '../harness.ts';
@@ -184,6 +187,87 @@ export function register(factory: TargetFactory): void {
         dueRupees: 4_899,
       });
       expect(r.summary).toMatchObject({ earnedRupees: 15_399, dueRupees: 4_899 });
+    });
+
+    it('Ruling 4: a November correction of an October truck leaves October alone and moves November by the difference', async () => {
+      const t = target();
+      const start = t.clock.now();
+      const at = (iso: string) => t.clock.advance(Date.parse(iso) - t.clock.now());
+      // 31 Oct (noon IST): 24,180 kg at 150 + 300 per MT = 10,881.
+      at('2026-10-31T06:30:00Z');
+      const oct = await dispatched(t, await tokenFor(t, PEOPLE.rajesh), {
+        companyId: COMPANY.AIP,
+        planKg: 24_000,
+        netKg: 24_180,
+        vehicleNo: 'CG 04 AA 0031',
+      });
+      // 2 Nov: 30,120 kg at the same rates = 13,554.
+      at('2026-11-02T06:30:00Z');
+      await dispatched(t, await tokenFor(t, PEOPLE.rajesh), {
+        companyId: COMPANY.AIP,
+        planKg: 30_000,
+        netKg: 30_120,
+        vehicleNo: 'CG 04 AA 0032',
+      });
+      // 3 Nov: a payment of 10,000, then the October truck corrected to 24,000 kg (10,800).
+      at('2026-11-03T06:30:00Z');
+      const owner = await tokenFor(t, PEOPLE.rajesh);
+      expectOk(await pay(t, owner, { paidRupees: 10_000, tdsRupees: 0 }), paymentResultSchema, 201);
+      const truck = expectOk(await call(t, 'GET', `/v1/trucks/${oct.truckId}`, { token: owner }), truckSchema);
+      const fix = await call(t, 'POST', `/v1/trucks/${oct.truckId}/correct-weight`, {
+        token: owner,
+        idempotencyKey: newKey(),
+        body: {
+          tareKg: 12_000,
+          grossKg: 36_000,
+          allocations: [{ orderLineId: oct.line.id, netKg: 24_000 }],
+          reason: 'Weighbridge recalibrated',
+          version: truck.version,
+        },
+      });
+      expect(fix.status).toBe(200);
+
+      const statement = async (from: string, to: string) =>
+        expectOk(
+          await call(t, 'GET', `/v1/brokers/${P.rkAgarwal}/statement?from=${from}&to=${to}`, { token: owner }),
+          brokerStatementSchema,
+        );
+      const brokerWise = async (from: string, to: string) => {
+        const r = await report(t, owner, 'broker-wise', `from=${from}&to=${to}`);
+        if (r.kind !== 'broker-wise') throw new Error('kind');
+        return r;
+      };
+
+      // October counts the truck once, at its original amount.
+      const octStatement = await statement('2026-10-01', '2026-10-31');
+      expect(octStatement).toMatchObject({ openingDueRupees: 0, earnedRupees: 10_881, closingDueRupees: 10_881 });
+      expect(octStatement.items).toHaveLength(1);
+      const octWise = await brokerWise('2026-10-01', '2026-10-31');
+      expect(octWise.rows.find((r) => r.brokerId === P.rkAgarwal)).toMatchObject({ earnedRupees: 10_881, netKg: 24_180 });
+
+      // November: the new truck plus the correction's difference (-81, -180 kg).
+      const novStatement = await statement('2026-11-01', '2026-11-03');
+      expect(novStatement).toMatchObject({
+        openingDueRupees: 10_881,
+        earnedRupees: 13_554 - 81,
+        paidRupees: 10_000,
+        closingDueRupees: 10_881 + 13_554 - 81 - 10_000,
+      });
+      const novWise = await brokerWise('2026-11-01', '2026-11-03');
+      expect(novWise.rows.find((r) => r.brokerId === P.rkAgarwal)).toMatchObject({
+        earnedRupees: 13_554 - 81,
+        netKg: 30_120 - 180,
+      });
+
+      // The due is the same whatever the dates; FIFO still pays the October truck first:
+      // 800 of its 10,800 is unpaid (1,778 kg), plus all of the November truck.
+      const l = expectOk(await call(t, 'GET', `/v1/brokers/${P.rkAgarwal}/ledger`, { token: owner }), brokerLedgerSchema);
+      expect(l.summary).toMatchObject({
+        dueRupees: 10_881 + 13_554 - 81 - 10_000,
+        unpaidKg: 1_778 + 30_120,
+        earnedThisMonthRupees: 13_554 - 81,
+      });
+      at(new Date(start).toISOString());
     });
 
     it('customer-wise: booked against lifted, kg and rupees', async () => {

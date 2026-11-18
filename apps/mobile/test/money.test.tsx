@@ -1,15 +1,16 @@
 // F4 Task 6: broker dues, broker profile and ledger (board 06), record payment (board 33),
 // reverse payment, on a world built with mock fixtures: R.K. Agarwal with two dispatched trucks.
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
 import type { ReactElement } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { type LedgerEntry, NetworkError, SAMPLE_MASTERS, SAMPLE_WORLD, orderSchema } from '@tonnage/shared';
+import { type LedgerEntry, NetworkError, SAMPLE_MASTERS, SAMPLE_WORLD, type UpdatePartyBody, orderSchema, partySchema } from '@tonnage/shared';
 import { createFakeClock, createMockApi, type MockApi } from '@tonnage/mock-api';
 import Brokers from '../app/(app)/brokers';
 import { api } from '../src/api/client';
+import { useUpdateParty } from '../src/api/hooks/masters';
 import { UnitBasisProvider } from '../src/api/hooks/me';
 import { setMockApi, setTransport } from '../src/api/transport';
 import { resetSessionForTests, useSession } from '../src/auth/session';
@@ -200,6 +201,18 @@ describe('Broker ledger: More, dues list, profile (boards 17, 06; Ruling 8)', ()
     await fireEvent.press(screen.getByRole('radio', { name: 'Earnings' }));
     expect(await screen.findByText('+₹10,881')).toBeOnTheScreen();
     expect(screen.getByText('+₹4,518')).toBeOnTheScreen();
+  });
+});
+
+describe('Party edits refresh money', () => {
+  it('saving a broker invalidates the broker ledger caches, so the dues list shows the new name', async () => {
+    const current = await api(`/v1/parties/${BROKER}`, { schema: partySchema });
+    const invalidated = jest.spyOn(client, 'invalidateQueries');
+    const { result } = await renderHook(() => useUpdateParty(), {
+      wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
+    });
+    await result.current.mutateAsync({ id: BROKER, body: { ...current, name: 'R.K. Agarwal & Sons' } as unknown as UpdatePartyBody });
+    expect(invalidated).toHaveBeenCalledWith({ queryKey: ['broker'] });
   });
 });
 

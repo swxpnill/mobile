@@ -87,7 +87,7 @@ describe('entry date', () => {
     expect(toLedgerEntry(s, rec).entryDate).toBe('2026-10-31');
   });
 
-  it('a reversal keeps its own date; the replacement earning keeps the truck date', () => {
+  it('a correction (reversal and replacement) counts on its own date; the first earning keeps the truck date', () => {
     const s = world();
     const truck = dispatchMk(s, '2026-10-31T18:20:00.000Z', Date.UTC(2026, 9, 31, 18, 45));
     truck.allocations = [{ orderLineId: truck.plan[0]!.orderLineId, netKg: 24_000 }];
@@ -97,8 +97,10 @@ describe('entry date', () => {
     expect(rows.map((r) => [r.kind, byId.get(r.id)!.entryDate])).toEqual([
       ['earning', '2026-10-31'],
       ['reversal', '2026-11-03'],
-      ['earning', '2026-10-31'],
+      ['earning', '2026-11-03'],
     ]);
+    // FIFO still places both earnings on the truck's dispatch day.
+    expect(rows.filter((r) => r.kind === 'earning').map((r) => byId.get(r.id)!.fifoDate)).toEqual(['2026-10-31', '2026-10-31']);
     // Reports depend on a reversal's earning lines carrying negated kg.
     expect(byId.get(rows[1]!.id)!.netKg).toBe(-24_180);
   });
@@ -114,7 +116,7 @@ describe('entry date', () => {
   });
 });
 
-describe('FIFO oldest is the entry date', () => {
+describe('FIFO oldest is the truck dispatch date', () => {
   it('a corrected truck replacement keeps its truck place, so the unpaid kg follows the oldest truck', () => {
     const s = world();
     s.brokerLedger = s.brokerLedger.filter((r) => r.kind !== 'payment'); // no seeded payment

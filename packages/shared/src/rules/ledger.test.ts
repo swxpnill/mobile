@@ -7,7 +7,6 @@ import {
   dueAfterPayment,
   dueState,
   halfOf,
-  isLiveRow,
   monthTotals,
   paymentAmount,
   statementTotals,
@@ -66,11 +65,6 @@ describe('ledger', () => {
     expect(dueState(0)).toEqual({ kind: 'clear', rupees: 0 });
     expect(dueState(4_899)).toEqual({ kind: 'due', rupees: 4_899 });
   });
-  it('isLiveRow: no reversal points at it', () => {
-    const rows = [A, B, P, reversal('r', P, '2026-11-04')];
-    expect(isLiveRow(rows, P)).toBe(false);
-    expect(isLiveRow(rows, A)).toBe(true);
-  });
   it('monthTotals Nov: earned 15,399, paid 10,500', () => {
     expect(monthTotals([A, B, P], '2026-11')).toEqual({ earnedRupees: 15_399, paidRupees: 10_500 });
     expect(monthTotals([A, B, P], '2026-10')).toEqual({ earnedRupees: 0, paidRupees: 0 });
@@ -96,5 +90,13 @@ describe('ledger', () => {
     expect(monthTotals([oct, rev, fixed], '2026-10').earnedRupees).toBe(10_881);
     expect(monthTotals([oct, rev, fixed], '2026-11').earnedRupees).toBe(-981);
     expect(brokerDue([oct, rev, fixed])).toBe(9_900);
+  });
+  it('FIFO orders a corrected earning by its fifoDate (the truck dispatch day), not its entry date', () => {
+    const oct = earning('o', 10_881, 24_180, '2026-10-30');
+    const rev = reversal('r', oct, '2026-11-05');
+    const fixed = { ...earning('f', 10_800, 24_000, '2026-11-05'), fifoDate: '2026-10-30' };
+    const pay = payment('q', -10_000, '2026-11-05');
+    // The replacement is oldest: 800 of 10,800 unpaid → 1,778 kg; B (2 Nov) all unpaid.
+    expect(unpaidKg([oct, rev, B, fixed, pay])).toBe(1_778 + 30_120);
   });
 });

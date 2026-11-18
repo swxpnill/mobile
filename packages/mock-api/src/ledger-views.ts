@@ -16,28 +16,40 @@ import type { BrokerLedgerRec, MockState } from './store.ts';
 
 const sumKg = (rec: BrokerLedgerRec): number => rec.breakdown.reduce((n, b) => n + b.netKg, 0);
 
+/** The IST day of the truck's dispatch, when the row is an earning of a dispatched truck. */
+function truckDayOf(state: MockState, rec: BrokerLedgerRec): string | undefined {
+  if (rec.kind !== 'earning' || rec.truckId === null) return undefined;
+  const truck = state.trucks.find((t) => t.id === rec.truckId);
+  return truck?.dispatchedAt ? istDateOf(truck.dispatchedAt) : undefined;
+}
+
 /**
- * The IST day a row counts on. An earning, and a correction's replacement earning, belong to the
- * IST day of the truck's gross `capturedAt` (its `dispatchedAt`), not of the sync, so a truck
- * captured at 23:50 and synced after midnight stays in its own month. A payment counts on the
- * date it was made; a reversal on the day the correction or reversal happened.
+ * The IST day a row counts on (Ruling 4). A truck's first earning belongs to the IST day of its
+ * gross `capturedAt` (its `dispatchedAt`), not of the sync, so a truck captured at 23:50 and synced
+ * after midnight stays in its own month. A correction's reversal and replacement earning count on
+ * the day of the correction, so a later month moves only by the difference. A payment counts on
+ * the date it was made.
  */
 export function entryDateOf(state: MockState, rec: BrokerLedgerRec): string {
   if (rec.kind === 'payment' && rec.paidOn !== null) return rec.paidOn;
-  if (rec.kind === 'earning' && rec.truckId !== null) {
-    const truck = state.trucks.find((t) => t.id === rec.truckId);
-    if (truck?.dispatchedAt) return istDateOf(truck.dispatchedAt);
+  const truckDay = truckDayOf(state, rec);
+  if (truckDay !== undefined) {
+    const first = state.brokerLedger.find((r) => r.kind === 'earning' && r.truckId === rec.truckId);
+    if (first?.id === rec.id) return truckDay;
   }
   return istDateOf(rec.createdAt);
 }
 
 function toRow(state: MockState, rec: BrokerLedgerRec): LedgerRow {
+  const truckDay = truckDayOf(state, rec);
   return {
     id: rec.id,
     kind: rec.kind,
     amountRupees: rec.amountRupees,
     netKg: sumKg(rec),
     entryDate: entryDateOf(state, rec),
+    // FIFO places every earning of a truck, a replacement included, on its dispatch day.
+    ...(truckDay === undefined ? {} : { fifoDate: truckDay }),
     createdAt: rec.createdAt,
     reversesId: rec.reversesId,
   };

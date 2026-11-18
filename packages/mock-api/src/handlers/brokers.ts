@@ -7,6 +7,7 @@ import {
   brokerDue,
   brokerStatementQuerySchema,
   checkRange,
+  isEarningSide,
   istDateOf,
   ledgerQuerySchema,
   paymentAmount,
@@ -70,13 +71,6 @@ function decodeCursor(s: string): Cursor {
   return { entryDate, createdAt, id };
 }
 
-/** Whether a row is on the earnings side (an earning, or the reversal of one). */
-function isEarningSide(state: MockState, r: BrokerLedgerRec): boolean {
-  if (r.kind === 'earning') return true;
-  if (r.kind === 'payment') return false;
-  const target = state.brokerLedger.find((x) => x.id === r.reversesId);
-  return target ? target.kind === 'earning' : r.amountRupees <= 0;
-}
 
 /** A payment date is today or earlier, and at most 365 days back. */
 function assertPaidOn(date: string, now: number): void {
@@ -123,7 +117,7 @@ export const brokerRoutes: RouteDef[] = [
       const cursor = query.before === undefined ? null : decodeCursor(query.before);
       const keyed = state.brokerLedger
         .filter((r) => r.brokerId === broker.id)
-        .filter((r) => query.view === 'all' || isEarningSide(state, r) === (query.view === 'earnings'))
+        .filter((r) => query.view === 'all' || isEarningSide(r, (id) => state.brokerLedger.find((x) => x.id === id)) === (query.view === 'earnings'))
         .map((rec) => ({ rec, entryDate: entryDateOf(state, rec) }))
         .sort(newestFirst);
       const rest = cursor === null ? keyed : keyed.filter((k) => compareNewest(cursor, keyOf(k)) < 0);

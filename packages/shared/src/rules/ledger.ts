@@ -22,6 +22,12 @@ export interface LedgerRow {
   netKg: number;
   /** IST date `YYYY-MM-DD` the row counts on. */
   entryDate: string;
+  /**
+   * IST date that sets an earning's place in "oldest paid first" (Ruling 7) when it differs from
+   * `entryDate`: a correction's replacement earning counts on the correction day but keeps its
+   * truck's dispatch day here.
+   */
+  fifoDate?: string;
   createdAt: string;
   reversesId: string | null;
 }
@@ -49,8 +55,17 @@ export function dueState(dueRupees: number): { kind: 'due' | 'advance' | 'clear'
   return { kind: 'clear', rupees: 0 };
 }
 
-export function isLiveRow(rows: readonly LedgerRow[], row: LedgerRow): boolean {
-  return !rows.some((r) => r.reversesId === row.id);
+type SideRow = Pick<LedgerRow, 'kind' | 'reversesId' | 'amountRupees'>;
+
+/**
+ * Whether a row is on the earnings side: an earning, or the reversal of one. `find` looks up the
+ * reversed row; when it is gone, a reversal that lowers the due counts as an earning reversal.
+ */
+export function isEarningSide<R extends SideRow>(row: R, find: (id: string) => SideRow | undefined): boolean {
+  if (row.kind === 'earning') return true;
+  if (row.kind === 'payment') return false;
+  const target = row.reversesId === null ? undefined : find(row.reversesId);
+  return target ? target.kind === 'earning' : row.amountRupees <= 0;
 }
 
 function cmp(a: string, b: string): number {
@@ -61,8 +76,13 @@ function byOrder(a: LedgerRow, b: LedgerRow): number {
   return cmp(a.entryDate, b.entryDate) || cmp(a.createdAt, b.createdAt) || cmp(a.id, b.id);
 }
 
+function byFifo(a: LedgerRow, b: LedgerRow): number {
+  return cmp(a.fifoDate ?? a.entryDate, b.fifoDate ?? b.entryDate) || cmp(a.createdAt, b.createdAt) || cmp(a.id, b.id);
+}
+
 /**
- * Kg dispatched and not yet paid (Ruling 7): live payments settle live earnings oldest first; a
+ * Kg dispatched and not yet paid (Ruling 7): live payments settle live earnings oldest first (by
+ * `fifoDate`, else `entryDate`); a
  * partly covered earning counts `roundHalfUp(uncovered x netKg, earning)` kg. Never negative.
  */
 export function unpaidKg(rows: readonly LedgerRow[]): number {
@@ -70,7 +90,7 @@ export function unpaidKg(rows: readonly LedgerRow[]): number {
   const live = rows.filter((r) => !reversed.has(r.id));
   let covered = -live.filter((r) => r.kind === 'payment').reduce((s, r) => s + r.amountRupees, 0);
   let kg = 0;
-  for (const e of live.filter((r) => r.kind === 'earning').sort(byOrder)) {
+  for (const e of live.filter((r) => r.kind === 'earning').sort(byFifo)) {
     if (e.amountRupees <= 0) continue;
     if (covered >= e.amountRupees) {
       covered -= e.amountRupees;
@@ -88,12 +108,7 @@ function split(rows: readonly LedgerRow[], inRange: readonly LedgerRow[]): { ear
   let earned = 0;
   let paid = 0;
   for (const r of inRange) {
-    let isEarning = r.kind === 'earning';
-    if (r.kind === 'reversal') {
-      const target = r.reversesId === null ? undefined : byId.get(r.reversesId);
-      isEarning = target ? target.kind === 'earning' : r.amountRupees <= 0;
-    }
-    if (isEarning) earned += r.amountRupees;
+    if (isEarningSide(r, (id) => byId.get(id))) earned += r.amountRupees;
     else paid -= r.amountRupees;
   }
   return { earnedRupees: earned, paidRupees: paid };
