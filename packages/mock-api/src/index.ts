@@ -17,9 +17,12 @@ import { orderLifecycleRoutes } from './handlers/order-lifecycle.ts';
 import { orderRoutes } from './handlers/orders.ts';
 import { partyRoutes } from './handlers/parties.ts';
 import { productRoutes } from './handlers/products.ts';
+import { rejectionRoutes } from './handlers/rejections.ts';
 import { metaRoutes } from './handlers/meta.ts';
 import { plantRoutes } from './handlers/plants.ts';
 import { settingsRoutes } from './handlers/settings.ts';
+import { supervisorRoutes } from './handlers/supervisor.ts';
+import { truckRoutes } from './handlers/trucks.ts';
 import { userRoutes } from './handlers/users.ts';
 import { createPipeline } from './pipeline.ts';
 import { buildRouter } from './router.ts';
@@ -77,6 +80,9 @@ export const ALL_ROUTES = [
   ...draftRoutes,
   ...orderRoutes,
   ...orderLifecycleRoutes,
+  ...truckRoutes,
+  ...supervisorRoutes,
+  ...rejectionRoutes,
   ...homeRoutes,
 ];
 
@@ -98,7 +104,7 @@ export async function createMockApi(opts: CreateMockApiOptions = {}): Promise<Mo
   const enqueue = createQueue();
   const pipeline = createPipeline({ router, store, clock });
   return {
-    transport: createTransport({ controls: cs, enqueue, handle: pipeline.handle }),
+    transport: createTransport({ controls: cs, enqueue, clock, handle: pipeline.handle }),
     controls: createControls({ controls: cs, enqueue, store, clock }),
     fixtures: createFixtures({ store, clock, enqueue }),
   };

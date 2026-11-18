@@ -149,18 +149,18 @@ describe('OrderDetailScreen', () => {
     expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull();
   });
 
-  it('move 10 MT of the AIP 12 mm · 12 m line to Kalinga', async () => {
+  it('move 10 MT of the AIP 16 mm · 12 m line to Kalinga (the 12 mm · 12 m line is planned on CG 04 MK 2291)', async () => {
     const o = await orderNo('SO-2611-0142');
     await wrap(<OrderDetailScreen id={o.id} />);
     await fireEvent.press(await screen.findByRole('button', { name: 'More actions' }));
     await fireEvent.press(await screen.findByRole('button', { name: /^Move quantity/ }));
-    await fireEvent.press(await screen.findByRole('radio', { name: /^AIP · TMT Fe500D · 12 mm · 12 m/ }));
+    await fireEvent.press(await screen.findByRole('radio', { name: /^AIP · TMT Fe500D · 16 mm · 12 m/ }));
     await fireEvent.press(screen.getByRole('radio', { name: /^Kalinga Rolling Mills/ }));
     await fireEvent.changeText(screen.getByLabelText('Quantity to move'), '10');
     await fireEvent.press(screen.getByRole('button', { name: 'Move 10.000 MT' }));
     await waitFor(async () => {
       const after = await orderNo('SO-2611-0142');
-      expect(after.subOrders[0]!.lines[0]!.orderedKg).toBe(14_000);
+      expect(after.subOrders[0]!.lines[2]!.orderedKg).toBe(10_000);
       expect(after.subOrders[1]!.lines.map((l) => l.orderedKg)).toEqual([30_000, 10_000]);
     });
   });

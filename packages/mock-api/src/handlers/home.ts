@@ -2,9 +2,10 @@ import { type Home, billedRate, homeQuerySchema, isTerminal, istDateParts, lineV
 import { DAY } from '../clock.ts';
 import { notFound } from '../errors.ts';
 import { ageDays, orderCtx, visibleSubOrders } from '../order-views.ts';
-import { orderMath } from '../orders-math.ts';
+import { isOpenTruck, orderMath } from '../orders-math.ts';
 import { route, type RouteDef } from '../router.ts';
-import { authed } from '../views.ts';
+import { boardOrder } from '../truck-views.ts';
+import { authed, plantInScope } from '../views.ts';
 
 const IST_OFFSET_MS = (5 * 60 + 30) * 60_000;
 
@@ -48,6 +49,7 @@ export const homeRoutes: RouteDef[] = [
         bookedToday: { kg: 0, orders: 0, valueRupees: 0 },
         dispatchedToday: { kg: 0, trucks: 0 },
         sentThisWeek: { kg: 0, changePct: null },
+        inPlant: [],
       };
       let lastWeekKg = 0;
 
@@ -90,6 +92,25 @@ export const homeRoutes: RouteDef[] = [
             lines.reduce((sum, l) => sum + lineValue(l.orderedKg, billedRate(l.rate, l.overpricePerMt)), 0);
         }
       }
+
+      home.inPlant = state.trucks
+        .filter((t) => {
+          if (t.tenantId !== a.user.tenantId || !isOpenTruck(t)) return false;
+          if (!plantInScope(a.scope, t.plantId)) return false;
+          const sub = state.subOrders.find((x) => x.id === t.subOrderId);
+          return sub !== undefined && c.visibleCompanyIds.has(sub.companyId) && inFilter(sub.companyId);
+        })
+        .sort(boardOrder)
+        .map((t) => {
+          const sub = state.subOrders.find((x) => x.id === t.subOrderId);
+          return {
+            truckId: t.id,
+            vehicleNo: t.vehicleNo,
+            companyCode: (sub && c.companyById.get(sub.companyId)?.code) ?? '',
+            state: t.state,
+            plannedKg: t.plan.reduce((sum, p) => sum + p.plannedKg, 0),
+          };
+        });
 
       home.perCompany = [...c.visibleCompanyIds]
         .filter(inFilter)

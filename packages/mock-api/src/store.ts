@@ -7,6 +7,8 @@ import {
   type PricingMethod,
   SAMPLE_MASTERS,
   SAMPLE_WORLD,
+  type SyncEvent,
+  type SyncRejectCode,
   type TruckState,
   type Role,
   type TenantSettings,
@@ -14,9 +16,10 @@ import {
   type UnitBasis,
 } from '@tonnage/shared';
 import { type Clock, toIso } from './clock.ts';
+import { errorMessage } from './errors.ts';
 
 /** Bump when the shape of `MockState` changes; older snapshots are discarded for the seed. */
-export const SNAPSHOT_VERSION = 3;
+export const SNAPSHOT_VERSION = 4;
 export const DEFAULT_STORAGE_KEY = 'tonnage.mockState';
 const PERSIST_DEBOUNCE_MS = 250;
 
@@ -198,23 +201,104 @@ export interface OrderLineRec {
   createdAt: string;
   updatedAt: string;
 }
-/** Minimal truck (F2): created by fixtures and the demo seed; F3 adds assignment and weighing. */
+/** A truck on a sub-order, from assignment to dispatch (§4 Dispatch, §5.2). */
 export interface TruckRec {
   id: string;
   tenantId: string;
+  orderId: string;
   subOrderId: string;
   plantId: string;
   vehicleNo: string;
+  transporterId: string | null;
+  driverName: string;
+  driverPhone: string;
+  lrNo: string | null;
   state: TruckState;
+  /** Current (non-superseded) tare; the weighments keep every reading. */
   tareKg: number | null;
+  grossKg: number | null;
   plan: { orderLineId: string; plannedKg: number }[];
+  /** Net per line, set at dispatch; sums exactly to gross − tare. */
   allocations: { orderLineId: string; netKg: number }[];
+  loadingSlipNo: string | null;
+  assignedAt: string;
+  assignedBy: string;
+  atGateAt: string | null;
+  /** Business time (the weighment's offset-corrected `capturedAt`), like `dispatchedAt`. */
+  tareAt: string | null;
+  /** Device that recorded the current tare: it may correct it; another device conflicts. */
+  tareDeviceId: string | null;
   dispatchedAt: string | null;
   cancelledAt: string | null;
+  cancelledBy: string | null;
   cancelReason: string | null;
   version: number;
   createdAt: string;
   updatedAt: string;
+}
+/** One weighbridge reading; a correction supersedes the old row instead of editing it. */
+export interface WeighmentRec {
+  id: string;
+  tenantId: string;
+  truckId: string;
+  kind: 'tare' | 'gross';
+  kg: number;
+  enteredBy: string;
+  deviceId: string;
+  clientEventId: string;
+  capturedAtDevice: string;
+  /** `capturedAtDevice` corrected by the device clock offset: business time (§6.6). */
+  capturedAt: string;
+  receivedAt: string;
+  clockSkewFlag: boolean;
+  supersededBy: string | null;
+}
+/** A refused sync event, kept so no weight is ever lost (§6.5 Needs attention). */
+export interface RejectionRec {
+  id: string;
+  tenantId: string;
+  clientEventId: string;
+  truckId: string;
+  userId: string;
+  deviceId: string;
+  /** The sending phone's clock offset (server − device), so a restore keeps the event's business time. Absent in older snapshots: 0. */
+  offsetMs?: number;
+  event: SyncEvent;
+  code: SyncRejectCode;
+  serverState: TruckState;
+  status: 'open' | 'restored' | 'dismissed';
+  createdAt: string;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+  resolutionNote: string | null;
+}
+/** A truck purged by an order hard delete, so a phone's cursor pull can drop its task. No PII. */
+export interface TruckTombstoneRec {
+  truckId: string;
+  tenantId: string;
+  plantId: string;
+  removedAt: string;
+}
+/**
+ * A sync event already seen: what de-duplication needs and nothing else. A rejected one keeps its
+ * code and generic message (never names, phones or weights), so a replay is refused again the same
+ * way instead of reading `duplicate`.
+ */
+export type AppliedEventRec =
+  | { truckId: string; status: 'accepted' }
+  | { truckId: string; status: 'rejected'; code: SyncRejectCode; message: string };
+/** Append-only broker ledger (§5.4): earnings positive, a reversal is the exact negation. F4 adds payments. */
+export interface BrokerLedgerRec {
+  id: string;
+  tenantId: string;
+  brokerId: string;
+  kind: 'earning' | 'reversal';
+  truckId: string;
+  amountRupees: number;
+  breakdown: { orderLineId: string; netKg: number; perMt: number }[];
+  reversesId: string | null;
+  createdAt: string;
+  createdBy: string;
 }
 export interface DraftRec {
   id: string;
@@ -251,6 +335,12 @@ export interface MockState {
   subOrders: SubOrderRec[];
   orderLines: OrderLineRec[];
   trucks: TruckRec[];
+  weighments: WeighmentRec[];
+  rejections: RejectionRec[];
+  brokerLedger: BrokerLedgerRec[];
+  /** Every sync event seen, by `clientEventId`: its truck and outcome (a refusal's code and message), so a replay gets the same answer and hard delete can purge it. */
+  appliedEvents: Record<string, AppliedEventRec>;
+  truckTombstones: TruckTombstoneRec[];
   drafts: DraftRec[];
   numberSeries: NumberSeriesRec[];
 }
@@ -273,6 +363,11 @@ export function emptyState(): MockState {
     subOrders: [],
     orderLines: [],
     trucks: [],
+    weighments: [],
+    rejections: [],
+    brokerLedger: [],
+    appliedEvents: {},
+    truckTombstones: [],
     drafts: [],
     numberSeries: [],
   };
@@ -355,6 +450,8 @@ export function parseSnapshot(raw: string | null): MockState | null {
     return null;
   }
   if (!isObj(v) || v.schemaVersion !== SNAPSHOT_VERSION) return null;
+  // Added within v4: a snapshot saved before it has none yet.
+  v.truckTombstones ??= [];
   const arrays = [
     'tenants',
     'companies',
@@ -367,15 +464,37 @@ export function parseSnapshot(raw: string | null): MockState | null {
     'subOrders',
     'orderLines',
     'trucks',
+    'weighments',
+    'rejections',
+    'brokerLedger',
+    'truckTombstones',
     'drafts',
     'numberSeries',
   ] as const;
-  const maps = ['otp', 'accessTokens', 'refreshTokens', 'idempotency'] as const;
+  const maps = ['otp', 'accessTokens', 'refreshTokens', 'idempotency', 'appliedEvents'] as const;
   if (!arrays.every((k) => Array.isArray(v[k])) || !maps.every((k) => isObj(v[k]))) return null;
   const users = v.users as unknown[];
   if (!users.every((u) => isObj(u) && typeof u.id === 'string' && Array.isArray(u.plantIds)))
     return null;
+  backfillRefusalCodes(v.appliedEvents as Record<string, unknown>, v.rejections as unknown[]);
   return v as unknown as MockState;
+}
+
+/**
+ * Refusals saved before `appliedEvents` kept a code have none, so a replay would answer without
+ * one (the phone refuses that body and its outbox retries forever). Give each the code of its
+ * rejection row, else INVALID_STATE, with the generic message.
+ */
+function backfillRefusalCodes(applied: Record<string, unknown>, rejections: unknown[]): void {
+  const codeOf = new Map<unknown, unknown>();
+  for (const r of rejections) if (isObj(r)) codeOf.set(r.clientEventId, r.code);
+  for (const [eventId, rec] of Object.entries(applied)) {
+    if (!isObj(rec) || rec.status !== 'rejected' || typeof rec.code === 'string') continue;
+    const found = codeOf.get(eventId);
+    const code = (typeof found === 'string' ? found : 'INVALID_STATE') as SyncRejectCode;
+    rec.code = code;
+    rec.message = errorMessage(code);
+  }
 }
 
 export function createMemoryStorage(initial: Record<string, string> = {}): StorageAdapter {

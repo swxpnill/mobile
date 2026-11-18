@@ -10,6 +10,8 @@ export interface HandlerCtx<B = unknown, Q = Record<string, string>> {
   params: Record<string, string>;
   query: Q;
   body: B;
+  /** Request headers, names lower-cased. */
+  headers: Record<string, string>;
   state: MockState;
   /** Request time in ms from the injected clock. */
   now: number;

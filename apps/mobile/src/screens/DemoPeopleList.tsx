@@ -18,7 +18,14 @@ import { messageFor } from './messages';
  * Everyone in the demo data (including people invited or deactivated on this phone), grouped by
  * business. Tapping a person signs in as them without a code and opens their first tab.
  */
-export function DemoPeopleList({ controls }: { controls: MockControls }) {
+export function DemoPeopleList({
+  controls,
+  confirmSwitch,
+}: {
+  controls: MockControls;
+  /** Asked before a switch (weights not sent yet); calls `go` to switch after all. */
+  confirmSwitch?: (go: () => void) => void;
+}) {
   const router = useRouter();
   const navigation = useNavigation();
   const { t } = useTheme();
@@ -58,6 +65,12 @@ export function DemoPeopleList({ controls }: { controls: MockControls }) {
     }
     return [...groups.entries()];
   }, [users]);
+
+  function requestSwitch(u: DemoUser) {
+    if (busy.current) return;
+    if (confirmSwitch) confirmSwitch(() => void switchTo(u));
+    else void switchTo(u);
+  }
 
   async function switchTo(u: DemoUser) {
     if (busy.current) return;
@@ -116,7 +129,7 @@ export function DemoPeopleList({ controls }: { controls: MockControls }) {
                   <Row
                     key={u.id}
                     disabled={you || !u.active || switching !== null}
-                    onPress={() => void switchTo(u)}
+                    onPress={() => requestSwitch(u)}
                     accessibilityLabel={`${u.name}, ${ROLE_LABEL[u.role]}, ${scope}${status}`}
                   >
                     <Avatar name={u.name} tone={u.active ? ROLE_TONE[u.role] : 'nu'} />

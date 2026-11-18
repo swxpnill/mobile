@@ -15,22 +15,18 @@ import {
 } from '@tonnage/shared';
 import { toIso } from '../clock.ts';
 import { ApiError, notFound, stale, validationError } from '../errors.ts';
-import { type OrderCtx, findOrder, orderCtx, toOrder } from '../order-views.ts';
-import { type OrderMath, isOpenTruck, orderMath } from '../orders-math.ts';
+import { type OrderCtx, ctxFor, findOrder, toOrder } from '../order-views.ts';
+import { type OrderMath, isOpenTruck } from '../orders-math.ts';
 import { route, type RouteDef } from '../router.ts';
 import type { MockState, OrderLineRec, OrderRec, SubOrderRec } from '../store.ts';
-import { type Authed, authed, logActivity, newId } from '../views.ts';
+import { authed, logActivity, newId } from '../views.ts';
 import { newLineRec, newSubOrderRec, validateOrderRefs } from './orders.ts';
 
 const keyOf = (productId: string, length: { value: number; unit: string }) =>
   `${productId}|${length.value}${length.unit}`;
 
-function ctxFor(ctx: { state: MockState; now: number }, a: Authed): OrderCtx {
-  return orderCtx(ctx.state, orderMath(ctx.state), a, ctx.now);
-}
-
 /** Sub-order by id in tenant and scope; 404 otherwise. Returns it with its order. */
-function findSubOrder(c: OrderCtx, id: string | undefined): { sub: SubOrderRec; order: OrderRec } {
+export function findSubOrder(c: OrderCtx, id: string | undefined): { sub: SubOrderRec; order: OrderRec } {
   const sub = c.state.subOrders.find((s) => s.id === id && s.tenantId === c.a.user.tenantId);
   if (!sub || !c.visibleCompanyIds.has(sub.companyId)) throw notFound();
   const order = c.state.orders.find((o) => o.id === sub.orderId);
@@ -50,12 +46,13 @@ function bump(rec: { version: number; updatedAt: string }, at: string): void {
   rec.updatedAt = at;
 }
 
-function cancelTrucks(math: OrderMath, sub: SubOrderRec, at: string, reason: string): number {
+function cancelTrucks(math: OrderMath, sub: SubOrderRec, at: string, by: string, reason: string): number {
   let n = 0;
   for (const t of math.trucksOf(sub.id)) {
     if (!isOpenTruck(t)) continue;
     t.state = 'cancelled';
     t.cancelledAt = at;
+    t.cancelledBy = by;
     t.cancelReason = reason;
     bump(t, at);
     n += 1;
@@ -231,7 +228,7 @@ export const orderLifecycleRoutes: RouteDef[] = [
       if (open.length > 0 && !body.cancelOpenTrucks) throw new ApiError(409, 'OPEN_TRUCKS', { trucks: open });
 
       const at = toIso(now);
-      const cancelled = cancelTrucks(c.math, sub, at, 'Order short closed');
+      const cancelled = cancelTrucks(c.math, sub, at, a.user.id, 'Order short closed');
       // Pending after the cancellations (reserved no longer matters; dispatched is unchanged).
       const lines = c.math.linesOf(sub.id);
       let dispatched = 0;
@@ -391,6 +388,18 @@ export const orderLifecycleRoutes: RouteDef[] = [
       }
       // Fixed order, children first (B2 does the same inside one transaction with an order lock).
       const subIds = new Set(c.math.subOrdersOf(order.id).map((s) => s.id));
+      const purged = state.trucks.filter((t) => subIds.has(t.subOrderId));
+      const truckIds = new Set(purged.map((t) => t.id));
+      const removedAt = toIso(ctx.now);
+      for (const t of purged) {
+        state.truckTombstones.push({ truckId: t.id, tenantId: t.tenantId, plantId: t.plantId, removedAt });
+      }
+      state.weighments = state.weighments.filter((w) => !truckIds.has(w.truckId));
+      state.rejections = state.rejections.filter((r) => !truckIds.has(r.truckId));
+      state.brokerLedger = state.brokerLedger.filter((r) => !truckIds.has(r.truckId));
+      for (const [eventId, e] of Object.entries(state.appliedEvents)) {
+        if (truckIds.has(e.truckId)) delete state.appliedEvents[eventId];
+      }
       state.trucks = state.trucks.filter((t) => !subIds.has(t.subOrderId));
       state.orderLines = state.orderLines.filter((l) => !subIds.has(l.subOrderId));
       state.subOrders = state.subOrders.filter((s) => !subIds.has(s.id));

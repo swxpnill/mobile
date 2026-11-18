@@ -42,6 +42,16 @@ describe('useSubmitKey', () => {
     result.current.settle(); // success
     expect(result.current.key()).not.toBe(second);
   });
+
+  it('a retry of the same input reuses the key; a changed input gets a new one', async () => {
+    const { result } = await renderHook(() => useSubmitKey());
+    const first = result.current.key('reason: Truck went back');
+    result.current.settle(new NetworkError('offline'));
+    expect(result.current.key('reason: Truck went back')).toBe(first);
+    result.current.settle(new NetworkError('offline'));
+    // The person changed the input after the lost answer: never replay the first request's answer.
+    expect(result.current.key('reason: Truck went back empty')).not.toBe(first);
+  });
 });
 
 describe('Toast', () => {

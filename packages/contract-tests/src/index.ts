@@ -6,6 +6,9 @@ import { register as lifecycle } from './suites/order-lifecycle.contract.ts';
 import { register as orders } from './suites/orders.contract.ts';
 import { register as org } from './suites/org.contract.ts';
 import { register as pipeline } from './suites/pipeline.contract.ts';
+import { register as trucks } from './suites/trucks.contract.ts';
+import { register as sync } from './suites/sync.contract.ts';
+import { register as rejections } from './suites/rejections.contract.ts';
 import { register as settings } from './suites/settings.contract.ts';
 import { register as users } from './suites/users.contract.ts';
 
@@ -22,6 +25,9 @@ export const CONTRACT_SUITES: readonly ((factory: TargetFactory) => void)[] = [
   masters,
   orders,
   lifecycle,
+  trucks,
+  sync,
+  rejections,
 ];
 
 /** Declares every contract suite against the target the factory builds. */

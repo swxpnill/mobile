@@ -10,7 +10,8 @@ import { radius } from '../theme/tokens';
 import { Text } from './Text';
 
 export interface ButtonProps {
-  variant?: 'primary' | 'secondary' | 'danger';
+  /** `violet`: the tare step's action (canvas `.bv`). */
+  variant?: 'primary' | 'secondary' | 'danger' | 'violet';
   onPress(): void;
   disabled?: boolean;
   /** Shows a spinner and blocks presses (a request is in flight). */
@@ -33,6 +34,7 @@ export function Button({
     primary: { bg: t.inv, fg: t.invtx, border: undefined },
     secondary: { bg: t.card, fg: t.tx, border: t.bd2 },
     danger: { bg: t.dgf, fg: '#FFFFFF', border: undefined },
+    violet: { bg: t.vi, fg: t.vitx, border: undefined },
   }[variant];
   return (
     <Pressable

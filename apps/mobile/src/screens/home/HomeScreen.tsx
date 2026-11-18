@@ -12,10 +12,11 @@ import { unitTagColors } from '../../theme/tokens';
 import { Avatar, Badge, Button, Group, Icon, Screen, Text, UnitTag } from '../../ui';
 import { messageFor } from '../messages';
 import { UnitSwitcherSheet } from '../UnitSwitcherSheet';
+import { InPlantSection } from './InPlantSection';
 
 const short = (name: string) => name.split(/\s+/)[0] ?? name;
 
-/** Canvas board 02 (owner, city staff, plant head). "In plant now" arrives with trucks in F3. */
+/** Canvas board 02 (owner, city staff, plant head), with "In plant now". */
 export function HomeScreen() {
   const router = useRouter();
   const { t, scheme } = useTheme();
@@ -156,6 +157,7 @@ export function HomeScreen() {
               detail={`${h.dispatchedToday.trucks} ${h.dispatchedToday.trucks === 1 ? 'truck' : 'trucks'}`}
             />
           </View>
+          <InPlantSection trucks={h.inPlant} slotOf={(code) => Math.max(0, all.findIndex((c) => c.code === code))} />
         </>
       )}
       <UnitSwitcherSheet visible={switcher} onClose={() => setSwitcher(false)} />

@@ -15,13 +15,18 @@ export function answered(e?: unknown): boolean {
   return e.status >= 400 && e.status < 500;
 }
 
-/** One `Idempotency-Key` per form submit, kept across retries of that submit (spec §5.7). */
-export function useSubmitKey(): { key(): string; settle(e?: unknown): void } {
-  const ref = useRef<string | null>(null);
+/**
+ * One `Idempotency-Key` per form submit, kept across retries of that submit (spec §5.7).
+ * `key(what)` takes what is being sent (e.g. the body as JSON): a retry of the same thing reuses
+ * the key, but a changed input gets a new one. Otherwise the server would replay the first
+ * answer and silently drop the change.
+ */
+export function useSubmitKey(): { key(what?: string): string; settle(e?: unknown): void } {
+  const ref = useRef<{ key: string; what: string | undefined } | null>(null);
   const api = useRef({
-    key() {
-      ref.current ??= Crypto.randomUUID();
-      return ref.current;
+    key(what?: string) {
+      if (!ref.current || ref.current.what !== what) ref.current = { key: Crypto.randomUUID(), what };
+      return ref.current.key;
     },
     settle(e?: unknown) {
       if (answered(e)) ref.current = null;

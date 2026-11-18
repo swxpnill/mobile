@@ -9,7 +9,7 @@ import {
   tokenPairSchema,
 } from '@tonnage/shared';
 import { createFakeClock, createMockApi, type MockApi } from '@tonnage/mock-api';
-import { ApiError, api, needsForceUpdate } from '../src/api/client';
+import { ApiError, api, apiWithDate, needsForceUpdate } from '../src/api/client';
 import { useNetStatus } from '../src/api/netStatus';
 import { createHttpTransport, setTransport } from '../src/api/transport';
 import { REFRESH_KEY, DEVICE_KEY, resetSessionForTests, useSession } from '../src/auth/session';
@@ -270,5 +270,20 @@ describe('http transport', () => {
     await expect(
       t.request({ method: 'GET', path: '/v1/meta', headers: {} }),
     ).rejects.toBeInstanceOf(NetworkError);
+  });
+});
+
+describe('apiWithDate', () => {
+  it('returns the response Date header and sends X-Device-Time only when asked', async () => {
+    await signIn();
+    const res = await apiWithDate('/v1/me', { schema: meSchema, deviceTime: true });
+    expect(res.date).toBe('Tue, 03 Nov 2026 04:30:00 GMT');
+    expect(res.body.role).toBe('owner');
+    const deviceTime = of('/v1/me')[0]?.headers['x-device-time'];
+    expect(deviceTime).toBeDefined();
+    expect(Number.isFinite(Date.parse(deviceTime ?? ''))).toBe(true);
+
+    await api('/v1/me');
+    expect(of('/v1/me')[1]?.headers['x-device-time']).toBeUndefined();
   });
 });

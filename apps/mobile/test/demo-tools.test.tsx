@@ -12,6 +12,8 @@ import { UnitBasisProvider } from '../src/api/hooks/me';
 import { useNetStatus } from '../src/api/netStatus';
 import { setMockApi, setTransport } from '../src/api/transport';
 import { resetSessionForTests, useSession } from '../src/auth/session';
+import { atGate, page, task } from '../src/offline/deviceStoreContract';
+import { openDeviceStore, resetDeviceStoresForTests } from '../src/offline/sqliteDeviceStore';
 import { CompaniesScreen } from '../src/screens/admin/CompaniesScreen';
 import { DemoToolsScreen } from '../src/screens/DemoToolsScreen';
 import { MoreScreen } from '../src/screens/MoreScreen';
@@ -248,6 +250,25 @@ describe('Reset demo data', () => {
 
     await signIn(ids.users.rajesh);
     expect((await api<unknown[]>('/v1/companies')).length).toBe(4);
+  });
+
+  it("empties every person's device store on this phone: no old cursor, tasks or outbox survive", async () => {
+    resetDeviceStoresForTests();
+    const stores = await Promise.all([ids.users.ravi, ids.users.rajesh].map(openDeviceStore));
+    for (const store of stores) {
+      const truckId = '0190a000-0000-7000-8000-0000000000aa';
+      await store.replaceTasks(page([task(truckId)], [], '2026-11-03T04:30:00.000Z'));
+      await store.saveCapture(atGate(truckId));
+    }
+
+    await demo.resetDemoData();
+
+    expect(useSession.getState().status).toBe('signedOut');
+    for (const store of [...stores, await openDeviceStore(ids.users.ravi)]) {
+      expect(await store.getTasks()).toEqual([]);
+      expect(await store.outbox()).toEqual([]);
+      expect((await store.meta()).cursor).toBeNull();
+    }
   });
 
   it('Cancel keeps everything', async () => {

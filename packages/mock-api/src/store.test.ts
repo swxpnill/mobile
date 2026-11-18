@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SAMPLE_WORLD } from '@tonnage/shared';
 import { createFakeClock } from './clock.ts';
-import { createMemoryStorage, seedState } from './store.ts';
+import { createMemoryStorage, parseSnapshot, seedState } from './store.ts';
 import { createMockApi } from './index.ts';
 
 const START = Date.UTC(2026, 10, 3, 4, 30);
@@ -163,6 +163,33 @@ describe('store', () => {
       headers: auth,
     });
     expect(again.status).toBe(401);
+  });
+
+  it('a snapshot saved before truck tombstones existed loads with none', () => {
+    const old: Record<string, unknown> = { ...seedState(createFakeClock(START)) };
+    delete old.truckTombstones;
+    expect(parseSnapshot(JSON.stringify(old))?.truckTombstones).toEqual([]);
+    expect(parseSnapshot(JSON.stringify({ ...old, truckTombstones: 'x' }))).toBeNull();
+  });
+
+  it('a refused event saved before refusals kept their code gets one back (its rejection row, else INVALID_STATE)', () => {
+    const old = seedState(createFakeClock(START));
+    const legacy = { truckId: 't1', status: 'rejected' };
+    const snapshot = {
+      ...old,
+      appliedEvents: { e1: legacy, e2: { ...legacy }, e3: { truckId: 't1', status: 'accepted' } },
+      rejections: [{ clientEventId: 'e2', code: 'TARE_CONFLICT' }],
+    };
+    const parsed = parseSnapshot(JSON.stringify(snapshot));
+    expect(parsed?.appliedEvents.e1).toEqual({
+      truckId: 't1',
+      status: 'rejected',
+      code: 'INVALID_STATE',
+      message: 'This vehicle is not in the right step for that',
+    });
+    expect(parsed?.appliedEvents.e2).toMatchObject({ status: 'rejected', code: 'TARE_CONFLICT' });
+    expect(parsed?.appliedEvents.e2).toHaveProperty('message', expect.any(String));
+    expect(parsed?.appliedEvents.e3).toEqual({ truckId: 't1', status: 'accepted' });
   });
 
   it('corrupt snapshot in storage falls back to the seed instead of crashing', async () => {

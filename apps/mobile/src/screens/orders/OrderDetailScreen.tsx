@@ -27,7 +27,8 @@ import { DeleteOrderSheet } from './DeleteOrderSheet';
 import { MoveQuantitySheet } from './MoveQuantitySheet';
 import { type OrderAction, OrderActionsSheet } from './OrderActionsSheet';
 import { shareText } from './shareText';
-import { ShortCloseSheet, truckLine } from './ShortCloseSheet';
+import { OrderTrucks, SubOrderTrucks, assignHref } from './OrderTrucks';
+import { ShortCloseSheet } from './ShortCloseSheet';
 import { statusMeta } from './statusMeta';
 
 type SheetName = 'actions' | 'shortClose' | 'delete' | 'move' | 'activity' | null;
@@ -72,6 +73,8 @@ function Detail({ o, refetch, refreshing }: { o: Order; refetch(): void; refresh
   const unit = unitLabel(basis);
   const q = (kg: number) => toDisplayQty(kg, basis);
   const open = o.subOrders.filter((s) => !isTerminal(s.status));
+  // Broker orders get trucks only once the customer is on the order (CUSTOMER_REQUIRED).
+  const assignable = may('truck.assign') && o.customer !== null ? open : [];
   const openTrucks = o.subOrders.flatMap((s) => s.openTrucks);
   const dispatchedTrucks = o.subOrders.reduce((n, s) => n + s.dispatchedTrucks, 0);
   const meta = statusMeta(o.status);
@@ -101,9 +104,13 @@ function Detail({ o, refetch, refreshing }: { o: Order; refetch(): void; refresh
     ...(may('order.edit') && open.length > 0
       ? [{ key: 'edit', icon: 'pencil' as const, title: 'Edit order', detail: 'Lines, rates, broker, ship-to', onPress: () => router.push({ pathname: '/order-form', params: { orderId: o.id } }) }]
       : []),
-    ...(may('truck.assign') && open.length > 0
-      ? [{ key: 'assign', icon: 'truck' as const, title: 'Assign vehicle', detail: 'Send a truck to a plant', onPress: () => showToast('Assigning vehicles arrives in the next update') }]
-      : []),
+    ...(assignable.map((s) => ({
+      key: `assign-${s.id}`,
+      icon: 'truck' as const,
+      title: assignable.length > 1 ? `Assign vehicle · ${s.companyCode}` : 'Assign vehicle',
+      detail: `Send a truck to ${s.companyName}`,
+      onPress: () => router.push(assignHref(o, s)),
+    }))),
     ...(may('order.edit') && open.length > 0 && o.subOrders.length > 0
       ? [{ key: 'move', icon: 'sliders' as const, title: 'Move quantity', detail: 'Undispatched quantity to another company', onPress: () => setSheet('move') }]
       : []),
@@ -149,9 +156,14 @@ function Detail({ o, refetch, refreshing }: { o: Order; refetch(): void; refresh
             <Button variant="secondary" onPress={() => setSheet('shortClose')}>
               Short close
             </Button>
-            <Button onPress={() => showToast('Assigning vehicles arrives in the next update')} style={styles.fill}>
-              Assign vehicle
-            </Button>
+            {assignable.length > 0 ? (
+              <Button
+                onPress={() => (assignable.length === 1 ? router.push(assignHref(o, assignable[0]!)) : setSheet('actions'))}
+                style={styles.fill}
+              >
+                Assign vehicle
+              </Button>
+            ) : null}
           </View>
         ) : undefined
       }
@@ -188,34 +200,17 @@ function Detail({ o, refetch, refreshing }: { o: Order; refetch(): void; refresh
       </Group>
 
       {o.subOrders.map((s) => (
-        <SubOrderSection key={s.id} o={o} s={s} slot={slot(s.companyCode)} canReopen={may('order.reopen')} />
+        <SubOrderSection
+          key={s.id}
+          o={o}
+          s={s}
+          slot={slot(s.companyCode)}
+          canReopen={may('order.reopen')}
+          canAssign={assignable.includes(s)}
+        />
       ))}
 
-      {openTrucks.length > 0 || dispatchedTrucks > 0 ? (
-        <>
-          <Text variant="heading">Trucks</Text>
-          <Group>
-            {o.subOrders.flatMap((s) =>
-              s.openTrucks.map((x) => (
-                <Row key={x.id} accessibilityLabel={truckLine(x, basis).replace(' — ', ', ')}>
-                  <View style={styles.fill}>
-                    <Text weight="medium">{x.vehicleNo}</Text>
-                    <Text variant="caption">{`${s.companyCode} · sub-order ${s.suffix}${x.tareKg !== null ? ` · tare ${toDisplayQty(x.tareKg, basis, { withUnit: true })}` : ''}`}</Text>
-                  </View>
-                  <Badge kind={x.state === 'loading' ? 'wn' : 'br'} dot>
-                    {x.state === 'loading' ? 'Loading' : x.state === 'at_gate' ? 'At gate' : 'Assigned'}
-                  </Badge>
-                </Row>
-              )),
-            )}
-            {dispatchedTrucks > 0 ? (
-              <Row>
-                <Text color="tx2" style={styles.fill}>{`${dispatchedTrucks} ${dispatchedTrucks === 1 ? 'truck' : 'trucks'} dispatched · ${q(o.totals.dispatchedKg)} ${unit} net`}</Text>
-              </Row>
-            ) : null}
-          </Group>
-        </>
-      ) : null}
+      <OrderTrucks o={o} />
 
       <OrderActionsSheet
         visible={sheet === 'actions'}
@@ -252,7 +247,7 @@ function Stat({ label, value, color }: { label: string; value: string; color?: '
   );
 }
 
-function SubOrderSection({ o, s, slot, canReopen }: { o: Order; s: SubOrder; slot: number; canReopen: boolean }) {
+function SubOrderSection({ o, s, slot, canReopen, canAssign }: { o: Order; s: SubOrder; slot: number; canReopen: boolean; canAssign: boolean }) {
   const basis = useDisplayBasis();
   const reopen = useReopen();
   const once = useSingleFlight();
@@ -315,6 +310,7 @@ function SubOrderSection({ o, s, slot, canReopen }: { o: Order; s: SubOrder; slo
           </View>
         ))}
       </Group>
+      <SubOrderTrucks o={o} s={s} canAssign={canAssign} />
       {o.type === 'broker_only' && !o.customer ? (
         <Text variant="caption" color="wnt">
           Add the customer before trucks can be assigned.

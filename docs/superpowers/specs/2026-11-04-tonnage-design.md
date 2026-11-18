@@ -136,6 +136,7 @@ ASSIGNED ──at-gate──▶ AT_GATE ──tare──▶ LOADING ──gross+
 - **Weight correction:** supervisor may correct tare until dispatch. After dispatch, owner only: the old weighment is superseded, allocations and that truck's ledger earning are reversed and rewritten using the truck's **original snapshot rates** and the new net, status re-derived, activity logged.
 - **Plausibility:** net < 50 % or > 150 % of plan → second confirmation, never blocks. Net ≤ 0 → rejected.
 - **Assignment guards:** sub-order not closed; customer present (broker-only orders blocked until a customer is added); every planned line belongs to the sub-order (blocks "product not on order"); company and plant active; same vehicle on another open truck → warning only; plan over assignable → warning only.
+- **AT_GATE is idempotent in effect:** on a dispatched or cancelled truck, and on one already at_gate or loading, it is an accepted no-op (never a rejection).
 - **Cancel:** releases the plan (reserved drops), keeps any weighments in the log.
 
 ### 5.3 Order and sub-order lifecycle (derived)
@@ -244,7 +245,7 @@ Saving a weight is one SQLite transaction (insert outbox row + update task local
 `GET /v1/supervisor/tasks?cursor=` returns changes since cursor `(updated_at, id)`, including tombstones for cancelled, reassigned or re-planted trucks. Triggered on foreground, every 60 s online, on reconnect, and on a silent "truck assigned" push. Server state is the base; pending local outbox events are re-applied on top for display.
 
 ### 6.4 Push
-`POST /v1/weighments/sync {events[]}` ordered by `device_seq`. The server processes each event in its own transaction, in order, and returns per-event `accepted` (new server state, slip number for GROSS) / `duplicate` (already applied — treated as accepted) / `rejected` (code + server values). If an event is rejected, later events for the **same truck** are marked `blocked` and not sent. Retry with exponential backoff + jitter (2 s … max 5 min), triggered by reconnect, foreground and an Android periodic background task (~15 min).
+`POST /v1/weighments/sync {events[]}` ordered by `device_seq`. The server processes each event in its own transaction, in order, and returns per-event `accepted` (new server state, slip number for GROSS) / `duplicate` (already applied — treated as accepted) / `rejected` (code + server values). If an event is rejected, later events for the **same truck** are marked `blocked` and not sent. Blocked rows are sent behind their replayed rejected row, and a replay of a rejected event returns the same rejection. `TasksPage.resolved` lists this user's rejections restored or dismissed since the cursor; the phone marks those outbox rows `resolved`. Retry with exponential backoff + jitter (2 s … max 5 min), triggered by reconnect, foreground and an Android periodic background task (~15 min).
 
 ### 6.5 Server validation and conflicts
 

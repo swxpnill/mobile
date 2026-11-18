@@ -17,3 +17,4 @@ export { ToastHost, showToast, hideToast } from './Toast';
 export { ProgressBar, type ProgressTone } from './ProgressBar';
 export { SearchField, useDebouncedValue } from './SearchField';
 export { ConfirmSheet } from './ConfirmSheet';
+export { Keypad, WeightReadout, pressKey, weightUnit, type KeypadKey } from './Keypad';

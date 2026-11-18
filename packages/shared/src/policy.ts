@@ -4,7 +4,7 @@ export const ACTIONS = [
   'order.create', 'order.edit', 'order.duplicate', 'order.shortClose', 'order.reopen',
   'order.editDispatched', 'order.hardDelete', 'order.view',
   'truck.assign', 'truck.edit', 'truck.cancel',
-  'weighment.capture', 'weighment.correctAfterDispatch',
+  'weighment.capture', 'weighment.correctAfterDispatch', 'rejections.manage',
   'dispatch.view', 'tasks.view', 'masters.manage', 'import.run', 'broker.pay',
   'reports.view', 'reports.doneToday', 'money.view',
   'users.manage', 'companies.manage', 'settings.manage', 'self.view',

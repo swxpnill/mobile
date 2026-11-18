@@ -12,6 +12,17 @@ afterEach(() => {
 });
 
 describe('controls', () => {
+  it('every response carries a date header from the mock clock, armed failures too', async () => {
+    const clock = createFakeClock(START);
+    const api = await createMockApi({ clock });
+    expect((await api.transport.request(meta)).headers.date).toBe('Tue, 03 Nov 2026 04:30:00 GMT');
+    clock.advance(90_000);
+    expect((await api.transport.request(meta)).headers.date).toBe('Tue, 03 Nov 2026 04:31:30 GMT');
+    expect((await api.transport.request({ ...meta, path: '/v1/nope' })).headers.date).toBe('Tue, 03 Nov 2026 04:31:30 GMT');
+    api.controls.failNext(503, 'INTERNAL');
+    expect((await api.transport.request(meta)).headers.date).toBe('Tue, 03 Nov 2026 04:31:30 GMT');
+  });
+
   it('setOffline(true) → transport rejects with NetworkError; false → works again', async () => {
     const api = await createMockApi({ clock: createFakeClock(START) });
     api.controls.setOffline(true);

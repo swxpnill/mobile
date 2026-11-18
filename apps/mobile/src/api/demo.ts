@@ -1,5 +1,7 @@
 import type { MockControls } from '@tonnage/mock-api';
+import { SAMPLE_WORLD } from '@tonnage/shared';
 import { useSession } from '../auth/session';
+import { clearAllDeviceStores } from '../offline/sqliteDeviceStore';
 import { API_MODE, getMockApi } from './transport';
 
 interface DemoEnv {
@@ -52,10 +54,15 @@ export async function signInAsDemo(userId: string): Promise<void> {
   if (previous) await c.revokeRefreshToken(previous);
 }
 
-/** Back to the sample data, every simulation off, everyone signed out (this phone too). */
+/**
+ * Back to the sample data, every simulation off, everyone signed out (this phone too). Every
+ * person's device store on this phone is emptied too: its cursor, tasks and events belong to the
+ * data that is gone.
+ */
 export async function resetDemoData(): Promise<void> {
   const c = await controls();
   await c.reset();
+  await clearAllDeviceStores(SAMPLE_WORLD.users.map((u) => u.id));
   await useSession.getState().signOut();
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MAX_READING_KG, weightKgSchema } from './trucks.ts';
 import {
   companySchema,
   createCompanyBodySchema,
@@ -114,5 +115,13 @@ describe('user schemas', () => {
   it('update user', () => {
     expect(updateUserBodySchema.safeParse({ role: 'plant_head', version: 2 }).success).toBe(true);
     expect(updateUserBodySchema.safeParse({ role: 'plant_head' }).success).toBe(false);
+  });
+});
+
+describe('weighbridge reading limit', () => {
+  it('MAX_READING_KG is the most weightKgSchema takes', () => {
+    expect(MAX_READING_KG).toBe(100_000);
+    expect(weightKgSchema.safeParse(MAX_READING_KG).success).toBe(true);
+    expect(weightKgSchema.safeParse(MAX_READING_KG + 1).success).toBe(false);
   });
 });
