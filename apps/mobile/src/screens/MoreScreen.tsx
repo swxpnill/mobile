@@ -92,7 +92,7 @@ export function MoreScreen() {
               />
             ) : null}
             {can(role, 'reports.view') ? (
-              <MenuRow icon="chart" tone="gr" label="Reports" comingSoon />
+              <MenuRow icon="chart" tone="gr" label="Reports" onPress={() => router.push('/reports')} />
             ) : null}
             {can(role, 'import.run') ? (
               <MenuRow icon="upload" tone="gr" label="Import from Excel" comingSoon />

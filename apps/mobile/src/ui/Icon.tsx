@@ -86,6 +86,10 @@ const ICONS = {
   arrowUpRight: ['M7 7h10v10M7 17 17 7'],
   calendar: [{ rect: [3, 4, 18, 18, 2] }, 'M16 2v4M8 2v4M3 10h18'],
   file: ['M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z', 'M14 2v4a2 2 0 0 0 2 2h4M8 13h8M8 17h5'],
+  /** Spreadsheet (board 23 "Excel"). */
+  fileGrid: ['M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z', 'M14 2v4a2 2 0 0 0 2 2h4M8 13h2M14 13h2M8 17h2M14 17h2'],
+  /** Plain page (board 23 "PDF"). */
+  fileBlank: ['M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z', 'M14 2v4a2 2 0 0 0 2 2h4'],
   mapPin: ['M20 10c0 4.99-5.54 10.19-7.4 11.8a1 1 0 0 1-1.2 0C9.54 20.19 4 14.99 4 10a8 8 0 0 1 16 0', { circle: [12, 10, 3] }],
 } satisfies Record<string, Shape[]>;
 
