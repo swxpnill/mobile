@@ -109,7 +109,7 @@ export function useDeletePreview(id: string, enabled: boolean) {
 export function afterOrderChange(qc: QueryClient, identity: number, order?: z.infer<typeof orderSchema>): void {
   if (useSession.getState().identity !== identity) return;
   if (order) qc.setQueryData(orderKey(order.id), order);
-  for (const key of [ORDERS_KEY, HOME_KEY, PARTIES_KEY, DRAFTS_KEY, DISPATCH_KEY, TRUCK_KEY, ['order-activity']]) {
+  for (const key of [ORDERS_KEY, HOME_KEY, PARTIES_KEY, DRAFTS_KEY, DISPATCH_KEY, TRUCK_KEY, ['order-activity'], ['broker'], ['report']]) {
     void qc.invalidateQueries({ queryKey: key });
   }
 }

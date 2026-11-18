@@ -16,6 +16,8 @@ export const MSG = {
   notFound: 'This was removed or is no longer available.',
   plantRule: 'Choose plants that match the role',
   inProgress: 'Still sending your first try. Wait a moment, then try again.',
+  notReversible: 'Only payments can be reversed',
+  alreadyReversed: 'This payment was already reversed',
 } as const;
 
 /**
@@ -71,6 +73,10 @@ export function messageFor(e: unknown): string {
         return MSG.plantRule;
       case 'IDEMPOTENCY_IN_PROGRESS':
         return MSG.inProgress;
+      case 'NOT_REVERSIBLE':
+        return MSG.notReversible;
+      case 'ALREADY_REVERSED':
+        return MSG.alreadyReversed;
       default:
         return weightCodeMessage(e.code) ?? MSG.generic;
     }
