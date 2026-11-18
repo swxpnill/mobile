@@ -241,7 +241,8 @@ describe('Dispatch board (canvas 08)', () => {
     unitFilterStore.getState().set(ids.users.rajesh, ids.companies.KRM);
     await wrap(<DispatchScreen />);
     expect(await screen.findByLabelText(/^CG 07 BR 8810/)).toBeOnTheScreen();
-    expect(screen.queryByLabelText(/^CG 04 MK 2291/)).toBeNull();
+    // The KRM truck is also in the unfiltered list, so wait for the filtered page to replace it.
+    await waitFor(() => expect(screen.queryByLabelText(/^CG 04 MK 2291/)).toBeNull());
   });
 });
 
