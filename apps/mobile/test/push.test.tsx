@@ -8,7 +8,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { type Order, SAMPLE_MASTERS, SAMPLE_WORLD, notificationPageSchema, orderListSchema, orderSchema } from '@tonnage/shared';
 import { createFakeClock, createMockApi, type MockApi } from '@tonnage/mock-api';
 import { api } from '../src/api/client';
-import { signInAsDemo } from '../src/api/demo';
+import { signInAsDemo, simulateActivity } from '../src/api/demo';
 import { UnitBasisProvider } from '../src/api/hooks/me';
 import { setMockApi, setTransport } from '../src/api/transport';
 import { resetSessionForTests, useSession } from '../src/auth/session';
@@ -199,5 +199,32 @@ describe('push (simulated, F5 Ruling 1)', () => {
     mock.controls.setOffline(true);
     await act(async () => useSession.getState().signOut());
     expect(useSession.getState().status).toBe('signedOut');
+  });
+
+  it('Demo tools: someone else acts, and the push shows here (owner: a payment)', async () => {
+    await signIn(ids.users.rajesh);
+    await mount();
+    await waitRegistered();
+    let said = '';
+    await act(async () => {
+      said = await simulateActivity();
+    });
+    await flush();
+    expect(said).toBe('Priya recorded ₹1,000 cash to R.K. Agarwal.');
+    expect(shownTitles()).toEqual(['₹1,000 paid to R.K. Agarwal']);
+  });
+
+  it('Demo tools: a supervisor gets a truck at their plant, and the phone syncs', async () => {
+    await signIn(ids.users.ravi);
+    await mount();
+    await waitRegistered();
+    let said = '';
+    await act(async () => {
+      said = await simulateActivity();
+    });
+    await flush();
+    expect(said).toMatch(/^Rajesh assigned CG 04 DM \d{4} at Siltara\.$/);
+    expect(shownTitles()).toEqual([`${said.slice('Rajesh assigned '.length, -' at Siltara.'.length)} assigned`]);
+    expect(requestSync).toHaveBeenCalled();
   });
 });
