@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
 import type { ReactElement } from 'react';
+import { StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { SAMPLE_WORLD } from '@tonnage/shared';
 import { createFakeClock, createMockApi, type MockApi } from '@tonnage/mock-api';
@@ -71,6 +72,25 @@ afterEach(() => {
 const noRupees = () => expect(screen.queryAllByText(/₹/)).toHaveLength(0);
 
 describe('HomeScreen', () => {
+  it('large text (phone font size 2x): the unit legend is one column, names whole', async () => {
+    const RN = jest.requireActual<typeof import('react-native')>('react-native');
+    const dims = jest.spyOn(RN, 'useWindowDimensions').mockReturnValue({ width: 390, height: 844, scale: 3, fontScale: 2 });
+    await wrap(<HomeScreen />);
+    const item = await screen.findByLabelText(/^Kalinga · KRM, /);
+    expect(StyleSheet.flatten(item.props.style)).toMatchObject({ width: '100%' });
+    dims.mockRestore();
+  });
+
+  it('normal text: the legend stays two columns', async () => {
+    // The RN jest environment reports fontScale 2 by default; a phone at normal size says 1.
+    const RN = jest.requireActual<typeof import('react-native')>('react-native');
+    const dims = jest.spyOn(RN, 'useWindowDimensions').mockReturnValue({ width: 390, height: 844, scale: 3, fontScale: 1 });
+    await wrap(<HomeScreen />);
+    const item = await screen.findByLabelText(/^Kalinga · KRM, /);
+    expect(StyleSheet.flatten(item.props.style)).toMatchObject({ width: '45%' });
+    dims.mockRestore();
+  });
+
   it('owner: greeting and IST date, pending across units with the per-company split, today tiles', async () => {
     await wrap(<HomeScreen />);
     expect(await screen.findByText('Good morning, Rajesh')).toBeOnTheScreen();

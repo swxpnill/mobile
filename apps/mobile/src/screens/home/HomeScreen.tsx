@@ -2,7 +2,7 @@ import { formatRupeesShort, toDisplayQty, unitLabel } from '@tonnage/shared';
 import { Bell } from '../notifications/Bell';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { byCode, useCompanies } from '../../api/hooks/companies';
 import { useDisplayBasis, useMe } from '../../api/hooks/me';
 import { useHome } from '../../api/hooks/orders';
@@ -20,7 +20,9 @@ const short = (name: string) => name.split(/\s+/)[0] ?? name;
 /** Canvas board 02 (owner, city staff, plant head), with "In plant now". */
 export function HomeScreen() {
   const router = useRouter();
-  const { t, scheme } = useTheme();
+  const { t, scheme, scale } = useTheme();
+  // Large text (phone font size × the app's Large): the unit legend goes to one column so names stay whole.
+  const oneColumn = useWindowDimensions().fontScale * scale >= 1.3;
   const basis = useDisplayBasis();
   const { data: me } = useMe();
   const { data: companies } = useCompanies();
@@ -127,7 +129,7 @@ export function HomeScreen() {
                       const co = all.find((x) => x.id === c.companyId);
                       const label = `${short(co?.name ?? c.name)} · ${c.code}`;
                       return (
-                        <View key={c.companyId} style={styles.legendItem} accessible accessibilityLabel={`${label}, ${qty(c.pendingKg)} ${unit} pending`}>
+                        <View key={c.companyId} style={[styles.legendItem, oneColumn ? styles.legendWide : null]} accessible accessibilityLabel={`${label}, ${qty(c.pendingKg)} ${unit} pending`}>
                           <View style={[styles.swatch, { backgroundColor: unitBarColor(all.findIndex((x) => x.id === c.companyId), scheme) }]} />
                           <Text variant="caption" style={styles.fill} numberOfLines={1}>
                             {label}
@@ -205,6 +207,7 @@ const styles = StyleSheet.create({
   stack: { flexDirection: 'row', gap: 3, height: 8 },
   legend: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 10, columnGap: 20 },
   legendItem: { width: '45%', flexDirection: 'row', alignItems: 'center', gap: 8 },
+  legendWide: { width: '100%' },
   swatch: { width: 8, height: 8, borderRadius: 2 },
   tiles: { flexDirection: 'row', gap: 12 },
   tileWrap: { flex: 1 },
