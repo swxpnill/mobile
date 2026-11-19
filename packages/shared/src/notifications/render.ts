@@ -37,7 +37,8 @@ export function renderNotification(
   switch (n.kind) {
     case 'truck.dispatched': {
       const d = n.data;
-      return { title: `${d.vehicleNo} dispatched`, body: `${qty(d.netKg)} to ${d.partyName} · ${d.companyName} · ${istTime(n.createdAt)}` };
+      // Board 37 names the company by its short name ("Aarav"), as Home's unit split does.
+      return { title: `${d.vehicleNo} dispatched`, body: `${qty(d.netKg)} to ${d.partyName} · ${firstName(d.companyName)} · ${istTime(n.createdAt)}` };
     }
     case 'order.over_tolerance': {
       const d = n.data;

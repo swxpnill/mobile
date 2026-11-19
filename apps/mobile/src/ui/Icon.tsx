@@ -90,6 +90,10 @@ const ICONS = {
   fileGrid: ['M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z', 'M14 2v4a2 2 0 0 0 2 2h4M8 13h2M14 13h2M8 17h2M14 17h2'],
   /** Plain page (board 23 "PDF"). */
   fileBlank: ['M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z', 'M14 2v4a2 2 0 0 0 2 2h4'],
+  /** Notifications (boards 15, 37). */
+  bell: ['M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9', 'M10.3 21a1.94 1.94 0 0 0 3.4 0'],
+  /** Short closed (board 37). */
+  ban: [{ circle: [12, 12, 10] }, 'm4.9 4.9 14.2 14.2'],
   /** Customer (board 39). */
   building: ['M3 21V9l9-6 9 6v12M9 21v-6h6v6'],
   /** Broker (board 39). */

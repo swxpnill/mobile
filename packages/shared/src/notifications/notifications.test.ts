@@ -64,7 +64,7 @@ describe('recipientsFor', () => {
 
 const dispatched: NotificationContent = {
   kind: 'truck.dispatched',
-  data: { truckId: ID, orderId: ID2, vehicleNo: 'CG 04 MK 2291', netKg: 24_180, partyName: 'Shubham Traders', companyName: 'Aarav' },
+  data: { truckId: ID, orderId: ID2, vehicleNo: 'CG 04 MK 2291', netKg: 24_180, partyName: 'Shubham Traders', companyName: 'Aarav Ispat Pvt Ltd' },
 };
 
 describe('renderNotification (board 37)', () => {

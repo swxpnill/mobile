@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router';
+import { useUnreadCount } from '../api/hooks/notifications';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useUnitBasis } from '../api/hooks/me';
@@ -21,6 +22,7 @@ export function ProfileScreen() {
   const { prefs, setPrefs } = useTheme();
   const [error, setError] = useState<string | undefined>();
 
+  const { data: unread = 0 } = useUnreadCount();
   return (
     <Screen title="Profile" edges={['top']}>
       <ProfileCard />
@@ -77,6 +79,14 @@ export function ProfileScreen() {
 
       <View style={styles.spacer} />
       <Group>
+        <MenuRow
+          icon="bell"
+          tone="bl"
+          label="Notifications"
+          badge={unread}
+          accessibilityLabel={unread ? `Notifications, ${unread} new` : 'Notifications'}
+          onPress={() => router.push('/notifications')}
+        />
         {demoToolsEnabled() ? (
           <MenuRow
             icon="grid"

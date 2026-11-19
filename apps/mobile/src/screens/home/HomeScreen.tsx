@@ -1,4 +1,5 @@
 import { formatRupeesShort, toDisplayQty, unitLabel } from '@tonnage/shared';
+import { Bell } from '../notifications/Bell';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
@@ -53,6 +54,7 @@ export function HomeScreen() {
           <Icon name="chevronDown" size={16} color={t.tx3} />
         </Pressable>
         <View style={styles.fill} />
+        <Bell />
         {me ? <Avatar name={me.name} tone="br" /> : null}
       </View>
 
