@@ -18,6 +18,7 @@ import { useSession } from '../auth/session';
 import type { DeviceStore, NewCapture, OutboxRow } from './deviceStore';
 import { openDeviceStore } from './sqliteDeviceStore';
 import { type SyncEngine, type SyncOutcome, createSyncEngine } from './syncEngine';
+import { withSyncLock } from './syncLock';
 
 /** Sync every minute while the app is open (plan Ruling 5). */
 export const SYNC_INTERVAL_MS = 60_000;
@@ -62,6 +63,9 @@ export const useDeviceRevision = create<{ rev: number }>(() => ({ rev: 0 }));
 const bumpRevision = () => useDeviceRevision.setState((s) => ({ rev: s.rev + 1 }));
 
 let running: SyncLoop | null = null;
+
+/** True while the signed-in capture role's loop runs (the app is open). */
+export const isLoopRunning = (): boolean => running !== null;
 
 /** Sync now (after a local save). Does nothing when no loop runs. */
 export function requestSync(): void {
@@ -164,7 +168,7 @@ export function startSyncLoop(engine: SyncEngine, store: DeviceStore, onSynced?:
     try {
       useSyncStatus.setState({ syncing: true });
       useSyncStatus.setState(await publishCounts(store));
-      out = await engine.syncNow();
+      out = await withSyncLock(() => engine.syncNow());
       if (stopped) return;
       useSyncStatus.setState({ online: out.error !== 'network' });
       useSyncStatus.setState(await publishCounts(store));
@@ -206,7 +210,7 @@ export function startSyncLoop(engine: SyncEngine, store: DeviceStore, onSynced?:
 }
 
 /** The engine on the real API, tied to one signed-in identity: it never sends as someone else. */
-function engineFor(store: DeviceStore, identity: number): SyncEngine {
+export function engineFor(store: DeviceStore, identity: number): SyncEngine {
   const same = () => {
     if (useSession.getState().identity !== identity)
       throw new NetworkError('Signed in as someone else');

@@ -2,6 +2,7 @@ import { Redirect, Stack } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 import { useSession } from '../../src/auth/session';
 import { usePush } from '../../src/notifications/usePush';
+import { useBackgroundSync } from '../../src/offline/backgroundSync';
 import { useSync } from '../../src/offline/useSync';
 import { ToastHost } from '../../src/ui';
 
@@ -12,6 +13,7 @@ import { ToastHost } from '../../src/ui';
 export default function AppLayout() {
   const status = useSession((s) => s.status);
   useSync();
+  useBackgroundSync();
   usePush();
   if (status === 'signedOut') return <Redirect href="/sign-in" />;
   return (

@@ -273,6 +273,7 @@ apps/mobile/test/a11y/audit.ts (helper), test/a11y.test.tsx, test/dark-theme.tes
 - [ ] **Step 3:** Implement.
 - [ ] **Step 4:** Run again, then `pnpm --filter mobile exec jest test/sync-engine.test.ts test/supervisor.test.tsx`. Expected: PASS.
 - [ ] **Step 5:** On the emulator as Ravi with simulated Offline, capture a tare, turn Offline off, press Home (app in background), force the job (Task 1 command) → Dispatch board as owner shows the tare. If Task 1 found tasks unavailable in Expo Go, use the Demo tools button instead and note it in the PR.
+  Built: registration lives in `useBackgroundSync()` (mounted beside `useSync()`; no import cycle). `withSyncLock` waits at most `SYNC_LOCK_MAX_WAIT_MS` (2 min) for the run before it, so a hung run never stops the phone syncing; jest resets it per test (`test/setup-after-env.ts`). Verified the overlap test fails without the lock (the event is pushed twice).
 - [ ] **Step 6:** Commit `feat(mobile): background sync for supervisors with a shared sync lock`.
 
 ### Task 8: Graphite dark polish

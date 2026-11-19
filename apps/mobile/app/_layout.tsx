@@ -1,4 +1,5 @@
 import '../src/polyfills'; // must run before anything that generates ids
+import '../src/offline/backgroundSync'; // defines the background sync task before the OS may run it
 import {
   Inter_400Regular,
   Inter_500Medium,
