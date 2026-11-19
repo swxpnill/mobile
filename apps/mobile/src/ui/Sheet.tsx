@@ -35,6 +35,7 @@ export function Sheet({
   };
   return (
     <Modal
+      testID="sheet-modal"
       visible={visible && !locked}
       transparent
       animationType="slide"
@@ -45,6 +46,7 @@ export function Sheet({
       {/* The sheet rides above the on-screen keyboard (Android is edge-to-edge, so nothing resizes by itself). */}
       <KeyboardAvoidingView behavior="padding" style={styles.root}>
         <Pressable
+          testID="sheet-backdrop"
           style={styles.backdrop}
           onPress={close}
           accessibilityRole="button"

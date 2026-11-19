@@ -157,6 +157,6 @@ describe('OrdersScreen', () => {
     expect(await screen.findByText('No orders yet')).toBeOnTheScreen();
     expect(screen.getByText('Getting set up · 4 of 4 done')).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole('button', { name: 'Create first order' }));
-    expect(mockRouter.push).toHaveBeenCalledWith('/new');
+    expect(mockRouter.push).toHaveBeenCalledWith('/order-form');
   });
 });

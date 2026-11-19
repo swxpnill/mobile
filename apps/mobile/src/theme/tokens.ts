@@ -18,6 +18,9 @@ export interface Tokens {
   tx3: string;
   inv: string;
   invtx: string;
+  /** Soft white on the primary fill (canvas board 39 lead tile: icon well, caption). */
+  invsoft: string;
+  invtx2: string;
   br: string;
   brt: string;
   brs: string;
@@ -52,6 +55,8 @@ export const lightTokens: Tokens = {
   tx3: '#626771',
   inv: '#2563EB',
   invtx: '#FFFFFF',
+  invsoft: 'rgba(255,255,255,.18)',
+  invtx2: 'rgba(255,255,255,.8)',
   br: '#2563EB',
   brt: '#1D4ED8',
   brs: 'rgba(37,99,235,.10)',
@@ -84,6 +89,8 @@ export const darkTokens: Tokens = {
   tx3: '#85858D',
   inv: '#4F86F7',
   invtx: '#FFFFFF',
+  invsoft: 'rgba(255,255,255,.18)',
+  invtx2: 'rgba(255,255,255,.8)',
   br: '#4F86F7',
   brt: '#8AB0FF',
   brs: 'rgba(79,134,247,.16)',

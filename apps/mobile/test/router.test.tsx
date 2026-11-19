@@ -108,6 +108,43 @@ describe('tabs layout', () => {
   });
 });
 
+describe('New tab (board 39)', () => {
+  async function openSheet() {
+    await signInAs('9826100012'); // Rajesh, owner
+    await renderRouter(routes, { initialUrl: '/home', wrapper: Providers });
+    await screen.findByText('home screen');
+    await fireEvent.press(screen.getByRole('tab', { name: 'New' }));
+    expect(await screen.findByText('What do you want to add?')).toBeOnTheScreen();
+  }
+
+  it('tapping New opens the Create new sheet over the current tab, without navigating', async () => {
+    await openSheet();
+    expect(screen).toHavePathname('/home');
+    expect(screen.getByText('home screen')).toBeOnTheScreen();
+    expect(screen.queryByText('new screen')).toBeNull();
+  });
+
+  it('the ✕ closes the sheet', async () => {
+    await openSheet();
+    await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByText('What do you want to add?')).toBeNull();
+    expect(screen).toHavePathname('/home');
+  });
+
+  it('a tap on the backdrop closes the sheet', async () => {
+    await openSheet();
+    await fireEvent.press(screen.getByTestId('sheet-backdrop', { includeHiddenElements: true }));
+    expect(screen.queryByText('What do you want to add?')).toBeNull();
+  });
+
+  it('Android Back closes the sheet and stays on the tab', async () => {
+    await openSheet();
+    await fireEvent(screen.getByTestId('sheet-modal'), 'requestClose');
+    expect(screen.queryByText('What do you want to add?')).toBeNull();
+    expect(screen).toHavePathname('/home');
+  });
+});
+
 type NavState = { index?: number; routes: { name: string; state?: NavState }[] } | undefined;
 let lastState: NavState;
 let demoNav: Parameters<typeof freshStartOn>[0];
