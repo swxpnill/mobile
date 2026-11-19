@@ -47,7 +47,7 @@ export function Sheet({
       <KeyboardAvoidingView behavior="padding" style={styles.root}>
         <Pressable
           testID="sheet-backdrop"
-          style={styles.backdrop}
+          style={[styles.backdrop, { backgroundColor: t.scrim }]}
           onPress={close}
           accessibilityRole="button"
           accessibilityLabel="Close"
@@ -76,7 +76,7 @@ export function Sheet({
 
 const styles = StyleSheet.create({
   root: { flex: 1, justifyContent: 'flex-end' },
-  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.45)' },
+  backdrop: { ...StyleSheet.absoluteFill },
   sheet: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,

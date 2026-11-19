@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { inputTheme } from './inputTheme';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { useTheme } from '../theme/ThemeProvider';
 import { radius } from '../theme/tokens';
@@ -27,15 +28,15 @@ export function SearchField({
   /** Spoken label; defaults to the placeholder. */
   label?: string;
 }) {
-  const { t } = useTheme();
+  const { scheme, t } = useTheme();
   return (
     <View style={[styles.box, { backgroundColor: t.card, borderColor: t.bd2 }]}>
       <Icon name="search" size={18} color={t.tx3} />
       <TextInput
+        {...inputTheme(t, scheme)}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={t.tx3}
         accessibilityLabel={label ?? placeholder}
         returnKeyType="search"
         autoCorrect={false}

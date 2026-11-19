@@ -11,6 +11,7 @@ import {
   istDateOf,
   validationDetailsSchema,
 } from '@tonnage/shared';
+import { inputTheme } from '../../ui/inputTheme';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { ApiError } from '../../api/client';
@@ -60,7 +61,7 @@ export function RecordPaymentSheet({
   visible: boolean;
   onClose(): void;
 }) {
-  const { t, scale } = useTheme();
+  const { scheme, t, scale } = useTheme();
   const record = useRecordPayment(broker.id);
   const once = useSingleFlight();
   const key = useSubmitKey();
@@ -148,12 +149,12 @@ export function RecordPaymentSheet({
             </Text>
             {/* Sized to its text (measured below), so the ₹ sits against the digits as one centred group. */}
             <TextInput
+              {...inputTheme(t, scheme)}
               accessibilityLabel="Amount paid"
               value={shownAmount}
               onChangeText={(s) => setAmount(digits(s))}
               keyboardType="number-pad"
               placeholder="0"
-              placeholderTextColor={t.tx3}
               style={[
                 styles.amount,
                 amountFont,

@@ -1,4 +1,5 @@
 import { type SubOrder, type Truck, type UnitBasis, parseQtyInput, toDisplayQty, unitLabel } from '@tonnage/shared';
+import { inputTheme } from '../../ui/inputTheme';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { useParties } from '../../api/hooks/masters';
@@ -93,7 +94,7 @@ export function LoadPlan({
   onChange(lineId: string, row: PlanRowState): void;
   error?: string;
 }) {
-  const { t, scale } = useTheme();
+  const { scheme, t, scale } = useTheme();
   const unit = unitLabel(basis);
   return (
     <View style={styles.field}>
@@ -138,11 +139,11 @@ export function LoadPlan({
                 </View>
               </Pressable>
               <TextInput
+                {...inputTheme(t, scheme)}
                 accessibilityLabel={`Planned ${unit}, ${label}`}
                 value={row.qty}
                 onChangeText={(qty) => onChange(l.id, { checked: qty.trim() !== '' || row.checked, qty })}
                 placeholder="—"
-                placeholderTextColor={t.tx3}
                 keyboardType="decimal-pad"
                 style={[
                   styles.qty,

@@ -292,6 +292,7 @@ apps/mobile/test/a11y/audit.ts (helper), test/a11y.test.tsx, test/dark-theme.tes
 - [ ] **Step 3:** Add tokens, replace literals, apply board 15 (tab bar `tabBar`, group `highlight` top border in dark, scrim `scrim`), thread `keyboardAppearance`/`placeholderTextColor`/`selectionColor`.
 - [ ] **Step 4:** Run both again. Expected: PASS.
 - [ ] **Step 5:** Emulator sweep in dark (Settings → Appearance → Dark): Home, Orders, Order detail, New order steps 1–3, Assign vehicle, Dispatch, Truck detail, More, Broker ledger, Record payment, Reports, Settings, Notifications, Create sheet, Calendar sheet, Unit switcher, Supervisor Tasks, Capture tare/gross, Keypad, Done today, Needs attention, Demo tools, Lock screen. Fix anything unreadable; screenshots of Home dark vs board 15 in the PR.
+  Built: tokens `tabBar, scrim, shadow, onDanger, thumb` (the 4 % `highlight` was dropped: invisible beside the 6 % border); `unitBarColor` for Home's bar; `inputTheme(t, scheme)` gives every TextInput its placeholder, cursor/selection and keyboard colours; lint rule `no-restricted-syntax` on colour literals. The colour test was checked to catch a stray colour. The emulator sweep (Step 5) waits for Metro, which was stopped for low memory.
 - [ ] **Step 6:** Commit `feat(mobile): Graphite dark polish and no raw colours`.
 
 ### Task 9: Token contrast check

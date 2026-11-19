@@ -42,7 +42,7 @@ export function SegmentedControl<T extends string>({
             }}
             style={[
               full ? styles.full : styles.compact,
-              selected ? [styles.on, { backgroundColor: t.card }] : null,
+              selected ? [styles.on, { backgroundColor: t.card, shadowColor: t.shadow }] : null,
             ]}
           >
             <Text
@@ -79,7 +79,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   on: {
-    shadowColor: '#0B0D12',
     shadowOpacity: 0.08,
     shadowRadius: 2,
     shadowOffset: { width: 0, height: 1 },

@@ -9,7 +9,7 @@ import { useHome } from '../../api/hooks/orders';
 import { istGreeting, istLongDate } from '../../format/time';
 import { useUnitFilter } from '../../prefs/unitFilter';
 import { useTheme } from '../../theme/ThemeProvider';
-import { unitTagColors } from '../../theme/tokens';
+import { unitBarColor } from '../../theme/tokens';
 import { Avatar, Badge, Button, Group, Icon, Screen, Text, UnitTag } from '../../ui';
 import { messageFor } from '../messages';
 import { UnitSwitcherSheet } from '../UnitSwitcherSheet';
@@ -118,7 +118,7 @@ export function HomeScreen() {
                       .map((c) => (
                         <View
                           key={c.companyId}
-                          style={{ flex: c.pendingKg, backgroundColor: unitTagColors(all.findIndex((x) => x.id === c.companyId), scheme).fg, borderRadius: 2 }}
+                          style={{ flex: c.pendingKg, backgroundColor: unitBarColor(all.findIndex((x) => x.id === c.companyId), scheme), borderRadius: 2 }}
                         />
                       ))}
                   </View>
@@ -128,7 +128,7 @@ export function HomeScreen() {
                       const label = `${short(co?.name ?? c.name)} · ${c.code}`;
                       return (
                         <View key={c.companyId} style={styles.legendItem} accessible accessibilityLabel={`${label}, ${qty(c.pendingKg)} ${unit} pending`}>
-                          <View style={[styles.swatch, { backgroundColor: unitTagColors(all.findIndex((x) => x.id === c.companyId), scheme).fg }]} />
+                          <View style={[styles.swatch, { backgroundColor: unitBarColor(all.findIndex((x) => x.id === c.companyId), scheme) }]} />
                           <Text variant="caption" style={styles.fill} numberOfLines={1}>
                             {label}
                           </Text>
