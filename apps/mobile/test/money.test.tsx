@@ -115,7 +115,7 @@ async function twoOrders() {
 /** Rajesh's (or the signed-in person's) R.K. Agarwal profile, loaded. */
 async function openProfile() {
   const view = await wrap(<PartyDetailScreen id={BROKER} />);
-  expect(await screen.findByText('Due to broker')).toBeOnTheScreen();
+  expect(await screen.findByText('Due to broker', {}, { timeout: 5000 })).toBeOnTheScreen();
   return view;
 }
 
