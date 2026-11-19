@@ -35,8 +35,8 @@ export function SegmentedControl<T extends string>({
             accessibilityRole="radio"
             accessibilityLabel={o.label}
             accessibilityState={{ selected, checked: selected }}
-            // The compact segment is 30 high; the hit area is stretched to the 44 minimum.
-            hitSlop={full ? undefined : { top: 7, bottom: 7 }}
+            // Hit areas reach the 44 minimum: the compact segment is 30 high, the full one 38.
+            hitSlop={full ? { top: 3, bottom: 3 } : { top: 7, bottom: 7 }}
             onPress={() => {
               if (!selected) onChange(o.value);
             }}

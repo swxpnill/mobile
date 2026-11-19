@@ -1,4 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { ReactTestRendererJSON } from 'react-test-renderer';
+import { auditA11y } from './a11y/audit';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
@@ -313,6 +315,22 @@ describe('Capture', () => {
       { orderLineId: b, netKg: 10_000 },
     ]);
     await view.unmount();
+  });
+});
+
+describe('Accessibility audit (F5 Task 10)', () => {
+  it('My tasks, and capture tare and gross with the keypad: named, roled, 44 dp, a header', async () => {
+    const tasks = await wrap(<TasksScreen />);
+    await screen.findByLabelText(/^CG 07 KL 3304/);
+    expect(auditA11y(screen.toJSON() as ReactTestRendererJSON)).toEqual([]);
+    await tasks.unmount();
+    for (const [action, vehicle] of [['Capture tare weight', 'CG 07 KL 3304'], ['Capture gross weight', 'CG 04 MK 2291']] as const) {
+      const truckId = await openTask(action, vehicle);
+      const view = await wrap(<WeighTruckScreen truckId={truckId} />);
+      await screen.findByTestId('weight-readout');
+      expect(auditA11y(screen.toJSON() as ReactTestRendererJSON)).toEqual([]);
+      await view.unmount();
+    }
   });
 });
 
