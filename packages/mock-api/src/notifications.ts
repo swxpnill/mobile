@@ -411,3 +411,8 @@ export function seedDemoNotifications(state: MockState, now: number): void {
   for (const n of state.notifications) if (now - fromIso(n.createdAt) > DAY) n.readAt = readAt;
   state.pushOutbox = [];
 }
+
+/** A signed-out (revoked) session stops pushing to its phone (F5 Ruling 7), even if the phone never said goodbye. */
+export function dropDevice(state: MockState, userId: string, deviceId: string): void {
+  state.devices = state.devices.filter((d) => !(d.userId === userId && d.deviceId === deviceId));
+}

@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router';
+import { PermissionRow } from './notifications/PermissionRow';
 import { useUnreadCount } from '../api/hooks/notifications';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -87,6 +88,7 @@ export function ProfileScreen() {
           accessibilityLabel={unread ? `Notifications, ${unread} new` : 'Notifications'}
           onPress={() => router.push('/notifications')}
         />
+        <PermissionRow />
         {demoToolsEnabled() ? (
           <MenuRow
             icon="grid"

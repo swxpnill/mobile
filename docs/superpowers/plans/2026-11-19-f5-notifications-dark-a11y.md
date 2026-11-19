@@ -245,6 +245,8 @@ apps/mobile/test/a11y/audit.ts (helper), test/a11y.test.tsx, test/dark-theme.tes
 - [ ] **Step 3:** Implement. `setNotificationHandler` once at module load of `localNotify.ts` (Ruling 9).
 - [ ] **Step 4:** Run again, then `pnpm --filter mobile test`. Expected: PASS.
 - [ ] **Step 5:** On the emulator: owner creates an order, switch to Kiran (plant head) → a banner shows; tap it → order detail. Screenshot for the PR.
+  Built: `session.ts` gained `onSignOut(listener)`; the push goodbye (DELETE push-token) runs from it in the background with the old access token, so sign-out is never delayed. The mock also drops a phone's device row when its refresh session is signed out or revoked (`dropDevice`), so an offline sign-out still stops pushes. Supervisors receive both the `truck.assigned` alert and the silent `sync`.
+  Emulator note: on one demo phone a banner only appears when *someone else* acts while you are signed in (the actor is never told), so Step 5's banner needs a second actor; jest covers the flow end to end.
 - [ ] **Step 6:** Commit `feat(mobile): simulated push with local notifications and silent sync`.
 
 ### Task 7: Background sync for capture roles

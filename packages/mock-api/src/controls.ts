@@ -9,6 +9,7 @@ import {
   type TransportRequest,
   type TransportResponse,
 } from '@tonnage/shared';
+import { dropDevice } from './notifications.ts';
 import { type AddTruckInput, addTruck } from './trucks.ts';
 import { type Clock, toIso } from './clock.ts';
 import { errorBody } from './errors.ts';
@@ -186,6 +187,7 @@ export function createControls(deps: {
         const rec = store.state.refreshTokens[refreshToken];
         if (rec && rec.revokedAt === null) {
           rec.revokedAt = toIso(clock.now());
+          dropDevice(store.state, rec.userId, rec.deviceId);
           store.schedulePersist();
         }
       }),

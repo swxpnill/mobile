@@ -6,6 +6,7 @@ import {
   parseQtyInput,
   unitLabel,
 } from '@tonnage/shared';
+import { PermissionRow } from './notifications/PermissionRow';
 import Constants from 'expo-constants';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { useEffect, useRef, useState } from 'react';
@@ -100,6 +101,11 @@ export function SettingsScreen() {
       </Text>
 
       {owner ? <OrderRules /> : null}
+
+      <SectionLabel>Notifications</SectionLabel>
+      <Group>
+        <PermissionRow />
+      </Group>
 
       <SectionLabel>Security</SectionLabel>
       <Group>

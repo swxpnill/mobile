@@ -79,6 +79,15 @@ export async function revoke(refreshToken: string): Promise<void> {
   }
 }
 
+type SignOutListener = (s: { accessToken: string | undefined; deviceId: string }) => void;
+const signOutListeners = new Set<SignOutListener>();
+
+/** Runs `fn` at the start of every sign-out, with the credentials being dropped. Returns unsubscribe. */
+export function onSignOut(fn: SignOutListener): () => void {
+  signOutListeners.add(fn);
+  return () => signOutListeners.delete(fn);
+}
+
 export const useSession = create<SessionState>((set, get) => ({
   ...initial,
 
@@ -136,7 +145,15 @@ export const useSession = create<SessionState>((set, get) => ({
 
   async signOut() {
     epoch += 1;
-    const { refreshToken } = get();
+    const { refreshToken, accessToken, deviceId } = get();
+    // Goodbyes (e.g. "stop pushing to this phone") get the old credentials and never delay sign-out.
+    for (const fn of signOutListeners) {
+      try {
+        fn({ accessToken, deviceId });
+      } catch {
+        // a listener's failure must not keep the person signed in
+      }
+    }
     const pending = inflight;
     // Signed out on this phone at once, whatever the network does next.
     set({

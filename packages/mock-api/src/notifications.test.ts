@@ -94,3 +94,37 @@ describe('demo seed', () => {
     expect(page.items.filter((n) => n.kind === 'broker.payment_recorded')).toEqual([]); // he recorded it
   });
 });
+
+describe('sign-out drops the phone', () => {
+  it('pushes reach the phone while signed in, and stop once its session is signed out', async () => {
+    const { createMockApi } = await import('./index.ts');
+    const { SAMPLE_MASTERS } = await import('@tonnage/shared');
+    const mock = await createMockApi({ clock: createFakeClock(Date.UTC(2026, 10, 3, 4, 30)) });
+    const rajesh = await mock.controls.signInAs(U.rajesh, 'phone-0001');
+    await mock.transport.request({
+      method: 'POST',
+      path: '/v1/notifications/push-token',
+      headers: { authorization: `Bearer ${rajesh.accessToken}` },
+      body: { deviceId: 'phone-0001', token: 'mock:phone-0001' },
+    });
+    const got: PushMessage[] = [];
+    mock.controls.onPush((m) => got.push(m));
+    const priya = await mock.controls.signInAs(U.priya, 'phone-0002');
+    let key = 0;
+    const pay = async () => {
+      const res = await mock.transport.request({
+        method: 'POST',
+        path: `/v1/brokers/${SAMPLE_MASTERS.ids.parties.rkAgarwal}/payments`,
+        headers: { authorization: `Bearer ${priya.accessToken}`, 'idempotency-key': `k${++key}` },
+        body: { paidRupees: 1_000, tdsRupees: 0, mode: 'cash', utr: null, paidOn: '2026-11-03' },
+      });
+      expect(res.status).toBe(201);
+      await tick();
+    };
+    await pay();
+    expect(got.map((m) => m.token)).toEqual(['mock:phone-0001']);
+    await mock.transport.request({ method: 'POST', path: '/v1/auth/sign-out', headers: {}, body: { refreshToken: rajesh.refreshToken } });
+    await pay();
+    expect(got).toHaveLength(1);
+  });
+});
