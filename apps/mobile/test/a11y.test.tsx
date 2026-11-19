@@ -4,7 +4,7 @@ import { render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
 import type { ReactElement } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { AccessibilityInfo, Pressable, Text, View } from 'react-native';
 import type { ReactTestRendererJSON } from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { SAMPLE_WORLD, orderListSchema } from '@tonnage/shared';
@@ -34,6 +34,8 @@ import { ReportsScreen } from '../src/screens/reports/ReportsScreen';
 import { SettingsScreen } from '../src/screens/SettingsScreen';
 import { SignInScreen } from '../src/screens/SignInScreen';
 import { ThemeProvider } from '../src/theme/ThemeProvider';
+import { WeightReadout, showToast } from '../src/ui';
+import { Sheet } from '../src/ui/Sheet';
 import { auditA11y } from './a11y/audit';
 
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true, setParams: jest.fn() };
@@ -179,5 +181,43 @@ describe('supervisor and sign-in screens', () => {
     await wrap(<SignInScreen />);
     await screen.findAllByRole('header');
     expect(auditA11y(screen.toJSON() as ReactTestRendererJSON)).toEqual([]);
+  });
+});
+
+describe('live regions and motion (F5 Ruling 14)', () => {
+  const themed = (ui: ReactElement) =>
+    render(
+      <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 0, left: 0, right: 0, bottom: 0 } }}>
+        <ThemeProvider>{ui}</ThemeProvider>
+      </SafeAreaProvider>,
+    );
+
+  it('the weight readout is a polite live region that speaks its unit in words', async () => {
+    await themed(<WeightReadout value="36.64" basis="mt" />);
+    const r = await screen.findByTestId('weight-readout');
+    expect(r.props.accessibilityLiveRegion).toBe('polite');
+    expect(r.props.accessibilityLabel).toBe('36.64 tonnes');
+  });
+
+  it('a toast is announced to the screen reader', () => {
+    const spy = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    showToast('Saved');
+    expect(spy).toHaveBeenCalledWith('Saved');
+    spy.mockRestore();
+  });
+
+  it.each([
+    [true, 'fade'],
+    [false, 'slide'],
+  ] as const)('reduce motion %s: sheets %s in', async (on, animation) => {
+    const spy = jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(on);
+    await themed(
+      <Sheet visible title="Test" onClose={jest.fn()}>
+        <Text>Body</Text>
+      </Sheet>,
+    );
+    await screen.findByText('Body');
+    await waitFor(() => expect(screen.getByTestId('sheet-modal').props.animationType).toBe(animation));
+    spy.mockRestore();
   });
 });

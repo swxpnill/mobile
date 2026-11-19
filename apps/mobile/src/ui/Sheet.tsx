@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useReduceMotion } from '../a11y/useReduceMotion';
 import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSession } from '../auth/session';
@@ -30,6 +31,7 @@ export function Sheet({
   const insets = useSafeAreaInsets();
   // A Modal is its own native window: the lock screen cannot cover it, so it hides while locked.
   const locked = useSession((s) => s.status === 'locked');
+  const reduceMotion = useReduceMotion();
   const close = () => {
     if (!busy) onClose();
   };
@@ -38,7 +40,7 @@ export function Sheet({
       testID="sheet-modal"
       visible={visible && !locked}
       transparent
-      animationType="slide"
+      animationType={reduceMotion ? 'fade' : 'slide'}
       statusBarTranslucent
       navigationBarTranslucent
       onRequestClose={close}
