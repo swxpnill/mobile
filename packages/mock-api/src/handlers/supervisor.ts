@@ -6,6 +6,7 @@ import {
   type TasksPage,
   syncBodySchema,
 } from '@tonnage/shared';
+import { notifyRejection } from '../notifications.ts';
 import { z } from 'zod';
 import { DAY, fromIso, toIso } from '../clock.ts';
 import { applyEvent, remember, replayed } from '../dispatch.ts';
@@ -71,6 +72,7 @@ function recordRejection(
     resolvedAt: null,
     resolutionNote: null,
   });
+  notifyRejection(state, a, now, { rejectionId: state.rejections.at(-1)!.id, truck, code: r.code });
 }
 
 export const supervisorRoutes: RouteDef[] = [

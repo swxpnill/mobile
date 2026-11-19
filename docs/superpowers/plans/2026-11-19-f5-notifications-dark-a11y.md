@@ -147,7 +147,7 @@ apps/mobile/test/a11y/audit.ts (helper), test/a11y.test.tsx, test/dark-theme.tes
 **Files:**
 - Create: `packages/contract-tests/src/suites/notifications.contract.ts` (register it in `index.ts`)
 - Create: `packages/mock-api/src/notifications.ts`, `packages/mock-api/src/handlers/notifications.ts`
-- Modify: `packages/mock-api/src/store.ts` (`notifications`, `pushOutbox`, `devices`, `TenantRec.lastDigestDate`; bump `SNAPSHOT_VERSION`), `pipeline.ts` (digest before, drain after commit), `controls.ts` (`onPush`), handlers at the Ruling 2 hook points (`orders.ts`, `trucks.ts`, `dispatch.ts`, `order-lifecycle.ts`, `brokers.ts`, rejection creation in `dispatch.ts`), hard delete in `order-lifecycle.ts`, `seed-orders.ts` (a few read and unread rows for the demo owner)
+- Modify: `packages/mock-api/src/store.ts` (`notifications`, `pushOutbox`, `devices`, `TenantRec.lastDigestDate`; built: backfilled in `parseSnapshot` instead of a `SNAPSHOT_VERSION` bump, so saved demo data survives), `pipeline.ts` (digest before, drain after commit), `controls.ts` (`onPush`), handlers at the Ruling 2 hook points (`orders.ts`, `trucks.ts`, `dispatch.ts`, `order-lifecycle.ts`, `brokers.ts`, rejection creation in `dispatch.ts`), hard delete in `order-lifecycle.ts`, `seed-orders.ts` (a few read and unread rows for the demo owner)
 
 **Interfaces:**
 - Consumes: Task 2 (`recipientsFor`, `deepLinkFor`, schemas).
@@ -156,6 +156,7 @@ apps/mobile/test/a11y/audit.ts (helper), test/a11y.test.tsx, test/dark-theme.tes
   - `queueSync(state, plantId, now)` — silent `sync` outbox rows for that plant's supervisors.
   - `drainOutbox(state): PushMessage[]` — marks rows sent; called by the pipeline only after the handler returned without throwing.
   - `MockControls.onPush(listener: (m: PushMessage) => void): () => void`.
+  - Built: page cursor is plain `createdAt|id` (the mock runs in Hermes: no `Buffer`); `read` returns the notification, `read-all` returns `{ count: 0 }`, push-token routes return `{ deviceId }`; registering a token removes it from any other person (one token per phone); demo rows come from `seedDemoNotifications` replaying the rules over the seed.
   - Routes (Ruling 5, 7): `GET /v1/notifications`, `GET /v1/notifications/unread-count`, `POST /v1/notifications/:id/read`, `POST /v1/notifications/read-all`, `POST /v1/notifications/push-token`, `DELETE /v1/notifications/push-token/:deviceId`; all `action: 'self.view'`.
 
 - [ ] **Step 1: Failing contract tests** in `notifications.contract.ts`:

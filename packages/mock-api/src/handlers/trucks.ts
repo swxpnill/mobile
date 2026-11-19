@@ -14,6 +14,7 @@ import {
   nextTruckState,
   subOrderNumber,
 } from '@tonnage/shared';
+import { notifyTruckAssigned, notifyTruckChanged } from '../notifications.ts';
 import { toIso } from '../clock.ts';
 import { closeWithinTolerance, currentWeighment, rewriteEarning, undoToleranceClose } from '../dispatch.ts';
 import { ApiError, notFound, stale, validationError } from '../errors.ts';
@@ -155,6 +156,7 @@ export const truckRoutes: RouteDef[] = [
         action: 'truck.assigned',
         meta: { subOrderId: sub.id, truckId: rec.id, vehicleNo: rec.vehicleNo },
       });
+      notifyTruckAssigned(state, a, now, rec);
       return { status: 201, body: withWarnings(toTruck(ctxFor(ctx, a), rec, { withWeighments: true }), warnings) };
     },
   }),
@@ -198,6 +200,7 @@ export const truckRoutes: RouteDef[] = [
         action: 'truck.edited',
         meta: { subOrderId: t.subOrderId, truckId: t.id, vehicleNo: t.vehicleNo, fields: given },
       });
+      notifyTruckChanged(state, t);
       return { body: withWarnings(toTruck(ctxFor(ctx, a), t, { withWeighments: true }), warnings) };
     },
   }),
@@ -228,6 +231,7 @@ export const truckRoutes: RouteDef[] = [
         action: 'truck.cancelled',
         meta: { subOrderId: t.subOrderId, truckId: t.id, vehicleNo: t.vehicleNo, reason: body.reason },
       });
+      notifyTruckChanged(state, t);
       return { body: toTruck(ctxFor(ctx, a), t, { withWeighments: true }) };
     },
   }),

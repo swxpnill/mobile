@@ -1,5 +1,6 @@
 import {
   type CloseKind,
+  type NotificationKind,
   DEFAULT_TENANT_SETTINGS,
   type Length,
   type OrderType,
@@ -36,6 +37,8 @@ export interface TenantRec {
   name: string;
   settings: TenantSettings;
   createdAt: string;
+  /** IST date of the last aged-orders digest (F5 Ruling 6). */
+  lastDigestDate?: string;
 }
 export interface CompanyRec {
   id: string;
@@ -111,6 +114,34 @@ export interface ActivityRec {
   actorId: string;
   meta?: Record<string, unknown>;
   at: string;
+}
+
+/** One person's notification (spec §4 `notifications`); `data` is a shared `NotificationContent` payload. */
+export interface NotificationRec {
+  id: string;
+  tenantId: string;
+  userId: string;
+  kind: NotificationKind;
+  data: Record<string, unknown>;
+  deepLink: string;
+  readAt: string | null;
+  createdAt: string;
+  /** The order it is about, so hard delete can remove it (§5.3). */
+  orderId: string | null;
+}
+/** Waiting to be pushed (spec §4 `notification_outbox`); drained only after the request committed. */
+export interface PushOutboxRec {
+  id: string;
+  userId: string;
+  message: { type: 'alert'; notificationId: string } | { type: 'sync' };
+  orderId: string | null;
+}
+/** A phone that receives this person's pushes (spec §4 `devices.push_token`). */
+export interface DeviceRec {
+  userId: string;
+  deviceId: string;
+  token: string;
+  updatedAt: string;
 }
 
 export interface PartyRec {
@@ -359,6 +390,9 @@ export interface MockState {
   truckTombstones: TruckTombstoneRec[];
   drafts: DraftRec[];
   numberSeries: NumberSeriesRec[];
+  notifications: NotificationRec[];
+  pushOutbox: PushOutboxRec[];
+  devices: DeviceRec[];
 }
 
 export function emptyState(): MockState {
@@ -386,6 +420,9 @@ export function emptyState(): MockState {
     truckTombstones: [],
     drafts: [],
     numberSeries: [],
+    notifications: [],
+    pushOutbox: [],
+    devices: [],
   };
 }
 
@@ -468,6 +505,10 @@ export function parseSnapshot(raw: string | null): MockState | null {
   if (!isObj(v) || v.schemaVersion !== SNAPSHOT_VERSION) return null;
   // Added within v4: a snapshot saved before it has none yet.
   v.truckTombstones ??= [];
+  // Added within v5 (F5): older snapshots start with none.
+  v.notifications ??= [];
+  v.pushOutbox ??= [];
+  v.devices ??= [];
   for (const g of v.truckTombstones as Record<string, unknown>[]) if (isObj(g)) g.reason ??= 'deleted';
   const arrays = [
     'tenants',
@@ -487,6 +528,9 @@ export function parseSnapshot(raw: string | null): MockState | null {
     'truckTombstones',
     'drafts',
     'numberSeries',
+    'notifications',
+    'pushOutbox',
+    'devices',
   ] as const;
   const maps = ['otp', 'accessTokens', 'refreshTokens', 'idempotency', 'appliedEvents'] as const;
   if (!arrays.every((k) => Array.isArray(v[k])) || !maps.every((k) => isObj(v[k]))) return null;

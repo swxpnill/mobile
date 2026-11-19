@@ -16,6 +16,7 @@ import { orderMath } from './orders-math.ts';
 import type { MockState, OrderLineRec } from './store.ts';
 import { addTruck } from './trucks.ts';
 import { newId } from './views.ts';
+import { seedDemoNotifications } from './notifications.ts';
 
 const HOUR = 60 * MINUTE;
 const P = SAMPLE_MASTERS.ids.parties;
@@ -361,5 +362,6 @@ export function seedDemoOrders(state: MockState, clock: Clock): void {
   for (const [fy, last] of lastSeqByFy) {
     state.numberSeries.push({ tenantId: tenant.id, key: 'order', fy, next: last + 1 });
   }
+  seedDemoNotifications(state, now);
 }
 

@@ -26,6 +26,8 @@ import { settingsRoutes } from './handlers/settings.ts';
 import { supervisorRoutes } from './handlers/supervisor.ts';
 import { truckRoutes } from './handlers/trucks.ts';
 import { userRoutes } from './handlers/users.ts';
+import { notificationRoutes } from './handlers/notifications.ts';
+import { createPushBus } from './notifications.ts';
 import { createPipeline } from './pipeline.ts';
 import { buildRouter } from './router.ts';
 import {
@@ -88,6 +90,7 @@ export const ALL_ROUTES = [
   ...brokerRoutes,
   ...reportRoutes,
   ...homeRoutes,
+  ...notificationRoutes,
 ];
 
 /** In-process implementation of the M1 API contract, behind a `Transport`. */
@@ -106,10 +109,11 @@ export async function createMockApi(opts: CreateMockApiOptions = {}): Promise<Mo
     failNext: null,
   };
   const enqueue = createQueue();
-  const pipeline = createPipeline({ router, store, clock });
+  const push = createPushBus();
+  const pipeline = createPipeline({ router, store, clock, push });
   return {
     transport: createTransport({ controls: cs, enqueue, clock, handle: pipeline.handle }),
-    controls: createControls({ controls: cs, enqueue, store, clock }),
+    controls: createControls({ controls: cs, enqueue, store, clock, push }),
     fixtures: createFixtures({ store, clock, enqueue }),
   };
 }

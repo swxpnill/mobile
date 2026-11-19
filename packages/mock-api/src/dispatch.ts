@@ -11,6 +11,7 @@ import {
   toleranceCloseKg,
   truckEarning,
 } from '@tonnage/shared';
+import { notifyDispatched, notifyOverTolerance } from './notifications.ts';
 import { toIso } from './clock.ts';
 import { errorMessage } from './errors.ts';
 import { nextNumber, orderMath } from './orders-math.ts';
@@ -187,6 +188,7 @@ function decide(state: MockState, ctx: DispatchCtx, event: SyncEvent): SyncResul
       bump(truck, now);
       writeEarning(state, truck, now, a.user.id);
       log('truck.dispatched', { netKg: net, loadingSlipNo: truck.loadingSlipNo });
+      notifyDispatched(state, a, ctx.now, truck, net);
       closeWithinTolerance(state, ctx, truck, now);
       return accepted({ loadingSlipNo: truck.loadingSlipNo });
     }
@@ -245,6 +247,7 @@ export function closeWithinTolerance(state: MockState, ctx: DispatchCtx, truck: 
       action: 'order.over_tolerance',
       meta: { subOrderId: sub.id, kg: overKg },
     });
+    notifyOverTolerance(state, ctx.user, ctx.now, sub, overKg);
   }
 }
 
