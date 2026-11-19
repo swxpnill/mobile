@@ -40,6 +40,7 @@ const MESSAGES: Record<ErrorCode, string> = {
   CUSTOMER_REQUIRED: 'Add a customer to this order before assigning a vehicle',
   TRUCK_LOCKED: 'This vehicle can no longer be changed',
   TRUCK_CANCELLED: 'This vehicle was cancelled',
+  ARRIVAL_REQUIRED: 'Mark the vehicle arrived before its tare',
   ALREADY_RESOLVED: 'This was already resolved',
   PLANT_SCOPE: 'This vehicle is not at your plant',
   TARE_CONFLICT: 'Another tare weight was already recorded for this vehicle',

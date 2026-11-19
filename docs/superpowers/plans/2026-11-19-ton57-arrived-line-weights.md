@@ -67,6 +67,7 @@
 - [ ] **Step 2:** Run `pnpm --filter @tonnage/contract-tests exec vitest run -t "sync"` and `pnpm --filter @tonnage/shared exec vitest run src/rules/trucks.test.ts`. Expected: FAIL.
 - [ ] **Step 3:** Implement. Update any existing contract test that sends TARE straight from `assigned` to send AT_GATE first (these tests assumed the old optional arrival).
 - [ ] **Step 4:** Run `pnpm test` at the root. Expected: PASS (app tests that weigh from `assigned` are updated the same way).
+  Built: `task.lines` is `{ orderLineId, productName, pendingKg }` (the task's `productName` already includes the length, so no separate `length`). The owner weighing a tare on a truck still `assigned` (Dispatch detail) records `AT_GATE` then `TARE` on the phone, same instant. Restore marks the arrival at the tare's business time (`markArrived`, activity `truck.at_gate` with `restored: true`). Contract tests that weigh call `arrive(t, …truckIds)` first (the owner from a dedicated arrival device), and cancel with the post-arrival version. `truckToTask` sends `lines: []`; Task 4 fills them for the owner path.
 - [ ] **Step 5:** Commit `feat(shared,mock-api): vehicle arrival before tare; sub-order lines on tasks`.
 
 ### Task 2: Policy and notifications: city staff corrections, dispatch tells owner and city staff

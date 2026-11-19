@@ -24,7 +24,7 @@ import {
   useTarget,
 } from '../harness.ts';
 import { CANVAS_ORDER, createOrder } from './orders.contract.ts';
-import { canvasWithTruck, phone, sync, synced } from './sync.contract.ts';
+import { canvasWithTruck, phone, sync, synced, arrive } from './sync.contract.ts';
 
 const BROKER = SAMPLE_MASTERS.ids.parties.rkAgarwal;
 const KRM_ONLY = { ...CANVAS_ORDER, subOrders: [CANVAS_ORDER.subOrders[1]] };
@@ -115,6 +115,7 @@ export function register(factory: TargetFactory): void {
       const ravi = await tokenFor(t, PEOPLE.ravi);
       const ph = phone(truck.id, () => t.clock.now());
       const net = aLine.orderedKg + 2_000;
+      await arrive(t, truck.id);
       const results = await synced(sync(t, ravi, [ph.atGate(), ph.tare(12_000), ph.gross(12_000 + net, [{ orderLineId: aLine.id, netKg: net }])]));
       expect(results.every((r) => r.status === 'accepted')).toBe(true);
 
@@ -137,6 +138,7 @@ export function register(factory: TargetFactory): void {
         body: { reason: 'Vehicle did not arrive', note: '', version: truck.version },
       });
       const ph = phone(truck.id, () => t.clock.now());
+      await arrive(t, truck.id);
       const [r] = await synced(sync(t, await tokenFor(t, PEOPLE.ravi), [ph.tare(12_000)], { deviceId: DEVICE_A }));
       expect(r!.status).toBe('rejected');
       const rej = of(await all(t, owner), 'rejection.created');

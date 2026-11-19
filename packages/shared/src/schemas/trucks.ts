@@ -168,6 +168,13 @@ export const taskSchema = z.object({
   tareAt: z.string().nullable(),
   tareDeviceId: z.string().nullable(),
   plan: z.array(z.object({ orderLineId: idSchema, productName: z.string(), plannedKg: z.number().int() })),
+  /**
+   * Every line of the truck's sub-order (TON-57 "Add product"): a supervisor may weigh a line that
+   * is not on the plan. Defaults to none so tasks stored on a phone before it still parse.
+   */
+  lines: z
+    .array(z.object({ orderLineId: idSchema, productName: z.string(), pendingKg: z.number().int() }))
+    .default([]),
   version: versionSchema,
   changedAt: z.string(),
 });
@@ -231,6 +238,8 @@ export type SyncBody = z.infer<typeof syncBodySchema>;
 export const SYNC_REJECT_CODES = [
   'PLANT_SCOPE', 'TARE_CONFLICT', 'TRUCK_CANCELLED', 'INVALID_WEIGHT', 'ALLOC_MISMATCH',
   'LINE_REMOVED', 'TARE_REQUIRED', 'ALREADY_DISPATCHED', 'INVALID_STATE',
+  // TON-57: the truck must be marked arrived (`AT_GATE`) before its tare.
+  'ARRIVAL_REQUIRED',
 ] as const;
 export const syncRejectCodeSchema = z.enum(SYNC_REJECT_CODES);
 export type SyncRejectCode = z.infer<typeof syncRejectCodeSchema>;

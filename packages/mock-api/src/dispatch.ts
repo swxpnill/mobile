@@ -132,11 +132,9 @@ function decide(state: MockState, ctx: DispatchCtx, event: SyncEvent): SyncResul
 
   switch (event.type) {
     case 'AT_GATE': {
-      // The gate step is optional and the phone may send it late: after it, it changes nothing.
+      // "Vehicle arrived" (TON-57). A late or repeated one changes nothing once the truck is past it.
       if (truck.state !== 'assigned') return accepted();
-      truck.state = 'at_gate';
-      truck.atGateAt = w.capturedAt;
-      bump(truck, now);
+      markArrived(truck, w.capturedAt, now);
       log('truck.at_gate');
       return accepted();
     }
@@ -163,7 +161,9 @@ function decide(state: MockState, ctx: DispatchCtx, event: SyncEvent): SyncResul
         log('truck.tare_corrected', { tareKg: event.tareKg, previousTareKg: fromKg });
         return accepted();
       }
-      // assigned | at_gate
+      // TON-57: tare only after "Vehicle arrived". The phone always queues AT_GATE first, so this
+      // catches an outbox from before the rule; Restore marks the arrival and applies the tare.
+      if (truck.state === 'assigned') return reject(id, 'ARRIVAL_REQUIRED', atState());
       setTare(truck, weigh('tare', event.tareKg), ctx.deviceId);
       truck.state = 'loading';
       bump(truck, now);
@@ -193,6 +193,13 @@ function decide(state: MockState, ctx: DispatchCtx, event: SyncEvent): SyncResul
       return accepted({ loadingSlipNo: truck.loadingSlipNo });
     }
   }
+}
+
+/** The truck is at the plant: `at_gate` ("Arrived"), at `capturedAt` business time. */
+export function markArrived(truck: TruckRec, capturedAt: string, now: string): void {
+  truck.state = 'at_gate';
+  truck.atGateAt = capturedAt;
+  bump(truck, now);
 }
 
 function setTare(truck: TruckRec, rec: WeighmentRec, deviceId: string): void {

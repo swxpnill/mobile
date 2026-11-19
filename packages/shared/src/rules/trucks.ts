@@ -63,6 +63,17 @@ export function checkAllocations(
   return 'ok';
 }
 
+/** TON-57: gross is never typed; it is the tare plus every product line's weight. */
+export function grossFromLines(tareKg: number, lineNetKg: readonly number[]): number {
+  return lineNetKg.reduce((sum, kg) => sum + kg, tareKg);
+}
+
+/** A line's weight against its plan, for "+0.180 over · allowed" (`kg` is never negative). */
+export function lineDiff(netKg: number, plannedKg: number): { kind: 'over' | 'under' | 'exact'; kg: number } {
+  const d = netKg - plannedKg;
+  return d > 0 ? { kind: 'over', kg: d } : d < 0 ? { kind: 'under', kg: -d } : { kind: 'exact', kg: 0 };
+}
+
 /** Net far from the plan: under half is `low`, over one and a half times is `high`. */
 export function plausibility(netKg: number, plannedKg: number): 'ok' | 'low' | 'high' {
   if (plannedKg === 0) return 'ok';

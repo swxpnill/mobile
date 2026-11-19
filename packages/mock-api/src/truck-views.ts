@@ -1,4 +1,5 @@
-import { type Task, type Truck, formatLength, istDateParts, productDisplayName, subOrderNumber } from '@tonnage/shared';
+import { type Task, type Truck, formatLength, istDateParts, pending, productDisplayName, subOrderNumber } from '@tonnage/shared';
+import { orderMath } from './orders-math.ts';
 import type { OrderCtx } from './order-views.ts';
 import type { MockState, TruckRec } from './store.ts';
 
@@ -120,6 +121,22 @@ export function toTruck(c: OrderCtx, t: TruckRec, opts: { withWeighments: boolea
 }
 
 /** The supervisor's phone copy of a truck: product names and kg only, never money (§6.2). */
+/** "TMT Fe500D · 12 mm · 12 m": the task has no length field, and two lines can share a product. */
+function lineLabel(state: MockState, orderLineId: string): string {
+  const line = state.orderLines.find((l) => l.id === orderLineId);
+  const product = line ? state.products.find((x) => x.id === line.productId) : undefined;
+  return line && product ? `${productDisplayName(product)} · ${formatLength(line.length)}` : '';
+}
+
+function subLines(state: MockState, subOrderId: string): Task['lines'] {
+  const math = orderMath(state);
+  return math.linesOf(subOrderId).map((l) => ({
+    orderLineId: l.id,
+    productName: lineLabel(state, l.id),
+    pendingKg: pending(math.lineQty(l)),
+  }));
+}
+
 export function toTask(state: MockState, t: TruckRec): Task {
   const { sub, order } = parentsOf(state, t);
   const partyName = (id: string | null) => (id ? (state.parties.find((p) => p.id === id)?.name ?? null) : null);
@@ -136,13 +153,9 @@ export function toTask(state: MockState, t: TruckRec): Task {
     tareKg: t.tareKg,
     tareAt: t.tareAt,
     tareDeviceId: t.tareDeviceId,
-    plan: t.plan.map((p) => {
-      const line = state.orderLines.find((l) => l.id === p.orderLineId);
-      const product = line ? state.products.find((x) => x.id === line.productId) : undefined;
-      // The task has no length field, and two lines can share a product (12 mm · 12 m and · 6 m).
-      const productName = line && product ? `${productDisplayName(product)} · ${formatLength(line.length)}` : '';
-      return { orderLineId: p.orderLineId, productName, plannedKg: p.plannedKg };
-    }),
+    plan: t.plan.map((p) => ({ orderLineId: p.orderLineId, productName: lineLabel(state, p.orderLineId), plannedKg: p.plannedKg })),
+    // TON-57: every line of the sub-order, for "Add product" on the phone.
+    lines: subLines(state, t.subOrderId),
     version: t.version,
     changedAt: t.updatedAt,
   };

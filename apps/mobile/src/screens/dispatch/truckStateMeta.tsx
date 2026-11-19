@@ -47,6 +47,8 @@ export function truckToTask(t: Truck): Task {
     tareAt: t.tareKg === null ? null : t.tareAt,
     tareDeviceId: null,
     plan: t.plan.map((p) => ({ orderLineId: p.orderLineId, productName: planLabel(p), plannedKg: p.plannedKg })),
+    // The truck does not carry its sub-order's other lines; TON-57 Task 4 fills these from the order.
+    lines: [],
     version: t.version,
     changedAt: t.tareAt ?? t.atGateAt ?? t.assignedAt,
   };

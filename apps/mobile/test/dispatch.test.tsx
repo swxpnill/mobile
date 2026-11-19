@@ -292,7 +292,10 @@ describe('Owner weighs from the truck detail (Ruling 4)', () => {
         expect(keys).toContain(JSON.stringify(k));
     });
     const store = await openDeviceStore(ids.users.rajesh);
-    expect((await store.outbox()).map((r) => [r.truckId, r.type])).toEqual([[fresh.id, 'TARE']]);
+    expect((await store.outbox()).map((r) => [r.truckId, r.type])).toEqual([
+      [fresh.id, 'AT_GATE'], // TON-57: the arrival goes first, then the tare
+      [fresh.id, 'TARE'],
+    ]);
     await act(() => syncNow());
     const after = await api(`/v1/trucks/${fresh.id}`, { schema: truckSchema });
     expect(after).toMatchObject({ state: 'loading', tareKg: 12_100 });

@@ -96,13 +96,21 @@ export function CaptureScreen({
     setSaving(true);
     setError(undefined);
     try {
+      const at = new Date().toISOString();
+      let taskOpt = ensureTask ? { task: ensureTask } : undefined;
+      // TON-57: the server takes a tare only after "Vehicle arrived". Weighing a truck still
+      // marked assigned (the owner from Dispatch detail) records the arrival first, same moment.
+      if (!gross && task.state === 'assigned') {
+        await recordCapture(store, { eventId: Crypto.randomUUID(), truckId: task.truckId, type: 'AT_GATE', payload: {}, capturedAtDevice: at }, taskOpt);
+        taskOpt = undefined;
+      }
       await recordCapture(store, {
         eventId: Crypto.randomUUID(),
         truckId: task.truckId,
         type: gross ? 'GROSS' : 'TARE',
         payload,
-        capturedAtDevice: new Date().toISOString(),
-      }, ensureTask ? { task: ensureTask } : undefined);
+        capturedAtDevice: at,
+      }, taskOpt);
       showToast(SAVED_ON_PHONE);
       if (onSaved) onSaved();
       else if (gross) router.replace(`/dispatched/${task.truckId}`);

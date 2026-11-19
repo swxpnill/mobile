@@ -14,6 +14,7 @@ export const SYNC_REJECT_REASON: Record<SyncRejectCode, string> = {
   TARE_REQUIRED: 'The gross arrived before any tare',
   ALREADY_DISPATCHED: 'The truck was already dispatched',
   PLANT_SCOPE: 'The sender no longer has access to this plant',
+  ARRIVAL_REQUIRED: 'The tare arrived before the truck was marked arrived',
 };
 
 const IST_OFFSET_MS = 330 * 60_000;

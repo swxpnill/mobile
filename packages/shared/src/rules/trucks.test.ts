@@ -11,8 +11,7 @@ import {
   plausibility,
   splitProRata,
   toleranceCloseKg,
-  truckEarning,
-} from './trucks.ts';
+  truckEarning, grossFromLines, lineDiff } from './trucks.ts';
 
 describe('truckEarning', () => {
   it('canvas earning: 24.180 MT × (₹150 + ₹300) = ₹10,881', () => {
@@ -178,5 +177,18 @@ describe('constants', () => {
   it('are fixed', () => {
     expect(CLOCK_SKEW_FLAG_MS).toBe(300_000);
     expect(TRUCK_CANCEL_REASONS).toEqual(['Vehicle did not arrive', 'Order short closed', 'Wrong vehicle', 'Other']);
+  });
+});
+
+describe('grossFromLines and lineDiff (TON-57)', () => {
+  it('gross is tare plus every line weight', () => {
+    expect(grossFromLines(12_460, [24_000, 180])).toBe(36_640);
+    expect(grossFromLines(12_460, [])).toBe(12_460);
+  });
+
+  it('a line over, under or on its plan', () => {
+    expect(lineDiff(24_180, 24_000)).toEqual({ kind: 'over', kg: 180 });
+    expect(lineDiff(23_500, 24_000)).toEqual({ kind: 'under', kg: 500 });
+    expect(lineDiff(24_000, 24_000)).toEqual({ kind: 'exact', kg: 0 });
   });
 });

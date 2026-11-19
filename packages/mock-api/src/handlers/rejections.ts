@@ -9,7 +9,7 @@ import {
   subOrderNumber,
 } from '@tonnage/shared';
 import { toIso } from '../clock.ts';
-import { applyEvent, currentWeighment } from '../dispatch.ts';
+import { applyEvent, currentWeighment, markArrived } from '../dispatch.ts';
 import { ApiError, notFound } from '../errors.ts';
 import { type OrderCtx, ctxFor } from '../order-views.ts';
 import { route, type RouteDef } from '../router.ts';
@@ -165,6 +165,17 @@ export const rejectionRoutes: RouteDef[] = [
         // Re-run as the original sender and phone, through the same dispatch code as a sync.
         delete state.appliedEvents[r.event.eventId];
         const dispatchCtx = { user: senderOf(state, a, r), deviceId: r.deviceId, now, offsetMs: r.offsetMs ?? 0 };
+        // TON-57: a tare sent before "Vehicle arrived" (an outbox from before the rule) is restored
+        // as arrival then tare; the arrival takes the tare's own business time.
+        if (r.event.type === 'TARE' && truck.state === 'assigned') {
+          markArrived(truck, toIso(Date.parse(r.event.capturedAtDevice) + dispatchCtx.offsetMs), at);
+          logActivity(state, a, now, {
+            entityType: 'order',
+            entityId: truck.orderId,
+            action: 'truck.at_gate',
+            meta: { subOrderId: truck.subOrderId, truckId: truck.id, vehicleNo: truck.vehicleNo, restored: true },
+          });
+        }
         const result = applyEvent(state, dispatchCtx, r.event);
         if (result.status === 'rejected') throw new ApiError(409, result.code, result.server);
         r.status = 'restored';
