@@ -308,6 +308,7 @@ apps/mobile/test/a11y/audit.ts (helper), test/a11y.test.tsx, test/dark-theme.tes
 - [ ] **Step 2:** Run `pnpm --filter mobile exec jest test/contrast.test.ts`. Expected: FAIL (helper missing), then failures name any pair below threshold.
 - [ ] **Step 3:** Implement `contrast.ts`; adjust failing text tokens per Ruling 13 with a comment `// was #xxxxxx (canvas), raised for 4.5:1 on <bg>`.
 - [ ] **Step 4:** Run again plus `test/theme.test.tsx`. Expected: PASS.
+  Built — three canvas pairs failed and were moved per Ruling 13: dark `inv` #4F86F7 → #4473D4 (white text 3.45 → 4.52; primary buttons, New tab, lead tile); `invtx2` light .8 → .92 alpha (3.89 → 4.65); dark `invtx2` → #FFFFFF (only full white passes on the dark fill). Every other text pair, the unit tags and icon colours already passed.
 - [ ] **Step 5:** Commit `test(mobile): token contrast checks in both themes`.
 
 ### Task 10: Accessibility audit across screens

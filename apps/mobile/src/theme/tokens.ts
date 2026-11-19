@@ -66,7 +66,8 @@ export const lightTokens: Tokens = {
   inv: '#2563EB',
   invtx: '#FFFFFF',
   invsoft: 'rgba(255,255,255,.18)',
-  invtx2: 'rgba(255,255,255,.8)',
+  // was rgba(255,255,255,.8) (canvas board 39), raised for 4.5:1 on inv (F5 Ruling 13).
+  invtx2: 'rgba(255,255,255,.92)',
   br: '#2563EB',
   brt: '#1D4ED8',
   brs: 'rgba(37,99,235,.10)',
@@ -102,10 +103,12 @@ export const darkTokens: Tokens = {
   tx: '#F4F3EF',
   tx2: '#A3A3A9',
   tx3: '#85858D',
-  inv: '#4F86F7',
+  // was #4F86F7 (canvas Graphite), darkened in hue for 4.5:1 with white text (F5 Ruling 13).
+  inv: '#4473D4',
   invtx: '#FFFFFF',
   invsoft: 'rgba(255,255,255,.18)',
-  invtx2: 'rgba(255,255,255,.8)',
+  // was rgba(255,255,255,.8): only full white reaches 4.5:1 on the dark inv (F5 Ruling 13).
+  invtx2: '#FFFFFF',
   br: '#4F86F7',
   brt: '#8AB0FF',
   brs: 'rgba(79,134,247,.16)',
