@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { useRef } from 'react';
 import { ActivityIndicator } from 'react-native';
 import { currentIdentity } from '../../api/hooks/cache';
-import { TRUCK_KEY, orderKey } from '../../api/hooks/orders';
+import { TRUCK_KEY, orderKey, useOrder } from '../../api/hooks/orders';
 import { afterTruckChange, useTruck } from '../../api/hooks/trucks';
 import { useSession } from '../../auth/session';
 import { useDeviceSnapshot } from '../../offline/useDeviceData';
@@ -13,7 +13,7 @@ import { useTheme } from '../../theme/ThemeProvider';
 import { EmptyState, Screen } from '../../ui';
 import { type CaptureMode, CaptureScreen } from '../supervisor/CaptureScreen';
 import { messageFor } from '../messages';
-import { isOpenState, truckToTask } from './truckStateMeta';
+import { isOpenState, planLabel, truckToTask } from './truckStateMeta';
 
 /**
  * The owner weighs from the truck detail (Ruling 4) with the supervisor's capture screen, through
@@ -48,6 +48,11 @@ export function OwnerWeighScreen({ truckId }: { truckId: string }) {
     fixed.current = { task, mode: task.state === 'loading' ? 'gross' : 'tare', tareAt: task.tareKg === null ? null : task.tareAt };
   }
   const shown = fixed.current;
+  // TON-57 "Add product": the truck carries only its plan; the sub-order's other lines come from
+  // the order once it has loaded (until then Add product is not offered).
+  const order = useOrder(truck.data?.orderId);
+  const subLines = order.data?.subOrders.find((x) => x.id === truck.data?.subOrderId)?.lines ?? [];
+  const lines: Task['lines'] = subLines.map((l) => ({ orderLineId: l.id, productName: planLabel(l), pendingKg: l.pendingKg }));
 
   if (!shown) {
     if (truck.isPending || snap === null)
@@ -67,13 +72,17 @@ export function OwnerWeighScreen({ truckId }: { truckId: string }) {
       </Screen>
     );
   }
-  if (!isOpenState(shown.task.state)) {
+  if (!isOpenState(shown.task.state) || shown.task.state === 'weighed') {
     return (
       <Screen>
         <EmptyState
           icon="truck"
           title="Nothing to weigh"
-          body="This truck is already dispatched or cancelled."
+          body={
+            shown.task.state === 'weighed'
+              ? 'Its weights are saved and waiting for approval.'
+              : 'This truck is already dispatched or cancelled.'
+          }
           actions={[{ label: 'Back', onPress: () => router.back() }]}
         />
       </Screen>
@@ -81,7 +90,7 @@ export function OwnerWeighScreen({ truckId }: { truckId: string }) {
   }
   return (
     <CaptureScreen
-      task={shown.task}
+      task={shown.task.lines.length > 0 ? shown.task : { ...shown.task, lines }}
       mode={shown.mode}
       tareAt={shown.tareAt}
       ensureTask={server ?? undefined}

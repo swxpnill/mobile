@@ -214,21 +214,25 @@ describe('Capture', () => {
     await view.unmount();
   });
 
-  it('gross 36.640 over tare 12.460: net 24.180, +0.180 over; offline save, banner, then the slip once synced', async () => {
+  it('one product: 24.18 on the line makes gross 36.640, +0.180 over; offline save, banner, then awaiting approval', async () => {
     const truckId = await openTask('Capture gross weight', 'CG 04 MK 2291');
     let view = await wrap(<WeighTruckScreen truckId={truckId} />);
-    await screen.findByText('Gross weight');
-    expect(screen.getByText('Planned 24.000 MT')).toBeOnTheScreen();
+    expect(await screen.findByRole('header', { name: 'Weigh products' })).toBeOnTheScreen();
+    expect(screen.getByLabelText('Progress: step 4 of 5, Gross')).toBeOnTheScreen();
     // The seeded tare was weighed 25 min before 10:30 IST.
     expect(screen.getByText('Tare · weighed 10:05')).toBeOnTheScreen();
-    expect(screen.getByText('− 12.460')).toBeOnTheScreen();
+    expect(screen.getByText('Planned 24.000 MT')).toBeOnTheScreen();
+    // The only line is selected; gross waits for its weight.
+    expect(screen.getByRole('radio', { name: /^TMT Fe500D · 12 mm · 12 m/ })).toBeChecked();
+    expect(screen.getByLabelText('Gross, not yet')).toBeOnTheScreen();
+    expect(screen.getByText('Enter a weight for every product')).toBeOnTheScreen();
 
-    await typeWeight('36.640');
-    expect(screen.getByText('24.180 MT')).toBeOnTheScreen();
+    await typeWeight('24.18');
+    expect(screen.getByLabelText('Gross, 36.640 MT')).toBeOnTheScreen();
     expect(screen.getByText('+0.180 over · allowed')).toBeOnTheScreen();
 
     mock.controls.setOffline(true); // Demo tools → Offline
-    await press('Save gross · send for approval');
+    await press('Save weights · send for approval');
     expect(await screen.findByText('Saved on this phone')).toBeOnTheScreen();
     const rows = await (await ravisStore()).outbox();
     expect(rows.map((r) => r.type)).toEqual(['GROSS']);
@@ -239,12 +243,10 @@ describe('Capture', () => {
     expect(mockRouter.replace).toHaveBeenCalledWith(`/dispatched/${truckId}`);
     await view.unmount();
 
-    // The banner on My tasks; the dispatched truck is off the list.
+    // The banner on My tasks; the weighed truck is off the list.
     view = await wrap(<TasksScreen />);
     expect(await screen.findByText('No network')).toBeOnTheScreen();
-    expect(
-      screen.getByText('1 weight saved on this phone · they sync automatically'),
-    ).toBeOnTheScreen();
+    expect(screen.getByText('1 weight saved on this phone · they sync automatically')).toBeOnTheScreen();
     await screen.findByLabelText(/^CG 07 KL 3304/);
     expect(screen.queryByLabelText(/^CG 04 MK 2291/)).toBeNull();
     await view.unmount();
@@ -280,38 +282,25 @@ describe('Capture', () => {
     await signIn(ids.users.ravi);
 
     const view = await wrap(<WeighTruckScreen truckId={mk.id} />);
-    await screen.findByText('Gross weight');
+    await screen.findByRole('header', { name: 'Weigh products' });
     expect(screen.getByText('Tare · weighed 10:05')).toBeOnTheScreen(); // not the edit at 10:30
     await view.unmount();
   });
 
-  it('an implausible net (10 t of a 24 t plan) asks before saving', async () => {
+  it('a light load (30 % of the plan) saves without any question; the difference is information only', async () => {
     const truckId = await openTask('Capture gross weight', 'CG 04 MK 2291');
     const view = await wrap(<WeighTruckScreen truckId={truckId} />);
-    await screen.findByText('Gross weight');
-    await typeWeight('22.460');
-    expect(screen.getByText('10.000 MT')).toBeOnTheScreen();
-    expect(screen.getByText('−14.000 under · allowed')).toBeOnTheScreen();
-    await press('Save gross · send for approval');
-    expect(await screen.findByText('Net is 42 % of the plan. Save anyway?')).toBeOnTheScreen();
-    expect(await (await ravisStore()).outbox()).toEqual([]);
-    await press('Save anyway');
+    await screen.findByRole('header', { name: 'Weigh products' });
+    await typeWeight('7.2');
+    expect(screen.getByText('−16.800 under · allowed')).toBeOnTheScreen();
+    await press('Save weights · send for approval');
     expect(await screen.findByText('Saved on this phone')).toBeOnTheScreen();
-    expect((await (await ravisStore()).outbox()).map((r) => r.payload.grossKg)).toEqual([22_460]);
+    expect((await (await ravisStore()).outbox()).map((r) => r.payload.grossKg)).toEqual([19_660]);
     await view.unmount();
   });
 
-  it('net at or below zero cannot be saved', async () => {
-    const truckId = await openTask('Capture gross weight', 'CG 04 MK 2291');
-    const view = await wrap(<WeighTruckScreen truckId={truckId} />);
-    await screen.findByText('Gross weight');
-    await typeWeight('12.4');
-    expect(screen.getByText('Gross must be more than the tare')).toBeOnTheScreen();
-    expect(screen.getByRole('button', { name: 'Save gross · send for approval' })).toBeDisabled();
-    await view.unmount();
-  });
-
-  it('two plan lines: split step prefilled pro rata; Save only while the split sums to net', async () => {
+  /** A loading truck on 0142-A with two plan lines of 10 MT, on this phone; its id and the two line ids. */
+  async function twoLineTruck() {
     await signIn(ids.users.rajesh);
     const mk = await boardTruck('CG 04 MK 2291');
     const kl = await boardTruck('CG 07 KL 3304');
@@ -328,33 +317,106 @@ describe('Capture', () => {
       ],
     });
     await signIn(ids.users.ravi);
+    const tasks = await wrap(<TasksScreen />);
+    await screen.findByLabelText(/^CG 04 TT 1001/);
+    await tasks.unmount();
+    return { truckId, a, b };
+  }
 
+  it('two products: every one needs a weight; both are sent with gross = tare + both', async () => {
+    const { truckId, a, b } = await twoLineTruck();
     const view = await wrap(<WeighTruckScreen truckId={truckId} />);
-    await screen.findByText('Gross weight');
-    await typeWeight('32.001');
-    await press('Save gross · send for approval');
+    await screen.findByRole('header', { name: 'Weigh products' });
+    const save = () => screen.getByRole('button', { name: 'Save weights · send for approval' });
 
-    const first = await screen.findByLabelText('TMT Fe500D · 12 mm · 12 m');
-    const second = screen.getByLabelText('TMT Fe500D · 12 mm · 6 m');
-    expect(first.props.value).toBe('10.001'); // largest remainder goes to the first line
-    expect(second.props.value).toBe('10.000');
-    const save = () => screen.getByRole('button', { name: 'Save gross · send for approval' });
-    expect(save()).toBeEnabled();
-
-    await fireEvent.changeText(first, '9.000');
-    expect(screen.getByText('Left to allocate')).toBeOnTheScreen();
-    expect(screen.getByText('1.001 MT')).toBeOnTheScreen();
+    await typeWeight('10.001');
     expect(save()).toBeDisabled();
+    expect(screen.getByText('Enter a weight for every product')).toBeOnTheScreen();
 
-    await fireEvent.changeText(first, '10.001');
+    await fireEvent.press(screen.getByRole('radio', { name: /^TMT Fe500D · 12 mm · 6 m/ }));
+    await typeWeight('10');
+    expect(screen.getByLabelText('Gross, 32.001 MT')).toBeOnTheScreen();
+    expect(screen.getByText('Exact')).toBeOnTheScreen();
     expect(save()).toBeEnabled();
+
     await fireEvent.press(save());
     expect(await screen.findByText('Saved on this phone')).toBeOnTheScreen();
     const [row] = await (await ravisStore()).outbox();
-    expect(row?.payload.allocations).toEqual([
-      { orderLineId: a, netKg: 10_001 },
-      { orderLineId: b, netKg: 10_000 },
-    ]);
+    expect(row?.payload).toEqual({
+      grossKg: 32_001,
+      allocations: [
+        { orderLineId: a, netKg: 10_001 },
+        { orderLineId: b, netKg: 10_000 },
+      ],
+    });
+    await view.unmount();
+  });
+
+  it('every product at 0 cannot be saved; a 0 line is left out of what is sent', async () => {
+    const { truckId, a } = await twoLineTruck();
+    const view = await wrap(<WeighTruckScreen truckId={truckId} />);
+    await screen.findByRole('header', { name: 'Weigh products' });
+    await typeWeight('0');
+    await fireEvent.press(screen.getByRole('radio', { name: /^TMT Fe500D · 12 mm · 6 m/ }));
+    await typeWeight('0');
+    expect(screen.getByText('Enter at least one weight')).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Save weights · send for approval' })).toBeDisabled();
+
+    await fireEvent.press(screen.getByRole('radio', { name: /^TMT Fe500D · 12 mm · 12 m/ }));
+    await press('Delete');
+    await typeWeight('9.5');
+    await press('Save weights · send for approval');
+    expect(await screen.findByText('Saved on this phone')).toBeOnTheScreen();
+    const [row] = await (await ravisStore()).outbox();
+    expect(row?.payload).toEqual({ grossKg: 21_500, allocations: [{ orderLineId: a, netKg: 9_500 }] });
+    await view.unmount();
+  });
+
+  it('Add product lists the sub-order’s other lines; an added line can be weighed or removed', async () => {
+    const truckId = await openTask('Capture gross weight', 'CG 04 MK 2291');
+    const view = await wrap(<WeighTruckScreen truckId={truckId} />);
+    await screen.findByRole('header', { name: 'Weigh products' });
+    await typeWeight('20');
+    await press('Add product');
+    expect(await screen.findByText('Add a product')).toBeOnTheScreen();
+    // The line already on the truck is not offered again.
+    expect(screen.queryByRole('button', { name: /^TMT Fe500D · 12 mm · 12 m,/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /^TMT Fe500D · 12 mm · 6 m, .* pending$/ })).toBeOnTheScreen();
+    await press(/^TMT Fe500D · 16 mm · 12 m, /);
+
+    const added = await screen.findByRole('radio', { name: /^TMT Fe500D · 16 mm · 12 m/ });
+    expect(added).toBeChecked();
+    expect(screen.getByText(/^Not on the plan/)).toBeOnTheScreen();
+    expect(screen.getByText('Enter a weight for every product')).toBeOnTheScreen();
+
+    await press('Remove TMT Fe500D · 16 mm · 12 m');
+    expect(screen.queryByRole('radio', { name: /^TMT Fe500D · 16 mm · 12 m/ })).toBeNull();
+    expect(screen.getByLabelText('Gross, 32.460 MT')).toBeOnTheScreen();
+
+    await press('Add product');
+    await press(/^TMT Fe500D · 16 mm · 12 m, /);
+    await typeWeight('4');
+    expect(screen.getByLabelText('Gross, 36.460 MT')).toBeOnTheScreen();
+    await press('Save weights · send for approval');
+    expect(await screen.findByText('Saved on this phone')).toBeOnTheScreen();
+    const [row] = await (await ravisStore()).outbox();
+    expect(row?.payload.allocations?.map((x) => x.netKg)).toEqual([20_000, 4_000]);
+    await view.unmount();
+  });
+
+  it('kg basis: whole kilograms, and the same kg saved as typing it in MT', async () => {
+    await api('/v1/me/preferences', { method: 'PATCH', body: { unitBasis: 'kg' } });
+    const truckId = await openTask('Capture gross weight', 'CG 04 MK 2291');
+    const view = await wrap(<WeighTruckScreen truckId={truckId} />);
+    await screen.findByRole('header', { name: 'Weigh products' });
+    expect(screen.queryByRole('button', { name: 'Decimal point' })).toBeNull();
+    await typeWeight('24180');
+    expect(screen.getByLabelText('Gross, 36,640 kg')).toBeOnTheScreen();
+    expect(screen.getByText('+180 over · allowed')).toBeOnTheScreen();
+    await press('Save weights · send for approval');
+    expect(await screen.findByText('Saved on this phone')).toBeOnTheScreen();
+    const [row] = await (await ravisStore()).outbox();
+    expect(row?.payload).toEqual({ grossKg: 36_640, allocations: [{ orderLineId: expect.any(String), netKg: 24_180 }] });
     await view.unmount();
   });
 });
@@ -368,7 +430,7 @@ describe('Accessibility audit (F5 Task 10)', () => {
     for (const [action, vehicle] of [['Capture tare weight', 'CG 07 KL 3304'], ['Capture gross weight', 'CG 04 MK 2291']] as const) {
       const truckId = await openTask(action, vehicle);
       const view = await wrap(<WeighTruckScreen truckId={truckId} />);
-      await screen.findByTestId('weight-readout');
+      await screen.findByRole('header', { name: action === 'Capture tare weight' ? 'Tare weight' : 'Weigh products' });
       expect(auditA11y(screen.toJSON() as ReactTestRendererJSON)).toEqual([]);
       await view.unmount();
     }

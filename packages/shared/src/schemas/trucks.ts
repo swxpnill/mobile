@@ -1,12 +1,10 @@
 import { z } from 'zod';
-import { TRUCK_CANCEL_REASONS } from '../rules/trucks.ts';
+import { MAX_READING_KG, TRUCK_CANCEL_REASONS } from '../rules/trucks.ts';
 import { idSchema, versionSchema } from './common.ts';
 import { lengthSchema, phoneInputSchema } from './masters.ts';
 import { orderedKgSchema, truckStateSchema } from './orders.ts';
 
-/** One weighbridge reading, at most 100 t. */
-/** The heaviest weighbridge reading the app takes, in kg (100 MT). */
-export const MAX_READING_KG = 100_000;
+/** One weighbridge reading, at most `MAX_READING_KG` (100 t). */
 export const weightKgSchema = z.number().int().min(1).max(MAX_READING_KG);
 export type WeightKg = z.infer<typeof weightKgSchema>;
 export const planKgSchema = orderedKgSchema;

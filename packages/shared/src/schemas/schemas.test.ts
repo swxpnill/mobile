@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_READING_KG, weightKgSchema } from './trucks.ts';
+import { MAX_READING_KG } from '../rules/trucks.ts';
+import { weightKgSchema } from './trucks.ts';
 import {
   companySchema,
   createCompanyBodySchema,

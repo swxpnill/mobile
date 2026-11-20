@@ -129,42 +129,48 @@ The server already refuses a tare before arrival (Task 1). This task makes the p
 
 Commit `feat(mobile): Vehicle arrived step before tare`.
 
-### Task 4: Weigh each product; gross is calculated; Save weights sends for approval
+### Task 4 (revised 2026-11-20): Weigh each product; gross is calculated; Save weights sends for approval
 
-**Files:**
-- Create: `apps/mobile/src/screens/supervisor/LineWeightsStep.tsx`
-- Modify: `apps/mobile/src/screens/supervisor/CaptureScreen.tsx` (gross mode renders `LineWeightsStep` instead of the gross keypad + `SplitStep`; remove the plausibility question), `OwnerWeighScreen.tsx` (same step), delete `SplitStep.tsx` if nothing else uses it
-- Test: `apps/mobile/test/supervisor.test.tsx`
+Rulings 6–8 and 12. Server unchanged: `GROSS { grossKg, allocations }` already carries one net per line and the Σ invariant (Task 1 contract tests pin partial loads and lines off the plan).
 
-**Interfaces:**
-- Consumes: `grossFromLines`, `lineDiff` (Task 1), `task.lines` (Task 1), `parseQtyInput`, `toDisplayQty`, `recordCapture`.
-- Produces: `LineWeightsStep({ task, basis, onSave(input: { grossKg: number; allocations: { orderLineId: string; netKg: number }[] }): Promise<void> })`.
+**Rules (pure, `packages/shared/src/rules/trucks.ts`, so B2 and the app agree):**
+- `checkLineWeights(tareKg, lineNetKg: (number | null)[])` → `{ ok: true, grossKg, nets }` or `{ ok: false, reason }`, first failing rule wins:
+  1. `LINE_BLANK`: a listed line has no weight ("Enter a weight for every product").
+  2. `NOTHING_WEIGHED`: every line is 0 ("Enter at least one weight").
+  3. `READING_TOO_HIGH`: `tare + Σ` over `MAX_READING_KG` (a weighbridge reading is at most 100 MT).
+- Allocations sent = the lines with net > 0, in screen order; `grossKg = grossFromLines(tare, nets)`. The Σ invariant then holds by construction.
+- `lineDiff` for plan lines ("+0.180 over · allowed", "−0.500 under · allowed", "Exact"); a line added off the plan shows "Not on the plan".
+- No plausibility question (Ruling 8): `plausibility()` is no longer used by the capture screen.
 
-Screen (board 12 look, header "Weigh products", subtitle "`{vehicleNo}` · `{subOrderNumber}`"; steps strip Assigned ✓ · Arrived ✓ · Tare ✓ · **Weigh** · Dispatch):
+**Screen (`LineWeightsStep.tsx`, the gross step of `CaptureScreen`; header "Weigh products"; steps Assigned ✓ · Arrived ✓ · Tare ✓ · **Gross** · Approval):**
 ```
-Tare · weighed 10:12                 12.460
-┌ TMT Fe500D · 12 mm · 12 m ─────────────┐
-│ Planned 24.000 MT        [ 24.180 ]    │  ← tap a row to type into it with the keypad
-│ +0.180 over · allowed                  │
-└────────────────────────────────────────┘
-+ Add product
-Gross (calculated)                   36.640 t     ← read-only, aria-live polite
-[ Save weights · send for approval ]
+Tare · weighed 10:12                          12.460 t
+┌ TMT Fe500D · 12 mm · 12 m          [ 24.180 ] ┐  ← focused row (blue border) drives the keypad
+│ Planned 24.000 MT        +0.180 over · allowed │
+└───────────────────────────────────────────────┘
+┌ TMT Fe500D · 16 mm · 12 m    (added) [   —   ] ✕┐
+│ Not on the plan · 10.000 MT pending             │
+└───────────────────────────────────────────────┘
+＋ Add product                                         ← only when the sub-order has other lines
+Gross · tare + products                      36.640 t  ← read-only, live region
+[ Save weights · send for approval ]   (disabled + reason caption until valid)
 [ keypad ]
 ```
+- Each row is a selectable field (role `radio`, "TMT … , planned 24.000 MT, 24.180 MT entered"); tapping selects it; the keypad edits only the selected row. On open the first row is selected.
+- **Add product** opens a sheet of the sub-order's other lines (`task.lines` minus the rows shown) with what is pending; picking one adds an empty row and selects it. An added row can be removed; plan rows cannot.
+- Unit basis: MT 3 decimals, kg whole numbers, via `parseQtyInput` / `toDisplayQty` only.
+- Owner path: `truckToTask` has no sub-order lines, so `OwnerWeighScreen` fills `lines` from the order (pending per line) when it has loaded; until then Add product is hidden. A `weighed` truck shows "Nothing to weigh" there (it awaits approval).
+- `SplitStep` stays for the owner's weight correction sheet only.
 
-- [ ] **Step 1: Failing tests:**
-  - Typing 24.18 on the only line → gross reads "36.640" (tare 12.460) and the diff "+0.180 over · allowed"; Save weights → one `GROSS` outbox row with `grossKg: 36_640` and `allocations: [{ orderLineId, netKg: 24_180 }]`; the screen goes to Dispatched (the existing route).
-  - Two plan lines, one left blank → Save disabled, caption "Enter a weight for every product"; both 0 → "Enter at least one weight" (Review Focus 3).
-  - "Add product" lists `task.lines` not already shown; adding one adds an empty row.
-  - A net of 30 % of plan saves without any question (the plausibility sheet is gone).
-  - kg basis: typing 24180 shows "24,180 kg" and saves the same `netKg` as typing 24.18 in MT (Review Focus 5).
-  - `auditA11y` clean on the screen.
-- [ ] **Step 2:** Run `pnpm --filter mobile exec jest test/supervisor.test.tsx`. Expected: FAIL.
-- [ ] **Step 3:** Implement. One focused row at a time drives the existing `Keypad`. The `WeightReadout` live region moves to the gross line.
-- [ ] **Step 4:** Run the supervisor and dispatch suites, then `pnpm --filter mobile test`. Expected: PASS.
-- [ ] **Step 5:** Emulator: as Ravi, Vehicle arrived → tare → two lines → Save weights; owner's Dispatch board shows it dispatched; screenshot both themes.
-- [ ] **Step 6:** Commit `feat(mobile): weigh each product; gross calculated; saving dispatches`.
+**Tests first:** shared unit tests for `checkLineWeights` (each reason, 0-lines dropped, max reading); app tests in `test/supervisor.test.tsx`:
+- One line: 24.18 → gross reads 36.640, "+0.180 over · allowed"; Save → one GROSS row `{ grossKg: 36_640, allocations: [{ line, 24_180 }] }`, then the Weights saved screen.
+- Two plan lines, one blank → disabled + "Enter a weight for every product"; both 0 → "Enter at least one weight"; 10.001 + 10.000 saves both allocations.
+- Add product lists only the sub-order's other lines; adding one adds an empty selected row; removing it drops it.
+- 30 % of plan saves with no question.
+- kg basis: 24180 shows "24,180" and saves the same netKg as 24.18 in MT.
+- `auditA11y` clean on the screen; the dark-theme colour test stays green.
+
+Commit `feat(mobile): weigh each product; gross calculated; saving sends for approval`.
 
 ### Task 5: Dispatch detail: Assigned supervisor card with Call and WhatsApp
 

@@ -340,8 +340,28 @@ describe('Owner weighs the step the server is at', () => {
     useDeviceStore.setState({ store });
 
     await wrap(<OwnerWeighScreen truckId={mk.id} />, { sync: false });
-    expect(await screen.findByText('Gross weight')).toBeOnTheScreen();
+    expect(await screen.findByRole('header', { name: 'Weigh products' })).toBeOnTheScreen();
     expect(screen.queryByText('Tare weight')).toBeNull();
+    useDeviceStore.setState({ store: null });
+  });
+
+  it('TON-57: the owner gets Add product from the order (the truck has no sub-order lines)', async () => {
+    const mk = await boardTruck('CG 04 MK 2291');
+    useDeviceStore.setState({ store: await openDeviceStore(ids.users.rajesh) });
+    await wrap(<OwnerWeighScreen truckId={mk.id} />, { sync: false });
+    await screen.findByRole('header', { name: 'Weigh products' });
+    await fireEvent.press(await screen.findByRole('button', { name: 'Add product' }));
+    expect(await screen.findByRole('button', { name: /^TMT Fe500D · 12 mm · 6 m, .* pending$/ })).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: /^TMT Fe500D · 12 mm · 12 m,/ })).toBeNull();
+    useDeviceStore.setState({ store: null });
+  });
+
+  it('a truck awaiting approval has nothing to weigh', async () => {
+    const lt = await boardTruck('CG 04 LT 6619');
+    useDeviceStore.setState({ store: await openDeviceStore(ids.users.rajesh) });
+    await wrap(<OwnerWeighScreen truckId={lt.id} />, { sync: false });
+    expect(await screen.findByText('Nothing to weigh')).toBeOnTheScreen();
+    expect(screen.getByText('Its weights are saved and waiting for approval.')).toBeOnTheScreen();
     useDeviceStore.setState({ store: null });
   });
 });

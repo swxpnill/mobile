@@ -11,7 +11,7 @@ import {
   plausibility,
   splitProRata,
   toleranceCloseKg,
-  truckEarning, grossFromLines, lineDiff } from './trucks.ts';
+  truckEarning, grossFromLines, lineDiff, checkLineWeights } from './trucks.ts';
 
 describe('truckEarning', () => {
   it('canvas earning: 24.180 MT × (₹150 + ₹300) = ₹10,881', () => {
@@ -199,5 +199,22 @@ describe('grossFromLines and lineDiff (TON-57)', () => {
     expect(lineDiff(24_180, 24_000)).toEqual({ kind: 'over', kg: 180 });
     expect(lineDiff(23_500, 24_000)).toEqual({ kind: 'under', kg: 500 });
     expect(lineDiff(24_000, 24_000)).toEqual({ kind: 'exact', kg: 0 });
+  });
+});
+
+describe('checkLineWeights (TON-57: one weight per product, gross calculated)', () => {
+  it('gross is tare + every line; 0-kg lines stay in nets', () => {
+    expect(checkLineWeights(12_460, [24_180, 0])).toEqual({ ok: true, grossKg: 36_640, nets: [24_180, 0] });
+  });
+  it('a blank line wins over everything else', () => {
+    expect(checkLineWeights(12_460, [null, 0])).toEqual({ ok: false, reason: 'LINE_BLANK' });
+  });
+  it('every line 0 is nothing weighed', () => {
+    expect(checkLineWeights(12_460, [0, 0])).toEqual({ ok: false, reason: 'NOTHING_WEIGHED' });
+    expect(checkLineWeights(12_460, [])).toEqual({ ok: false, reason: 'NOTHING_WEIGHED' });
+  });
+  it('the calculated gross is a weighbridge reading: at most 100 MT', () => {
+    expect(checkLineWeights(12_000, [88_000]).ok).toBe(true);
+    expect(checkLineWeights(12_000, [88_001])).toEqual({ ok: false, reason: 'READING_TOO_HIGH' });
   });
 });

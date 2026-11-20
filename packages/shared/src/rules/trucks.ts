@@ -4,6 +4,9 @@ import { over, pending, type LineQty } from './quantities.ts';
 
 export type TruckEvent = 'at_gate' | 'tare' | 'gross' | 'approve' | 'cancel';
 
+/** The heaviest weighbridge reading the app takes, in kg (100 MT). */
+export const MAX_READING_KG = 100_000;
+
 /** Gate-clock skew beyond this (ms) is flagged on a weighment. */
 export const CLOCK_SKEW_FLAG_MS = 300_000;
 
@@ -72,6 +75,27 @@ export function checkAllocations(
 /** TON-57: gross is never typed; it is the tare plus every product line's weight. */
 export function grossFromLines(tareKg: number, lineNetKg: readonly number[]): number {
   return lineNetKg.reduce((sum, kg) => sum + kg, tareKg);
+}
+
+export type LineWeightsProblem = 'LINE_BLANK' | 'NOTHING_WEIGHED' | 'READING_TOO_HIGH';
+
+/**
+ * TON-57: the weights a supervisor enters, one per product line (null = not entered yet), checked
+ * before they are sent. The first failing rule wins: every listed line needs a weight (0 allowed),
+ * at least one must be more than 0, and the calculated gross is a weighbridge reading, so it is at
+ * most `MAX_READING_KG`. On success: the gross and the nets as entered (0 lines included; the
+ * caller sends only the lines over 0).
+ */
+export function checkLineWeights(
+  tareKg: number,
+  lineNetKg: readonly (number | null)[],
+): { ok: true; grossKg: number; nets: number[] } | { ok: false; reason: LineWeightsProblem } {
+  if (lineNetKg.some((kg) => kg === null)) return { ok: false, reason: 'LINE_BLANK' };
+  const nets = lineNetKg as number[];
+  if (!nets.some((kg) => kg > 0)) return { ok: false, reason: 'NOTHING_WEIGHED' };
+  const grossKg = grossFromLines(tareKg, nets);
+  if (grossKg > MAX_READING_KG) return { ok: false, reason: 'READING_TOO_HIGH' };
+  return { ok: true, grossKg, nets: [...nets] };
 }
 
 /** A line's weight against its plan, for "+0.180 over · allowed" (`kg` is never negative). */
