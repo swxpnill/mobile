@@ -29,7 +29,7 @@ const STEP_BEFORE = { assigned: 90 * MINUTE, atGate: 60 * MINUTE, tare: 45 * MIN
 /**
  * Test and demo hook: inserts a truck in any state, as if the real flow had brought it there, with
  * its weighments, and for a dispatched truck its loading slip and broker earning. `nowMs` is the
- * time of its latest step (assignment, gate, tare or dispatch). Refuses inputs the real flow could
+ * time of its latest step (assignment, gate, tare, weights or dispatch). Refuses inputs the real flow could
  * never produce (unknown sub-order, lines of another sub-order, a dispatched truck without
  * allocations) so fixtures cannot fake impossible data.
  */
@@ -45,11 +45,13 @@ export function addTruck(state: MockState, input: AddTruckInput, nowMs: number):
       throw new Error(`addTruck: line ${row.orderLineId} is not on sub-order ${sub.id}`);
     }
   }
-  if (input.state === 'dispatched' && allocations.length === 0) {
-    throw new Error('addTruck: a dispatched truck needs allocations');
+  // Weighed (TON-57: awaiting approval) and dispatched trucks carry their weights; no other does.
+  const hasWeights = input.state === 'dispatched' || input.state === 'weighed';
+  if (hasWeights && (allocations.length === 0 || input.tareKg === undefined)) {
+    throw new Error(`addTruck: a ${input.state} truck needs a tare and allocations`);
   }
-  if (input.state !== 'dispatched' && allocations.length > 0) {
-    throw new Error('addTruck: only a dispatched truck has allocations');
+  if (!hasWeights && allocations.length > 0) {
+    throw new Error('addTruck: only a weighed or dispatched truck has allocations');
   }
   const plant = state.plants.find((p) => p.companyId === sub.companyId && p.active);
   if (!plant) throw new Error(`addTruck: company ${sub.companyId} has no active plant`);
@@ -61,7 +63,7 @@ export function addTruck(state: MockState, input: AddTruckInput, nowMs: number):
   const tareKg = input.tareKg ?? null;
   const net = allocations.reduce((n, a) => n + a.netKg, 0);
   const assignedAt = s === 'assigned' ? at : stepAt(STEP_BEFORE.assigned);
-  const tareAt = tareKg === null ? null : s === 'dispatched' ? stepAt(STEP_BEFORE.tare) : at;
+  const tareAt = tareKg === null ? null : hasWeights ? stepAt(STEP_BEFORE.tare) : at;
   const assignedBy = input.assignedBy ?? order.createdBy;
   const weighedBy = input.weighedBy ?? assignedBy;
   const deviceId = input.deviceId ?? 'fixture';
@@ -79,7 +81,7 @@ export function addTruck(state: MockState, input: AddTruckInput, nowMs: number):
     lrNo: input.lrNo ?? null,
     state: s,
     tareKg,
-    grossKg: s === 'dispatched' && tareKg !== null ? tareKg + net : null,
+    grossKg: hasWeights && tareKg !== null ? tareKg + net : null,
     plan: input.plan.map((r) => ({ ...r })),
     allocations: allocations.map((r) => ({ ...r })),
     loadingSlipNo: null,
@@ -88,6 +90,8 @@ export function addTruck(state: MockState, input: AddTruckInput, nowMs: number):
     atGateAt: s === 'at_gate' ? at : s === 'assigned' ? null : stepAt(STEP_BEFORE.atGate),
     tareAt,
     tareDeviceId: tareKg === null ? null : deviceId,
+    // A seeded dispatched truck was weighed and approved at its latest step's time.
+    weighedAt: hasWeights ? at : null,
     dispatchedAt: s === 'dispatched' ? at : null,
     cancelledAt: s === 'cancelled' ? at : null,
     cancelledBy: s === 'cancelled' ? assignedBy : null,
@@ -115,8 +119,8 @@ export function addTruck(state: MockState, input: AddTruckInput, nowMs: number):
       supersededBy: null,
     });
   if (tareKg !== null && tareAt !== null) weigh('tare', tareKg, tareAt);
+  if (hasWeights && rec.grossKg !== null) weigh('gross', rec.grossKg, at);
   if (s === 'dispatched') {
-    if (rec.grossKg !== null) weigh('gross', rec.grossKg, at);
     rec.loadingSlipNo = issueLoadingSlip(state, rec, at);
     writeEarning(state, rec, at, weighedBy);
   }

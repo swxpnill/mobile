@@ -261,6 +261,9 @@ export interface TruckRec {
   tareAt: string | null;
   /** Device that recorded the current tare: it may correct it; another device conflicts. */
   tareDeviceId: string | null;
+  /** Business time the weights were saved (TON-57: then awaiting the office's approval). */
+  weighedAt: string | null;
+  /** The approval (TON-57): the dispatch. */
   dispatchedAt: string | null;
   cancelledAt: string | null;
   cancelledBy: string | null;
@@ -510,6 +513,8 @@ export function parseSnapshot(raw: string | null): MockState | null {
   v.pushOutbox ??= [];
   v.devices ??= [];
   for (const g of v.truckTombstones as Record<string, unknown>[]) if (isObj(g)) g.reason ??= 'deleted';
+  // TON-57 (approval): trucks saved before it were weighed and dispatched in the same instant.
+  if (Array.isArray(v.trucks)) for (const t of v.trucks as unknown[]) if (isObj(t)) t.weighedAt ??= t.dispatchedAt ?? null;
   const arrays = [
     'tenants',
     'companies',

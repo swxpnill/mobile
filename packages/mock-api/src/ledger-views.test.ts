@@ -10,7 +10,7 @@ import {
   unpaidKg,
 } from '@tonnage/shared';
 import { DAY, createFakeClock, toIso } from './clock.ts';
-import { applyEvent, rewriteEarning } from './dispatch.ts';
+import { applyEvent, approveDispatch, rewriteEarning } from './dispatch.ts';
 import { brokerFactRows, brokerSummary, ledgerRows, toLedgerEntry } from './ledger-views.ts';
 import { seedDemoOrders } from './seed-orders.ts';
 import { type BrokerLedgerRec, type MockState, seedState } from './store.ts';
@@ -35,20 +35,24 @@ function authedAs(s: MockState, userId: string): Authed {
 const mk = (s: MockState) => s.trucks.find((t) => t.vehicleNo === 'CG 04 MK 2291')!;
 const brokerOf = (s: MockState) => s.orders.find((o) => o.id === mk(s).orderId)!.brokerId!;
 
-/** Dispatches the canvas loading truck: captured at `capturedAt`, received at `receivedMs`. */
-function dispatchMk(s: MockState, capturedAt: string, receivedMs: number, netKg = 24_180) {
+/**
+ * Dispatches the canvas loading truck (TON-57): Ravi's weights reach the server at `weighedMs`
+ * (default 10 minutes before), and Priya approves at `approvedMs`, which is the dispatch.
+ */
+function dispatchMk(s: MockState, approvedMs: number, weighedMs = approvedMs - 10 * 60_000, netKg = 24_180) {
   const truck = mk(s);
   const event: SyncEvent = {
     eventId: newId(),
     truckId: truck.id,
     deviceSeq: 2,
-    capturedAtDevice: capturedAt,
+    capturedAtDevice: toIso(weighedMs),
     type: 'GROSS',
     grossKg: truck.tareKg! + netKg,
     allocations: [{ orderLineId: truck.plan[0]!.orderLineId, netKg }],
   };
-  const r = applyEvent(s, { user: authedAs(s, U.ravi), deviceId: truck.tareDeviceId!, now: receivedMs, offsetMs: 0 }, event);
+  const r = applyEvent(s, { user: authedAs(s, U.ravi), deviceId: truck.tareDeviceId!, now: weighedMs, offsetMs: 0 }, event);
   expect(r.status).toBe('accepted');
+  approveDispatch(s, authedAs(s, U.priya), approvedMs, truck);
   return truck;
 }
 
@@ -76,20 +80,20 @@ const payment = (s: MockState, brokerId: string, paidRupees: number, tdsRupees =
 };
 
 describe('entry date', () => {
-  it('an earning counts on the IST day of the truck dispatch, not of the sync', () => {
+  it('an earning counts on the IST day of the dispatch (the approval), not of the weighing', () => {
     const s = world();
-    // 23:50 IST on 31 Oct, received at 00:15 IST on 1 Nov.
-    const truck = dispatchMk(s, '2026-10-31T18:20:00.000Z', Date.UTC(2026, 9, 31, 18, 45));
+    // Weighed 23:50 IST on 31 Oct, approved 00:15 IST on 1 Nov.
+    const truck = dispatchMk(s, Date.UTC(2026, 9, 31, 18, 45), Date.UTC(2026, 9, 31, 18, 20));
+    expect(istDateOf(truck.weighedAt!)).toBe('2026-10-31');
     const rec = s.brokerLedger.find((r) => r.truckId === truck.id)!;
-    expect(istDateOf(rec.createdAt)).toBe('2026-11-01');
     const row = ledgerRows(s, rec.brokerId).find((r) => r.id === rec.id)!;
-    expect(row.entryDate).toBe('2026-10-31');
-    expect(toLedgerEntry(s, rec).entryDate).toBe('2026-10-31');
+    expect(row.entryDate).toBe('2026-11-01');
+    expect(toLedgerEntry(s, rec).entryDate).toBe('2026-11-01');
   });
 
   it('a correction (reversal and replacement) counts on its own date; the first earning keeps the truck date', () => {
     const s = world();
-    const truck = dispatchMk(s, '2026-10-31T18:20:00.000Z', Date.UTC(2026, 9, 31, 18, 45));
+    const truck = dispatchMk(s, Date.parse('2026-10-31T18:20:00.000Z'));
     truck.allocations = [{ orderLineId: truck.plan[0]!.orderLineId, netKg: 24_000 }];
     rewriteEarning(s, truck, toIso(NOW), U.rajesh);
     const rows = s.brokerLedger.filter((r) => r.truckId === truck.id);
@@ -120,7 +124,7 @@ describe('FIFO oldest is the truck dispatch date', () => {
   it('a corrected truck replacement keeps its truck place, so the unpaid kg follows the oldest truck', () => {
     const s = world();
     s.brokerLedger = s.brokerLedger.filter((r) => r.kind !== 'payment'); // no seeded payment
-    const truck = dispatchMk(s, '2026-09-30T18:20:00.000Z', Date.UTC(2026, 9, 1, 0, 30));
+    const truck = dispatchMk(s, Date.parse('2026-09-30T18:20:00.000Z'));
     const brokerId = brokerOf(s);
     truck.allocations = [{ orderLineId: truck.plan[0]!.orderLineId, netKg: 24_000 }];
     rewriteEarning(s, truck, toIso(NOW), U.rajesh);
@@ -141,7 +145,7 @@ describe('FIFO oldest is the truck dispatch date', () => {
 describe('views', () => {
   it('toLedgerEntry builds schema-valid earning, reversal and payment entries', () => {
     const s = world();
-    const truck = dispatchMk(s, toIso(NOW - 60_000), NOW);
+    const truck = dispatchMk(s, NOW);
     truck.allocations = [{ orderLineId: truck.plan[0]!.orderLineId, netKg: 24_000 }];
     rewriteEarning(s, truck, toIso(NOW), U.rajesh);
     const p = payment(s, brokerOf(s), 5_000, 100);
@@ -152,7 +156,8 @@ describe('views', () => {
       amountRupees: 10_881,
       payment: null,
       reversedById: reversal!.id,
-      createdBy: { id: U.ravi },
+      // TON-57: the approval writes the earning.
+      createdBy: { id: U.priya },
       truck: { truckId: truck.id, vehicleNo: 'CG 04 MK 2291', netKg: 24_180 },
     });
     expect(e.earningLines).toEqual([expect.objectContaining({ netKg: 24_180, commissionPerMt: 150, overpricePerMt: 300 })]);

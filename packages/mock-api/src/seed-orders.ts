@@ -33,13 +33,13 @@ interface DemoLine {
 }
 interface DemoTruck {
   vehicleNo: string;
-  state: 'assigned' | 'at_gate' | 'loading' | 'dispatched';
-  /** Time of its latest step (assignment, gate, tare or dispatch). */
+  state: 'assigned' | 'at_gate' | 'loading' | 'weighed' | 'dispatched';
+  /** Time of its latest step (assignment, gate, tare, weights or dispatch). */
   agoMs: number;
   tareKg?: number;
-  /** Line index → net kg (dispatched) or planned kg (open). */
+  /** Line index → net kg (weighed, dispatched) or planned kg (open). */
   kg: Record<number, number>;
-  /** Dispatched trucks only: the round plan the truck was assigned, which the weighbridge net over- or undershot. */
+  /** Weighed and dispatched trucks only: the round plan the truck was assigned, which the weighbridge net over- or undershot. */
   planKg?: Record<number, number>;
   transporter: string | null;
   driver: [name: string, phone: string];
@@ -160,6 +160,8 @@ const DEMO: DemoOrder[] = [
           { vehicleNo: 'CG 07 KL 4410', state: 'dispatched', agoMs: 6 * HOUR, tareKg: 11_860, kg: { 1: 13_880 }, planKg: { 1: 14_000 }, transporter: null, driver: ['Sunil Netam', '+919907123345'] },
           { vehicleNo: 'CG 04 PQ 7781', state: 'dispatched', agoMs: 1 * HOUR, tareKg: 12_020, kg: { 0: 28_400 }, planKg: { 0: 28_000 }, transporter: P.shreeGanesh, driver: ['Gopal Verma', '+919826655231'], lrNo: 'SGR/2611/0415' },
           { vehicleNo: 'CG 07 BR 8810', state: 'loading', agoMs: 42 * MINUTE, tareKg: 12_460, kg: { 2: 30_000 }, transporter: P.golden, driver: ['Rakesh Kumar', '+919617702268'] },
+          // TON-57: weighed at Borai, waiting for the office to approve the dispatch (To approve).
+          { vehicleNo: 'CG 04 LT 6619', state: 'weighed', agoMs: 15 * MINUTE, tareKg: 11_780, kg: { 0: 11_040 }, planKg: { 0: 11_000 }, transporter: P.shreeGanesh, driver: ['Kamal Sinha', '+919826712254'] },
         ],
       },
     ],
@@ -305,7 +307,7 @@ export function seedDemoOrders(state: MockState, clock: Clock): void {
             deviceId: weigher.deviceId,
             ...(t.tareKg !== undefined ? { tareKg: t.tareKg } : {}),
             plan: rows.map((r) => ({ orderLineId: r.orderLineId, plannedKg: t.planKg?.[r.index] ?? r.kg })),
-            ...(t.state === 'dispatched'
+            ...(t.state === 'dispatched' || t.state === 'weighed'
               ? { allocations: rows.map((r) => ({ orderLineId: r.orderLineId, netKg: r.kg })) }
               : {}),
           },

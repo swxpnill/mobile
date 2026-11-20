@@ -41,9 +41,23 @@ describe('recipientsFor', () => {
     ]);
   });
 
-  it('dispatched: owner, the city-staff creator and the plant head; other city staff are not told', () => {
-    const r = recipientsFor({ kind: 'truck.dispatched', actorId: 'ravi', plantIds: ['siltara'], orderCreatorId: 'priya' }, users);
-    expect(ids(r)).toEqual(['owner', 'priya', 'kiran']);
+  it('weighed (TON-57): the approvers, owner and every city staff; never plant roles', () => {
+    const r = recipientsFor({ kind: 'truck.weighed', actorId: 'ravi', plantIds: ['siltara'] }, users);
+    expect(r).toEqual([
+      { userId: 'owner', role: 'owner', delivery: 'alert' },
+      { userId: 'priya', role: 'city_staff', delivery: 'alert' },
+      { userId: 'amit', role: 'city_staff', delivery: 'alert' },
+    ]);
+  });
+
+  it('dispatched (approved): owner, every city staff, the plant head; the plant’s supervisors by silent sync', () => {
+    const r = recipientsFor({ kind: 'truck.dispatched', actorId: 'priya', plantIds: ['siltara'], orderCreatorId: 'priya' }, users);
+    expect(r).toEqual([
+      { userId: 'owner', role: 'owner', delivery: 'alert' },
+      { userId: 'amit', role: 'city_staff', delivery: 'alert' },
+      { userId: 'kiran', role: 'plant_head', delivery: 'alert' },
+      { userId: 'ravi', role: 'supervisor', delivery: 'row-and-sync' },
+    ]);
   });
 
   it('money and attention kinds never reach plant roles', () => {
@@ -57,6 +71,10 @@ describe('recipientsFor', () => {
     expect(ids(recipientsFor({ kind: 'order.short_closed', actorId: 'owner', plantIds: ['siltara'], orderCreatorId: 'owner' }, users))).toEqual(['kiran']);
   });
 
+  it('every kind has a row schema, so the server can store it', () => {
+    expect(notificationSchema.options.map((o) => o.shape.kind.value).sort()).toEqual([...NOTIFICATION_KINDS].sort());
+  });
+
   it('every kind is handled', () => {
     for (const kind of NOTIFICATION_KINDS) expect(() => recipientsFor({ kind, actorId: 'x', plantIds: [] }, users)).not.toThrow();
   });
@@ -67,7 +85,20 @@ const dispatched: NotificationContent = {
   data: { truckId: ID, orderId: ID2, vehicleNo: 'CG 04 MK 2291', netKg: 24_180, partyName: 'Shubham Traders', companyName: 'Aarav Ispat Pvt Ltd' },
 };
 
+const weighed: NotificationContent = {
+  kind: 'truck.weighed',
+  data: { truckId: ID, orderId: ID2, vehicleNo: 'CG 04 MK 2291', netKg: 24_180, partyName: 'Shubham Traders', plantName: 'Siltara' },
+};
+
 describe('renderNotification (board 37)', () => {
+  it('weighed asks for approval, in the viewer’s unit', () => {
+    expect(renderNotification({ ...weighed, createdAt: AT }, 'mt')).toEqual({
+      title: 'CG 04 MK 2291 needs approval',
+      body: '24.180 MT for Shubham Traders · weighed at Siltara · 10:48',
+    });
+    expect(renderNotification({ ...weighed, createdAt: AT }, 'kg').body).toBe('24,180 kg for Shubham Traders · weighed at Siltara · 10:48');
+  });
+
   it('dispatched in MT and in kg, with the IST time', () => {
     expect(renderNotification({ ...dispatched, createdAt: AT }, 'mt')).toEqual({
       title: 'CG 04 MK 2291 dispatched',
@@ -129,6 +160,9 @@ describe('deep links', () => {
     expect(deepLinkFor(assigned, 'supervisor')).toBe('/tasks');
     expect(deepLinkFor(assigned, 'plant_head')).toBe(`/trucks/${ID}`);
     expect(deepLinkFor(dispatched, 'owner')).toBe(`/trucks/${ID}`);
+    expect(deepLinkFor(dispatched, 'supervisor')).toBe('/done');
+    expect(deepLinkFor(weighed, 'city_staff')).toBe(`/trucks/${ID}`);
+    expect(isAllowedDeepLink('/done')).toBe(true);
     expect(deepLinkFor({ kind: 'orders.aged', data: { count: 2, days: 10, pendingKg: 1 } }, 'owner')).toBe('/orders?aged=1');
     expect(deepLinkFor({ kind: 'rejection.created', data: { rejectionId: ID, vehicleNo: 'X', code: 'TARE_CONFLICT' } }, 'owner')).toBe('/attention');
   });

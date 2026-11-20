@@ -11,6 +11,7 @@ export const NOTIFICATION_KINDS = [
   'order.created',
   'truck.assigned',
   'truck.dispatched',
+  'truck.weighed',
   'order.over_tolerance',
   'order.short_closed',
   'broker.payment_recorded',
@@ -47,6 +48,15 @@ const DATA = {
     netKg: kg,
     partyName: name,
     companyName: name,
+  }),
+  // TON-57: weights saved at the plant; the office approves the dispatch.
+  'truck.weighed': z.strictObject({
+    truckId: idSchema,
+    orderId: idSchema,
+    vehicleNo: name,
+    netKg: kg,
+    partyName: name,
+    plantName: name,
   }),
   'order.over_tolerance': z.strictObject({
     orderId: idSchema,
@@ -100,6 +110,7 @@ export const notificationSchema = z.discriminatedUnion('kind', [
   row('order.created'),
   row('truck.assigned'),
   row('truck.dispatched'),
+  row('truck.weighed'),
   row('order.over_tolerance'),
   row('order.short_closed'),
   row('broker.payment_recorded'),

@@ -8,8 +8,10 @@ export function deepLinkFor(n: NotificationContent, role: Role): string {
     case 'order.over_tolerance':
     case 'order.short_closed':
       return `/orders/${n.data.orderId}`;
-    case 'truck.dispatched':
+    case 'truck.weighed':
       return `/trucks/${n.data.truckId}`;
+    case 'truck.dispatched':
+      return role === 'supervisor' ? '/done' : `/trucks/${n.data.truckId}`;
     case 'truck.assigned':
       return role === 'supervisor' ? '/tasks' : `/trucks/${n.data.truckId}`;
     case 'orders.aged':
@@ -22,7 +24,7 @@ export function deepLinkFor(n: NotificationContent, role: Role): string {
 }
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-const ALLOWED = new RegExp(`^(?:/(?:orders|trucks|parties)/${UUID}|/orders\\?aged=1|/tasks|/attention|/notifications)$`);
+const ALLOWED = new RegExp(`^(?:/(?:orders|trucks|parties)/${UUID}|/orders\\?aged=1|/tasks|/done|/attention|/notifications)$`);
 
 /**
  * True only for the in-app routes a notification may open. A push payload is outside data:

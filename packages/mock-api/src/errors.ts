@@ -52,6 +52,8 @@ const MESSAGES: Record<ErrorCode, string> = {
   INVALID_STATE: 'This vehicle is not in the right step for that',
   NOT_REVERSIBLE: 'Only a payment can be reversed',
   ALREADY_REVERSED: 'This payment was already reversed',
+  ALREADY_WEIGHED: 'This vehicle is already weighed and waiting for approval',
+  NOT_AWAITING_APPROVAL: 'This vehicle is not waiting for approval',
 };
 
 /** The user-facing message for an error code (also used for sync rejections, which are not thrown). */

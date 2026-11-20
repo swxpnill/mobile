@@ -15,6 +15,7 @@ export const SYNC_REJECT_REASON: Record<SyncRejectCode, string> = {
   ALREADY_DISPATCHED: 'The truck was already dispatched',
   PLANT_SCOPE: 'The sender no longer has access to this plant',
   ARRIVAL_REQUIRED: 'The tare arrived before the truck was marked arrived',
+  ALREADY_WEIGHED: 'The truck was already weighed and sent for approval',
 };
 
 const IST_OFFSET_MS = 330 * 60_000;
@@ -36,6 +37,10 @@ export function renderNotification(
 ): { title: string; body: string } {
   const qty = (kg: number) => toDisplayQty(kg, basis, { withUnit: true });
   switch (n.kind) {
+    case 'truck.weighed': {
+      const d = n.data;
+      return { title: `${d.vehicleNo} needs approval`, body: `${qty(d.netKg)} for ${d.partyName} · weighed at ${d.plantName} · ${istTime(n.createdAt)}` };
+    }
     case 'truck.dispatched': {
       const d = n.data;
       // Board 37 names the company by its short name ("Aarav"), as Home's unit split does.
@@ -84,6 +89,7 @@ export function renderNotification(
 export type NotificationTone = 'bl' | 'vi' | 'gr' | 'am' | 'rd';
 const TILES: Record<NotificationKind, { icon: string; tone: NotificationTone }> = {
   'truck.dispatched': { icon: 'check', tone: 'gr' },
+  'truck.weighed': { icon: 'scales', tone: 'vi' },
   'order.over_tolerance': { icon: 'scales', tone: 'am' },
   'order.created': { icon: 'orders', tone: 'bl' },
   'orders.aged': { icon: 'clock', tone: 'rd' },

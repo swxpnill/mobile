@@ -5,16 +5,21 @@ import {
   type QtyTotals,
   type SubOrderStatus,
   financialYear,
+  isOpenTruckState,
   orderStatus,
   subOrderStatus,
   totalsOf,
 } from '@tonnage/shared';
 import type { MockState, OrderLineRec, OrderRec, SubOrderRec, TruckRec } from './store.ts';
 
-const OPEN_TRUCK_STATES: ReadonlySet<TruckRec['state']> = new Set(['assigned', 'at_gate', 'loading']);
+/** Not yet dispatched or cancelled; TON-57's `weighed` (awaiting approval) is open. */
+export function isOpenTruck(t: Pick<TruckRec, 'state'>): boolean {
+  return isOpenTruckState(t.state);
+}
 
-export function isOpenTruck(t: TruckRec): boolean {
-  return OPEN_TRUCK_STATES.has(t.state);
+/** The phone still has work on it (arrival, tare, weights): a supervisor's task. */
+export function isPhoneTask(t: Pick<TruckRec, 'state'>): boolean {
+  return t.state === 'assigned' || t.state === 'at_gate' || t.state === 'loading';
 }
 
 function push<K, V>(m: Map<K, V[]>, k: K, v: V): void {

@@ -24,7 +24,7 @@ import {
   useTarget,
 } from '../harness.ts';
 import { CANVAS_ORDER, createOrder } from './orders.contract.ts';
-import { canvasWithTruck, phone, sync, synced, arrive } from './sync.contract.ts';
+import { approve, canvasWithTruck, phone, sync, synced, arrive } from './sync.contract.ts';
 
 const BROKER = SAMPLE_MASTERS.ids.parties.rkAgarwal;
 const KRM_ONLY = { ...CANVAS_ORDER, subOrders: [CANVAS_ORDER.subOrders[1]] };
@@ -109,7 +109,7 @@ export function register(factory: TargetFactory): void {
       expect(await all(t, await tokenFor(t, PEOPLE.sanjay))).toEqual([]);
     });
 
-    it('dispatch over tolerance tells the owner twice: dispatched and over-loaded', async () => {
+    it('an approved dispatch over tolerance tells the owner twice: dispatched and over-loaded', async () => {
       const t = target();
       const { owner, a, aLine, truck } = await canvasWithTruck(t);
       const ravi = await tokenFor(t, PEOPLE.ravi);
@@ -118,6 +118,9 @@ export function register(factory: TargetFactory): void {
       await arrive(t, truck.id);
       const results = await synced(sync(t, ravi, [ph.atGate(), ph.tare(12_000), ph.gross(12_000 + net, [{ orderLineId: aLine.id, netKg: net }])]));
       expect(results.every((r) => r.status === 'accepted')).toBe(true);
+      expect(of(await all(t, owner), 'truck.dispatched')).toEqual([]);
+      // City staff approve, so the owner is told (never about their own action).
+      await approve(t, truck.id, await tokenFor(t, PEOPLE.priya));
 
       const list = await all(t, owner);
       const sent = of(list, 'truck.dispatched');

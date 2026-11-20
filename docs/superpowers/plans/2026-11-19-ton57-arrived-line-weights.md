@@ -2,7 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Supervisors mark a truck "Arrived" before tare, then weigh each product line (gross is calculated, never typed), and saving the weights dispatches the truck; the office can call or WhatsApp the plant's supervisor from Dispatch detail.
+**Goal:** Supervisors mark a truck "Arrived" before tare, then weigh each product line (gross is calculated, never typed); saving the weights sends the truck to the office, where the owner or city staff approve it for dispatch (and may change its weights first); the office can call or WhatsApp the plant's supervisor from Dispatch detail.
+
+> **Revised 2026-11-20 (client):** the office approves every dispatch. Saving the weights no longer dispatches; it puts the truck in a new state `weighed` ("Awaiting approval"). Owner and city staff approve it (that is the dispatch) and may change its weights before and after approval. See Rulings 9, 10 and 12–20 and the rewritten Task 2. Where an older line below says "saving dispatches", read "saving sends for approval".
 
 **Architecture:** This reshapes the F3 capture flow without changing how weights are stored or synced. "Arrived" is the existing `AT_GATE` event and `at_gate` state, renamed and now required before `TARE`. Line weights are already stored per line as allocations on the `GROSS` event (Σ allocations = gross − tare). The phone now asks for the per-line nets and computes `grossKg = tare + Σ nets`. `GROSS` already dispatches in one transaction. Server changes are small and contract-first: refuse a tare before arrival, put the sub-order's lines on the task, widen weight correction to city staff, change who is told about a dispatch, and put the plant's supervisors on the truck.
 
@@ -22,9 +24,18 @@
 6. **Per-product entry:** after tare, one weight per line of the truck's plan, showing planned and the difference ("+0.180 over · allowed", "−0.500 under · allowed", "Exact"). Gross = tare + Σ line weights, live and read-only. **Save weights** is enabled when every listed line has a weight (0 allowed on a line; the total must be > 0). It saves one `GROSS` event: `grossKg = tare + Σ`, `allocations = [{ orderLineId, netKg }]` with 0-kg lines left out.
 7. **Add a line:** "Add product" lists the sub-order's other lines (same order, same company; a truck loads at one plant). A line from another sub-order is not offered. The server already accepts allocations to any line of the truck's sub-order.
 8. **No tolerance check on the truck:** the phone's plausibility question (under 50 % / over 150 % of plan) is removed; over and under show as information only. The **sub-order** completion tolerance (spec §5.1, client answer #23: closes within 1,000 kg) is a business rule, not a check, and stays.
-9. **City staff may correct weights after dispatch** (`weighment.correctAfterDispatch` gains `city_staff`). The correction sheet keeps its current inputs (gross and split). Per-line correction is out of scope.
-10. **Dispatch notifies owner and all city staff** (card §3), plus the plant heads of that plant (F5 rule kept). The order's creator rule becomes redundant for dispatch and is dropped there; it stays for over-tolerance and short close.
+9. **Owner and city staff change weights, before and after approval** (revised). The action `weighment.correctAfterDispatch` is renamed `weighment.correct` and granted to `city_staff`. `POST /v1/trucks/:id/correct-weight` accepts a truck that is `weighed` or `dispatched`. The correction sheet keeps its current inputs (tare, gross and split); per-line entry in the sheet is out of scope.
+10. **Who is told** (revised). Saving weights tells the approvers: new kind `truck.weighed` → owner and every city staff (alert). Approval is the dispatch: `truck.dispatched` → owner, every city staff, plant heads of that plant (alert) and that plant's supervisors (row and silent sync, so Done today updates). Never the actor. The order-creator rule is dropped for dispatch; it stays for over-tolerance and short close.
 11. **Assigned supervisor card:** the active supervisors of the truck's plant, each with name, plant and phone, and two actions: **Call** (`tel:+91…`) and **WhatsApp** (`https://wa.me/91XXXXXXXXXX?text=…`, text = "`{vehicleNo}` · `{subOrderNumber}` · `{stage}`"). Shown to owner, city staff and plant heads (the roles that already see Dispatch detail); never to supervisors. With no active supervisor at the plant: "No supervisor at {plant} yet".
+12. **New truck state `weighed`, label "Awaiting approval".** `loading --GROSS--> weighed --approve--> dispatched`. Weights (gross, allocations) are stored at GROSS with `weighedAt` (business time); nothing about money or the order's closing happens yet.
+13. **`weighed` is an open truck.** It counts for vehicle busy, keeps the sub-order from closing within tolerance and blocks what open trucks block. Its kg are **not dispatched**: pending, Home's dispatched today, reports, broker dues and the party's lifted totals see it only after approval.
+14. **Approve = dispatch.** `POST /v1/trucks/:id/approve` `{ version }`, action `dispatch.approve` (owner, city staff; plant roles 403), idempotent (`Idempotency-Key` required) and transactional. Only from `weighed` (409 `NOT_AWAITING_APPROVAL` otherwise; a replay of the same key returns the first answer). In one transaction: state `dispatched`, `dispatchedAt` = approval time, the loading slip numbered at approval time, the broker earning (dated by `dispatchedAt`), `truck.dispatched` notifications, then the tolerance close. Response: the truck.
+15. **Changing weights while `weighed`** replaces tare, gross and allocations (old weighments kept as superseded), needs a reason (3–200), writes activity `truck.weight_corrected`, and touches no ledger row or tolerance close (there are none yet). After approval it behaves as today (earning rewritten from the snapshot rates, tolerance re-evaluated).
+16. **Not approving.** A `weighed` truck can be cancelled (the existing cancel, any reason). Its driver, vehicle and LR fields stay editable; its plan is locked (`TRUCK_LOCKED`).
+17. **Sync on a `weighed` truck:** `AT_GATE` is an accepted no-op (as on dispatched); `TARE` and a new `GROSS` are refused `ALREADY_WEIGHED` (Needs attention, like other refusals; the office corrects weights instead). A replay of the accepted GROSS's event id is `duplicate`.
+18. **The phone:** a `weighed` truck leaves My tasks (the supervisor's work is done) and shows in Done today as "Awaiting approval" with no loading slip; it shows "Dispatched" with its slip once approved. `GET /v1/supervisor/done-today` lists trucks weighed today (IST) by `weighedAt`, each with `status: 'awaiting_approval' | 'dispatched'`, `loadingSlipNo` and `dispatchedAt` null until approved.
+19. **The office:** the Dispatch board gets a count and filter **To approve** (`weighed`), listed first in Open; a `weighed` card shows "Awaiting approval" and, for owner and city staff, **Approve dispatch**; never "Dispatched" before approval. Truck detail shows the weights, **Change weights** and **Approve dispatch**. Plant heads see the state, without the actions.
+20. **Demo data:** one Siltara truck seeded `weighed` so To approve is populated after Reset demo data.
 
 ## Global Constraints
 
@@ -70,17 +81,32 @@
   Built: `task.lines` is `{ orderLineId, productName, pendingKg }` (the task's `productName` already includes the length, so no separate `length`). The owner weighing a tare on a truck still `assigned` (Dispatch detail) records `AT_GATE` then `TARE` on the phone, same instant. Restore marks the arrival at the tare's business time (`markArrived`, activity `truck.at_gate` with `restored: true`). Contract tests that weigh call `arrive(t, …truckIds)` first (the owner from a dedicated arrival device), and cancel with the post-arrival version. `truckToTask` sends `lines: []`; Task 4 fills them for the owner path.
 - [ ] **Step 5:** Commit `feat(shared,mock-api): vehicle arrival before tare; sub-order lines on tasks`.
 
-### Task 2: Policy and notifications: city staff corrections, dispatch tells owner and city staff
+### Task 2 (revised 2026-11-20): Office approves dispatch; owner and city staff change weights
 
-**Files:**
-- Modify: `packages/shared/src/policy.ts` (`city_staff` += `weighment.correctAfterDispatch`), `packages/shared/src/notifications/recipients.ts` (`truck.dispatched`: owner, every city staff, plant heads at the plant)
-- Test: `packages/shared/src/notifications/notifications.test.ts`, `packages/shared/src/policy.test.ts`, `packages/contract-tests/src/suites/trucks.contract.ts` (correct-weight)
+Rulings 9, 10 and 12–20. Two commits: 2a server (shared, mock, contract), 2b app.
 
-- [ ] **Step 1: Failing tests:** `can('city_staff', 'weighment.correctAfterDispatch')` is true and stays false for plant roles; `recipientsFor({ kind: 'truck.dispatched', actorId: 'ravi', plantIds: ['siltara'] })` → owner, priya, amit, kiran; contract: Priya's `POST /v1/trucks/:id/correct-weight` → 200 (it was 403), Kiran's → 403.
-- [ ] **Step 2:** Run the three suites. Expected: FAIL.
-- [ ] **Step 3:** Implement. In the app, `TruckDetailScreen` already gates "Correct weight" with `can(role, 'weighment.correctAfterDispatch')`; check that, and update its test that expects city staff not to see the button.
-- [ ] **Step 4:** Run `pnpm test`. Expected: PASS.
-- [ ] **Step 5:** Commit `feat(shared): city staff correct weights; dispatch notifies owner and city staff`.
+**Files (2a):**
+- Modify: `packages/shared/src/schemas/orders.ts` (`truckStateSchema` + `weighed`), `schemas/trucks.ts` (`truckSchema.weighedAt`, `DISPATCH_STATES` + `weighed`, board `counts.weighed`, `doneTodaySchema` items `status`/`weighedAt`, nullable `loadingSlipNo`/`dispatchedAt`, `approveTruckBodySchema`, `SYNC_REJECT_CODES` + `ALREADY_WEIGHED`), `rules/trucks.ts` (`nextTruckState`: gross → `weighed`, new event `approve`), `policy.ts` (`weighment.correct`, `dispatch.approve`), `errors.ts` (`NOT_AWAITING_APPROVAL`), `notifications/` (kind `truck.weighed`, recipients, copy, deep link)
+- Modify: `packages/mock-api/src/dispatch.ts` (GROSS → weighed; `approveDispatch` holds what GROSS did), `handlers/trucks.ts` (approve route; correct-weight on weighed; edit lock; board), `orders-math.ts` (`weighed` open), `handlers/supervisor.ts` (done today), `truck-views.ts`, `seed-orders.ts`, `trucks.ts` (fixture builder), `notifications.ts`, `store.ts` (`weighedAt`)
+- Test: `packages/shared/src/rules/trucks.test.ts`, `policy.test.ts`, `notifications/notifications.test.ts`; `packages/contract-tests/src/suites/sync.contract.ts`, `trucks.contract.ts`, `notifications.contract.ts`, plus every suite that dispatched by GROSS alone (they now approve)
+
+- [ ] **Step 1: Failing tests (2a):**
+  - Rules: `nextTruckState('loading','gross') === 'weighed'`; `nextTruckState('weighed','approve') === 'dispatched'`; `nextTruckState('weighed','cancel') === 'cancelled'`; tare/gross/at_gate on `weighed` → null.
+  - Policy: `dispatch.approve` and `weighment.correct` for owner and city staff only.
+  - Recipients: `truck.weighed` by Ravi at Siltara → owner, Priya, Amit; `truck.dispatched` by Priya at Siltara → owner, Amit, Kiran (alert), Ravi (row-and-sync).
+  - Contract, sync: AT_GATE, TARE, GROSS → truck `weighed`, `weighedAt` set, `loadingSlipNo` null, no ledger row, sub-order pending unchanged; result has no `loadingSlipNo`; task gone from `GET /v1/supervisor/tasks` (`removed`). A second GROSS (new event id) → `ALREADY_WEIGHED`; TARE → `ALREADY_WEIGHED`; AT_GATE → accepted no-op.
+  - Contract, approve: Priya approves → 200, `dispatched`, slip issued, `dispatchedAt` = approval time, earning row; tolerance close happens here (not at GROSS); replay with the same key → same body; approve again with a new key → 409 `NOT_AWAITING_APPROVAL`; stale version → 409 `STALE`; no key → 400; Kiran → 403; Ravi → 403; out-of-scope truck → 404.
+  - Contract, change weights while weighed: Priya → 200, weights replaced (old superseded), still `weighed`, no ledger rows; after approval → earning rewritten as before. A `loading` truck → 409 `TRUCK_LOCKED`.
+  - Contract, cancel a weighed truck → `cancelled`; edit its plan → 409 `TRUCK_LOCKED`, its driver → 200.
+  - Contract, board: `counts.weighed`, filter `weighed`, Open lists weighed first; Home's dispatched today and the dispatch register exclude a weighed truck until approval.
+  - Contract, done today: Ravi's done today lists the weighed truck `awaiting_approval` (slip null), then `dispatched` with its slip after approval.
+- [ ] **Step 2:** Run the shared tests and the contract suite. Expected: FAIL.
+- [ ] **Step 3:** Implement. Move GROSS's dispatch work (slip, earning, notify, tolerance) into `approveDispatch(state, ctx, truck)`; GROSS stores weights and notifies `truck.weighed`. Existing suites that expected GROSS to dispatch call a shared `approve(t, truckId)` helper.
+- [ ] **Step 4:** `pnpm test`. Expected: PASS (the app's tests that assumed GROSS dispatches are updated in 2b; until then 2a keeps `pnpm --filter mobile` compiling with the new state in every `Record<TruckState, …>`).
+- [ ] **Step 5:** Commit `feat(shared,mock-api): office approves dispatch; owner and city staff change weights`.
+
+**2b (app):** `truckStateMeta` (`weighed`: "Awaiting approval"), Dispatch board chip **To approve**, `TruckCard` and `TruckDetailScreen` (**Approve dispatch**, **Change weights** for `may('weighment.correct')` on `weighed | dispatched`), `useApproveTruck` hook, supervisor Done today and the Dispatched screen read `status`, Home "In plant now". Tests first in `test/dispatch.test.tsx`, `test/supervisor.test.tsx`; a11y and dark-theme suites stay green. Commit `feat(mobile): approve dispatch; change weights before approval`.
+
 
 ### Task 3: "Arrived" across the app, and the Vehicle arrived button
 
@@ -97,7 +123,7 @@
 - [ ] **Step 4:** Run again plus `test/a11y.test.tsx`. Expected: PASS.
 - [ ] **Step 5:** Commit `feat(mobile): Vehicle arrived step before tare`.
 
-### Task 4: Weigh each product; gross is calculated; Save weights dispatches
+### Task 4: Weigh each product; gross is calculated; Save weights sends for approval
 
 **Files:**
 - Create: `apps/mobile/src/screens/supervisor/LineWeightsStep.tsx`
@@ -117,7 +143,7 @@ Tare · weighed 10:12                 12.460
 └────────────────────────────────────────┘
 + Add product
 Gross (calculated)                   36.640 t     ← read-only, aria-live polite
-[ Save weights · mark dispatched ]
+[ Save weights · send for approval ]
 [ keypad ]
 ```
 

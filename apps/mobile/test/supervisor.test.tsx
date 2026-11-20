@@ -211,14 +211,16 @@ describe('Capture', () => {
     await view.unmount();
 
     view = await wrap(<DispatchedScreen truckId={truckId} />);
-    expect(await screen.findByText('Dispatched')).toBeOnTheScreen();
+    expect(await screen.findByRole('header', { name: 'Weights saved' })).toBeOnTheScreen();
     expect(screen.getByText('24.180')).toBeOnTheScreen();
     expect(await screen.findByText('Waiting for network')).toBeOnTheScreen();
 
     mock.controls.setOffline(false);
     await act(() => syncNow());
-    expect(await screen.findByText(/^LS-AIP-/)).toBeOnTheScreen();
+    // TON-57: synced, the weights wait for the office; no slip until it approves.
+    expect(await screen.findByText('Awaiting approval')).toBeOnTheScreen();
     expect(screen.queryByText('Waiting for network')).toBeNull();
+    expect(screen.queryByText(/^LS-AIP-/)).toBeNull();
     expect(useSyncStatus.getState()).toMatchObject({ pending: 0, online: true });
     await view.unmount();
 

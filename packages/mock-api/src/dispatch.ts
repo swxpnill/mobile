@@ -11,7 +11,7 @@ import {
   toleranceCloseKg,
   truckEarning,
 } from '@tonnage/shared';
-import { notifyDispatched, notifyOverTolerance } from './notifications.ts';
+import { notifyDispatched, notifyOverTolerance, notifyWeighed } from './notifications.ts';
 import { toIso } from './clock.ts';
 import { errorMessage } from './errors.ts';
 import { nextNumber, orderMath } from './orders-math.ts';
@@ -79,11 +79,14 @@ function decide(state: MockState, ctx: DispatchCtx, event: SyncEvent): SyncResul
     return reject(id, 'PLANT_SCOPE');
   }
   const atState = (): Rejected['server'] => ({ state: truck.state });
-  const closed = truck.state === 'cancelled' || truck.state === 'dispatched';
-  // The gate step is optional and may arrive late: on a closed truck it is a no-op, not a refusal.
-  if (event.type === 'AT_GATE' && closed) return { status: 'accepted', eventId: id, task: null };
+  // Past the phone's part: weighed (awaiting the office), dispatched or cancelled.
+  const done = truck.state === 'cancelled' || truck.state === 'dispatched' || truck.state === 'weighed';
+  // An arrival may reach the server late: on a truck past it, it is a no-op, not a refusal.
+  if (event.type === 'AT_GATE' && done) return { status: 'accepted', eventId: id, task: null };
   if (truck.state === 'cancelled') return reject(id, 'TRUCK_CANCELLED', atState());
   if (truck.state === 'dispatched') return reject(id, 'ALREADY_DISPATCHED', atState());
+  // TON-57: the weights are with the office; it changes them, the phone no longer can.
+  if (truck.state === 'weighed') return reject(id, 'ALREADY_WEIGHED', atState());
 
   const w = {
     capturedAtDevice: event.capturedAtDevice,
@@ -123,11 +126,11 @@ function decide(state: MockState, ctx: DispatchCtx, event: SyncEvent): SyncResul
     state.weighments.push(rec);
     return rec;
   };
-  const accepted = (extra: { loadingSlipNo?: string } = {}): SyncResult => ({
+  // A weighed truck has left the phone's tasks (the office approves it).
+  const accepted = (): SyncResult => ({
     status: 'accepted',
     eventId: id,
-    task: truck.state === 'dispatched' ? null : toTask(state, truck),
-    ...extra,
+    task: truck.state === 'weighed' ? null : toTask(state, truck),
   });
 
   switch (event.type) {
@@ -179,20 +182,45 @@ function decide(state: MockState, ctx: DispatchCtx, event: SyncEvent): SyncResul
       const check = checkAllocations(net, event.allocations, lineIds);
       if (check !== 'ok') return reject(id, check, atState());
 
+      // TON-57: the weights go to the office for approval; nothing is dispatched yet (no slip,
+      // no earning, no tolerance close). `approveDispatch` does that.
       weigh('gross', event.grossKg);
-      truck.state = 'dispatched';
+      truck.state = 'weighed';
       truck.grossKg = event.grossKg;
       truck.allocations = event.allocations.map((x) => ({ orderLineId: x.orderLineId, netKg: x.netKg }));
-      truck.dispatchedAt = w.capturedAt;
-      truck.loadingSlipNo = issueLoadingSlip(state, truck, w.capturedAt);
+      truck.weighedAt = w.capturedAt;
       bump(truck, now);
-      writeEarning(state, truck, now, a.user.id);
-      log('truck.dispatched', { netKg: net, loadingSlipNo: truck.loadingSlipNo });
-      notifyDispatched(state, a, ctx.now, truck, net);
-      closeWithinTolerance(state, ctx, truck, now);
-      return accepted({ loadingSlipNo: truck.loadingSlipNo });
+      log('truck.weighed', { netKg: net });
+      notifyWeighed(state, a, ctx.now, truck, net);
+      return accepted();
     }
   }
+}
+
+/**
+ * TON-57: the office approves a weighed truck, and that is the dispatch (§5.2), in the caller's
+ * transaction: dispatched at `nowMs`, the loading slip numbered then, the broker earning, the
+ * dispatch notifications, then the sub-order's tolerance close. The caller checks the state.
+ */
+export function approveDispatch(state: MockState, a: Authed, nowMs: number, truck: TruckRec): void {
+  if (truck.state !== 'weighed' || truck.grossKg === null || truck.tareKg === null) {
+    throw new Error(`truck ${truck.id} is not awaiting approval`);
+  }
+  const at = toIso(nowMs);
+  const net = netKg(truck.grossKg, truck.tareKg);
+  truck.state = 'dispatched';
+  truck.dispatchedAt = at;
+  truck.loadingSlipNo = issueLoadingSlip(state, truck, at);
+  bump(truck, at);
+  writeEarning(state, truck, at, a.user.id);
+  logActivity(state, a, nowMs, {
+    entityType: 'order',
+    entityId: truck.orderId,
+    action: 'truck.dispatched',
+    meta: { subOrderId: truck.subOrderId, truckId: truck.id, vehicleNo: truck.vehicleNo, netKg: net, loadingSlipNo: truck.loadingSlipNo },
+  });
+  notifyDispatched(state, a, nowMs, truck, net);
+  closeWithinTolerance(state, { user: a, deviceId: 'server', now: nowMs, offsetMs: 0 }, truck, at);
 }
 
 /** The truck is at the plant: `at_gate` ("Arrived"), at `capturedAt` business time. */

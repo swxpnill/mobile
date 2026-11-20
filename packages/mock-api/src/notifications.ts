@@ -170,7 +170,26 @@ export function notifyDispatched(state: MockState, a: Authed, now: number, truck
   deliver(state, now, {
     tenantId: truck.tenantId,
     orderId: order.id,
-    event: { kind: 'truck.dispatched', actorId: a.user.id, plantIds: [truck.plantId], orderCreatorId: order.createdBy },
+    event: { kind: 'truck.dispatched', actorId: a.user.id, plantIds: [truck.plantId] },
+    dataFor: () => data,
+  });
+}
+
+/** TON-57: the weights are saved at the plant; the approvers (owner, city staff) are asked. */
+export function notifyWeighed(state: MockState, a: Authed, now: number, truck: TruckRec, netKg: number): void {
+  const { order } = truckContext(state, truck);
+  const data: DataOf<'truck.weighed'> = {
+    truckId: truck.id,
+    orderId: order.id,
+    vehicleNo: truck.vehicleNo,
+    netKg,
+    partyName: partyName(state, order),
+    plantName: state.plants.find((p) => p.id === truck.plantId)?.name ?? '?',
+  };
+  deliver(state, now, {
+    tenantId: truck.tenantId,
+    orderId: order.id,
+    event: { kind: 'truck.weighed', actorId: a.user.id, plantIds: [truck.plantId] },
     dataFor: () => data,
   });
 }
@@ -372,6 +391,10 @@ export function seedDemoNotifications(state: MockState, now: number): void {
     const tenant = user && tenantOf(state, user.tenantId);
     return user && tenant ? { user, scope: plantScope(user), tenant } : null;
   };
+  const order = (truck: TruckRec) => state.orders.find((o) => o.id === truck.orderId);
+  // Approvals in the demo: city staff when the tenant has any active, so the owner is told.
+  const approverOf = (o: OrderRec | undefined) =>
+    state.users.find((u) => u.role === 'city_staff' && u.active && u.tenantId === o?.tenantId)?.id ?? o?.createdBy ?? '';
   const weigherAt = (truck: TruckRec) =>
     state.users.find((u) => u.role === 'supervisor' && u.active && u.plantIds.includes(truck.plantId))?.id ?? truck.assignedBy;
   const events: { at: number; run(at: number): void }[] = [];
@@ -383,9 +406,14 @@ export function seedDemoNotifications(state: MockState, now: number): void {
     const by = authedOf(truck.assignedBy);
     if (by) events.push({ at: fromIso(truck.assignedAt), run: (at) => notifyTruckAssigned(state, by, at, truck) });
     const w = authedOf(weigherAt(truck));
-    if (truck.state === 'dispatched' && truck.dispatchedAt && w) {
-      const net = truck.allocations.reduce((s, x) => s + x.netKg, 0);
-      events.push({ at: fromIso(truck.dispatchedAt), run: (at) => notifyDispatched(state, w, at, truck, net) });
+    const net = truck.allocations.reduce((s, x) => s + x.netKg, 0);
+    // TON-57: a truck awaiting approval asked the office; a dispatched one was approved by the office.
+    if (truck.state === 'weighed' && truck.weighedAt && w) {
+      events.push({ at: fromIso(truck.weighedAt), run: (at) => notifyWeighed(state, w, at, truck, net) });
+    }
+    const approver = authedOf(approverOf(order(truck)));
+    if (truck.state === 'dispatched' && truck.dispatchedAt && approver) {
+      events.push({ at: fromIso(truck.dispatchedAt), run: (at) => notifyDispatched(state, approver, at, truck, net) });
     }
   }
   for (const sub of state.subOrders) {

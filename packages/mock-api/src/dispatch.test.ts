@@ -9,7 +9,7 @@ import {
   truckSchema,
 } from '@tonnage/shared';
 import { createFakeClock, MINUTE, toIso } from './clock.ts';
-import { applyEvent, reverseEarning, rewriteEarning, writeEarning } from './dispatch.ts';
+import { applyEvent, approveDispatch, reverseEarning, rewriteEarning, writeEarning } from './dispatch.ts';
 import { ALL_ROUTES, createMockApi } from './index.ts';
 import { orderCtx } from './order-views.ts';
 import { orderMath } from './orders-math.ts';
@@ -81,7 +81,7 @@ const linesOf = (s: MockState, t: TruckRec) =>
   new Map(s.orderLines.filter((l) => l.subOrderId === t.subOrderId).map((l) => [l.id, l]));
 
 describe('applyEvent: TARE then GROSS on the seeded loading truck (Siltara, CG 04 MK 2291)', () => {
-  it('dispatches it: weighments, allocations, slip number, one broker earning, activity', () => {
+  it('TON-57: the weights send it for approval; the office approval dispatches it (slip, earning, activity)', () => {
     const s = world();
     const truck = truckBy(s, 'CG 04 MK 2291');
     expect(truck.state).toBe('loading');
@@ -97,16 +97,28 @@ describe('applyEvent: TARE then GROSS on the seeded loading truck (Siltara, CG 0
     expect(r.status).toBe('accepted');
     if (r.status !== 'accepted') return;
     expect(r.task).toBeNull();
-    expect(r.loadingSlipNo).toMatch(/^LS-AIP-2611-000\d$/);
+    expect(r).not.toHaveProperty('loadingSlipNo');
+    expect(truck).toMatchObject({
+      state: 'weighed',
+      grossKg: 36_640,
+      allocations: [{ orderLineId: line, netKg: 24_180 }],
+      weighedAt: g.capturedAtDevice,
+      loadingSlipNo: null,
+      dispatchedAt: null,
+    });
+    expect(s.brokerLedger.filter((x) => x.truckId === truck.id)).toEqual([]);
+    expect(orderMath(s).lineQty(s.orderLines.find((l) => l.id === line)!).dispatchedKg).toBe(0);
 
+    approveDispatch(s, authedAs(s, U.priya), NOW, truck);
     expect(truck).toMatchObject({
       state: 'dispatched',
       tareKg: 12_460,
       grossKg: 36_640,
       allocations: [{ orderLineId: line, netKg: 24_180 }],
-      loadingSlipNo: r.loadingSlipNo,
-      dispatchedAt: g.capturedAtDevice,
+      weighedAt: g.capturedAtDevice,
+      dispatchedAt: toIso(NOW),
     });
+    expect(truck.loadingSlipNo).toMatch(/^LS-AIP-2611-000\d$/);
 
     // The corrected tare superseded the seeded one; one live tare, one gross.
     const w = s.weighments.filter((x) => x.truckId === truck.id);
@@ -127,7 +139,7 @@ describe('applyEvent: TARE then GROSS on the seeded loading truck (Siltara, CG 0
         amountRupees: expected.earningRupees,
         breakdown: expected.breakdown,
         reversesId: null,
-        createdBy: U.ravi,
+        createdBy: U.priya,
       }),
     ]);
     // Split breakdown with fixed numbers: 24.180 MT at ₹150 commission + ₹300 overprice.
@@ -137,14 +149,15 @@ describe('applyEvent: TARE then GROSS on the seeded loading truck (Siltara, CG 0
     expect(ledger[0]).toMatchObject({ kind: 'earning', truckId: truck.id, mode: null, utr: null, paidRupees: null, tdsRupees: null, paidOn: null, note: null });
 
     const acts = s.activity.filter((e) => e.entityType === 'order' && e.entityId === order.id).map((e) => e.action);
-    expect(acts).toEqual(['truck.tare_corrected', 'truck.dispatched']);
+    expect(acts).toEqual(['truck.tare_corrected', 'truck.weighed', 'truck.dispatched']);
     const dispatched = s.activity.find((e) => e.action === 'truck.dispatched')!;
     expect(dispatched.meta).toMatchObject({
       subOrderId: truck.subOrderId,
       vehicleNo: 'CG 04 MK 2291',
       netKg: 24_180,
-      loadingSlipNo: r.loadingSlipNo,
+      loadingSlipNo: truck.loadingSlipNo,
     });
+    expect(() => approveDispatch(s, authedAs(s, U.priya), NOW, truck)).toThrow(/not awaiting approval/);
 
     // The owner's order now counts 24,180 kg dispatched on that line.
     expect(orderMath(s).lineQty(s.orderLines.find((l) => l.id === line)!).dispatchedKg).toBe(24_180);
@@ -341,7 +354,10 @@ describe('applyEvent: tolerance close and over-tolerance', () => {
     const { loading, lines, sub } = nearlyDone(s);
     const r = applyEvent(s, ctxFor(s, U.ravi), gross(loading.id, 36_640, [{ orderLineId: lines[0]!.id, netKg: 24_180 }]));
     expect(r.status).toBe('accepted');
-    expect(sub).toMatchObject({ closeKind: 'tolerance', closeReason: 'Within tolerance', closedBy: U.ravi, version: 2 });
+    // Weighed is not dispatched: nothing closes until the office approves.
+    expect(sub.closeKind).toBeNull();
+    approveDispatch(s, authedAs(s, U.priya), NOW, loading);
+    expect(sub).toMatchObject({ closeKind: 'tolerance', closeReason: 'Within tolerance', closedBy: U.priya, version: 2 });
     expect(lines.map((l) => l.closedKg)).toEqual([0, 0, 400]);
     expect(orderMath(s).subOrderStatus(sub)).toBe('completed');
     expect(s.activity.some((e) => e.action === 'order.over_tolerance')).toBe(false);
@@ -352,6 +368,7 @@ describe('applyEvent: tolerance close and over-tolerance', () => {
     const { loading, lines, sub } = nearlyDone(s);
     s.trucks.find((t) => t.vehicleNo === 'CG 10 GH 4471')!.state = 'assigned';
     applyEvent(s, ctxFor(s, U.ravi), gross(loading.id, 36_640, [{ orderLineId: lines[0]!.id, netKg: 24_180 }]));
+    approveDispatch(s, authedAs(s, U.priya), NOW, loading);
     expect(sub.closeKind).toBeNull();
     expect(lines.map((l) => l.closedKg)).toEqual([0, 0, 0]);
   });
@@ -360,6 +377,8 @@ describe('applyEvent: tolerance close and over-tolerance', () => {
     const s = world();
     const { loading, lines, sub } = nearlyDone(s);
     applyEvent(s, ctxFor(s, U.ravi), gross(loading.id, 38_460, [{ orderLineId: lines[0]!.id, netKg: 26_000 }]));
+    expect(s.activity.some((e) => e.action === 'order.over_tolerance')).toBe(false);
+    approveDispatch(s, authedAs(s, U.priya), NOW, loading);
     expect(s.activity.find((e) => e.action === 'order.over_tolerance')?.meta).toEqual({ subOrderId: sub.id, kg: 2_000 });
   });
 });
@@ -424,6 +443,7 @@ describe('earnings and views', () => {
     const line = truck.plan[0]!.orderLineId;
     const ctx = ctxFor(s, U.ravi, truck.tareDeviceId!);
     applyEvent(s, ctx, gross(truck.id, 36_640, [{ orderLineId: line, netKg: 24_180 }]));
+    approveDispatch(s, authedAs(s, U.priya), NOW, truck);
     const order = s.orders.find((o) => o.id === truck.orderId)!;
     order.commissionPerMtSnapshot = 999;
     s.orderLines.find((l) => l.id === line)!.overpricePerMt = 999;
@@ -467,11 +487,11 @@ describe('earnings and views', () => {
 });
 
 describe('demo seed trucks', () => {
-  it('Siltara has one assigned, one at gate and one loading truck; Borai one loading', () => {
+  it('Siltara has one assigned, one at gate and one loading truck; Borai one loading and one awaiting approval', () => {
     const s = world();
     const byPlant = (p: string) => s.trucks.filter((t) => t.plantId === p && t.state !== 'dispatched').map((t) => t.state).sort();
     expect(byPlant(SAMPLE_WORLD.ids.plants.siltara)).toEqual(['assigned', 'at_gate', 'loading']);
-    expect(byPlant(SAMPLE_WORLD.ids.plants.borai)).toEqual(['loading']);
+    expect(byPlant(SAMPLE_WORLD.ids.plants.borai)).toEqual(['loading', 'weighed']);
   });
 
   it('every dispatched truck: gross − tare = Σ allocations = its weighments, a slip, and an earning on broker orders', () => {
@@ -499,13 +519,13 @@ describe('snapshot version', () => {
     const old = { ...seedState(createFakeClock(NOW)), schemaVersion: 4 };
     const storage = createMemoryStorage({ 'tonnage.mockState': JSON.stringify(old) });
     const api = await createMockApi({ clock: createFakeClock(NOW), storage, seedOrders: true });
-    expect(await api.controls.stats()).toMatchObject({ orders: 5, trucks: 11 });
+    expect(await api.controls.stats()).toMatchObject({ orders: 5, trucks: 12 });
   });
 
   it('a version 3 snapshot is discarded on load (the seed comes back)', async () => {
     const old = { ...seedState(createFakeClock(NOW)), schemaVersion: 3 };
     const storage = createMemoryStorage({ 'tonnage.mockState': JSON.stringify(old) });
     const api = await createMockApi({ clock: createFakeClock(NOW), storage, seedOrders: true });
-    expect(await api.controls.stats()).toMatchObject({ orders: 5, trucks: 11 });
+    expect(await api.controls.stats()).toMatchObject({ orders: 5, trucks: 12 });
   });
 });

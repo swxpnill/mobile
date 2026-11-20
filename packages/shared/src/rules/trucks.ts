@@ -2,23 +2,29 @@ import type { TruckState } from '../schemas/orders.ts';
 import { roundHalfUp } from './money.ts';
 import { over, pending, type LineQty } from './quantities.ts';
 
-export type TruckEvent = 'at_gate' | 'tare' | 'gross' | 'cancel';
+export type TruckEvent = 'at_gate' | 'tare' | 'gross' | 'approve' | 'cancel';
 
 /** Gate-clock skew beyond this (ms) is flagged on a weighment. */
 export const CLOCK_SKEW_FLAG_MS = 300_000;
 
 export const TRUCK_CANCEL_REASONS = ['Vehicle did not arrive', 'Order short closed', 'Wrong vehicle', 'Other'] as const;
 
-/** The truck lifecycle; `null` means the event is not allowed in that state. */
+/**
+ * The truck lifecycle; `null` means the event is not allowed in that state. TON-57: the gross
+ * puts the truck in `weighed` (awaiting the office); `approve` is the dispatch.
+ */
 export function nextTruckState(state: TruckState, event: TruckEvent): TruckState | null {
   if (state === 'dispatched' || state === 'cancelled') return null;
+  if (state === 'weighed') return event === 'approve' ? 'dispatched' : event === 'cancel' ? 'cancelled' : null;
   switch (event) {
     case 'at_gate':
       return state === 'assigned' ? 'at_gate' : null;
     case 'tare':
       return 'loading'; // assigned | at_gate | loading (a correction)
     case 'gross':
-      return state === 'loading' ? 'dispatched' : null;
+      return state === 'loading' ? 'weighed' : null;
+    case 'approve':
+      return null;
     case 'cancel':
       return 'cancelled';
   }

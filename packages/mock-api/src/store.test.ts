@@ -172,6 +172,13 @@ describe('store', () => {
     expect(parseSnapshot(JSON.stringify({ ...old, truckTombstones: 'x' }))).toBeNull();
   });
 
+  it('TON-57: a truck saved before approval existed was weighed when it was dispatched', () => {
+    const at = new Date(START).toISOString();
+    const old = { ...seedState(createFakeClock(START)), trucks: [{ id: 'd', dispatchedAt: at }, { id: 'o', dispatchedAt: null }] };
+    const trucks = parseSnapshot(JSON.stringify(old))?.trucks.map((t) => [t.id, t.weighedAt]);
+    expect(trucks).toEqual([['d', at], ['o', null]]);
+  });
+
   it('a tombstone saved before it had a reason reads as deleted (hard delete was its only writer)', () => {
     const grave = { truckId: 't1', tenantId: 'x', plantId: 'p', removedAt: new Date(START).toISOString() };
     const old = { ...seedState(createFakeClock(START)), truckTombstones: [grave] };

@@ -1,11 +1,13 @@
-import { type Task, type Truck, type TruckState, formatLength, formatMobile } from '@tonnage/shared';
+import { type Task, type Truck, type TruckState, formatLength, formatMobile, isOpenTruckState } from '@tonnage/shared';
 import type { BadgeKind } from '../../ui';
 
-/** Status words (plan): Assigned, At gate, Loading, Dispatched, Cancelled. */
+/** Status words (plan): Assigned, At gate, Loading, Awaiting approval (TON-57), Dispatched, Cancelled. */
 export const TRUCK_STATE_META: Record<TruckState, { label: string; kind: BadgeKind; step: number }> = {
   assigned: { label: 'Assigned', kind: 'vi', step: 1 },
   at_gate: { label: 'At gate', kind: 'br', step: 1 },
   loading: { label: 'Loading', kind: 'wn', step: 2 },
+  // Weights saved; the office approves the dispatch. Never shown as dispatched before that.
+  weighed: { label: 'Awaiting approval', kind: 'wn', step: 3 },
   dispatched: { label: 'Dispatched', kind: 'ok', step: 4 },
   cancelled: { label: 'Cancelled', kind: 'nu', step: 0 },
 };
@@ -13,7 +15,7 @@ export const TRUCK_STATE_META: Record<TruckState, { label: string; kind: BadgeKi
 /** Truck progress; there is no separate "gross weighed" step: gross is the dispatch. */
 export const TRUCK_STEPS = ['Assigned', 'Tare', 'Gross', 'Dispatched'] as const;
 
-export const isOpenState = (s: TruckState) => s === 'assigned' || s === 'at_gate' || s === 'loading';
+export const isOpenState = (s: TruckState) => isOpenTruckState(s);
 
 /** "98271 44012" from "+919827144012", for a phone field the person can edit. */
 export function phoneForInput(normalized: string): string {

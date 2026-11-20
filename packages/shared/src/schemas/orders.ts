@@ -167,8 +167,14 @@ export const orderLineSchema = z.object({
 });
 export type OrderLine = z.infer<typeof orderLineSchema>;
 
-export const truckStateSchema = z.enum(['assigned', 'at_gate', 'loading', 'dispatched', 'cancelled']);
+export const truckStateSchema = z.enum(['assigned', 'at_gate', 'loading', 'weighed', 'dispatched', 'cancelled']);
 export type TruckState = z.infer<typeof truckStateSchema>;
+/**
+ * Open = not yet dispatched or cancelled. `weighed` (TON-57: weights saved, awaiting the office's
+ * approval) is open: its kg are not dispatched until approval, and it holds the vehicle.
+ */
+export const OPEN_TRUCK_STATES = ['assigned', 'at_gate', 'loading', 'weighed'] as const satisfies readonly TruckState[];
+export const isOpenTruckState = (s: TruckState): boolean => (OPEN_TRUCK_STATES as readonly TruckState[]).includes(s);
 
 export const openTruckSchema = z.object({
   id: idSchema,

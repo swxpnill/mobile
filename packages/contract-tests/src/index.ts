@@ -10,6 +10,7 @@ import { register as org } from './suites/org.contract.ts';
 import { register as pipeline } from './suites/pipeline.contract.ts';
 import { register as trucks } from './suites/trucks.contract.ts';
 import { register as sync } from './suites/sync.contract.ts';
+import { register as approval } from './suites/approval.contract.ts';
 import { register as rejections } from './suites/rejections.contract.ts';
 import { register as settings } from './suites/settings.contract.ts';
 import { register as users } from './suites/users.contract.ts';
@@ -30,6 +31,7 @@ export const CONTRACT_SUITES: readonly ((factory: TargetFactory) => void)[] = [
   lifecycle,
   trucks,
   sync,
+  approval,
   rejections,
   ledger,
   reports,

@@ -19,10 +19,10 @@ export function newestFirst(x: { assignedAt: string; id: string }, y: { assigned
   return x.id < y.id ? 1 : x.id > y.id ? -1 : 0;
 }
 
-/** Board order: loading, at gate, assigned, then dispatched. */
-export const OPEN_STATE_RANK: Record<string, number> = { loading: 0, at_gate: 1, assigned: 2, dispatched: 3 };
+/** Board order: awaiting approval (TON-57, the office's to-do), loading, arrived, assigned, then dispatched. */
+export const OPEN_STATE_RANK: Record<string, number> = { weighed: 0, loading: 1, at_gate: 2, assigned: 3, dispatched: 4 };
 
-/** Loading first; waiting trucks oldest first, dispatched ones newest first; ties by id. */
+/** Awaiting approval first; waiting trucks oldest first, dispatched ones newest first; ties by id. */
 export function boardOrder(
   x: Pick<TruckRec, 'id' | 'state' | 'assignedAt' | 'dispatchedAt'>,
   y: Pick<TruckRec, 'id' | 'state' | 'assignedAt' | 'dispatchedAt'>,
@@ -94,6 +94,7 @@ export function toTruck(c: OrderCtx, t: TruckRec, opts: { withWeighments: boolea
     assignedBy: userRef(t.assignedBy),
     atGateAt: t.atGateAt,
     tareAt: t.tareAt,
+    weighedAt: t.weighedAt,
     dispatchedAt: t.dispatchedAt,
     cancelledAt: t.cancelledAt,
     cancelReason: t.cancelReason,

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   type Order,
+  type Truck,
   type SyncEvent,
   type TransportResponse,
   doneTodaySchema,
@@ -88,6 +89,23 @@ export async function arrive(t: ContractTarget, ...truckIds: string[]): Promise<
   expect(results.every((r) => r.status === 'accepted')).toBe(true);
 }
 
+/** `POST /v1/trucks/:id/approve` at the truck's current version unless one is given. */
+export async function approveCall(t: ContractTarget, token: string, truck: Pick<Truck, 'id' | 'version'>, key: string | null = newKey()) {
+  return call(t, 'POST', `/v1/trucks/${truck.id}/approve`, {
+    token,
+    ...(key === null ? {} : { idempotencyKey: key }),
+    body: { version: truck.version },
+  });
+}
+
+/** Approves the weighed truck as the owner (or `token`) and returns it dispatched. */
+export async function approve(t: ContractTarget, truckId: string, token?: string): Promise<Truck> {
+  const who = token ?? (await tokenFor(t, PEOPLE.rajesh));
+  const owner = await tokenFor(t, PEOPLE.rajesh);
+  const now = await getTruck(t, owner, truckId);
+  return expectOk(await approveCall(t, who, now), truckSchema);
+}
+
 const assignBody = (lineId: string, kg: number, vehicleNo = 'CG 04 MK 2291') => ({
   vehicleNo,
   transporterId: null,
@@ -137,7 +155,7 @@ export function register(factory: TargetFactory): void {
     });
 
     describe('sync', () => {
-      it('Ravi weighs the canvas truck: three accepted, a slip, +24,180 kg dispatched, ₹10,881 earned', async () => {
+      it('Ravi weighs the canvas truck and the office approves: a slip, +24,180 kg dispatched, ₹10,881 earned', async () => {
         const t = target();
         const { owner, order, aLine, truck } = await canvasWithTruck(t);
         const ravi = await tokenFor(t, PEOPLE.ravi);
@@ -149,13 +167,16 @@ export function register(factory: TargetFactory): void {
         expect(results.map((r) => r.status)).toEqual(['accepted', 'accepted', 'accepted']);
         const last = results[2]!;
         expect(last.status === 'accepted' && last.task).toBeNull();
-        expect(last.status === 'accepted' ? last.loadingSlipNo : undefined).toMatch(/^LS-AIP-\d{4}-\d{4}$/);
+        // TON-57: the slip comes with the office's approval, not with the weights.
+        expect(last).not.toHaveProperty('loadingSlipNo');
         expect(results[1]).toMatchObject({ status: 'accepted', task: { state: 'loading', tareKg: 12_460, tareDeviceId: DEVICE_A } });
 
+        const approved = await approve(t, truck.id);
+        expect(approved.loadingSlipNo).toMatch(/^LS-AIP-\d{4}-\d{4}$/);
         expect(lineIn(await getOrder(t, owner, order.id), aLine.id).dispatchedKg).toBe(24_180);
         const detail = await getTruck(t, owner, truck.id);
         expect(detail).toMatchObject({ state: 'dispatched', tareKg: 12_460, grossKg: 36_640, netKg: 24_180, earningRupees: 10_881 });
-        expect(detail.loadingSlipNo).toBe(last.status === 'accepted' ? last.loadingSlipNo : null);
+        expect(detail.loadingSlipNo).toBe(approved.loadingSlipNo);
       });
 
       it('the same outbox pushed twice: every event duplicate; one weighment per kind, one slip, one earning', async () => {
@@ -166,6 +187,7 @@ export function register(factory: TargetFactory): void {
         await arrive(t, truck.id);
         const events = [p.atGate(), p.tare(12_460), p.gross(36_640, [{ orderLineId: aLine.id, netKg: 24_180 }])];
         await synced(sync(t, ravi, events));
+        await approve(t, truck.id);
         const before = await getTruck(t, owner, truck.id);
 
         const again = await synced(sync(t, ravi, events));
@@ -680,6 +702,7 @@ export function register(factory: TargetFactory): void {
         await arrive(t, two.id, one.id);
         const r = await synced(sync(t, ravi, [p2.tare(11_000), p1.tare(12_000), p1.gross(35_400, [{ orderLineId: line.id, netKg: 23_400 }])]));
         expect(r.map((x) => x.status)).toEqual(['accepted', 'accepted', 'accepted']);
+        await approve(t, one.id);
         expect(await statusOf()).toMatchObject({ status: 'partly_dispatched', closeKind: null });
 
         const loading = await getTruck(t, owner, two.id);
@@ -694,6 +717,9 @@ export function register(factory: TargetFactory): void {
         await arrive(t, three.id);
         const r3 = await synced(sync(t, ravi, [p3.tare(12_000), p3.gross(12_200, [{ orderLineId: line.id, netKg: 200 }])]));
         expect(r3.map((x) => x.status)).toEqual(['accepted', 'accepted']);
+        // Weighed is still open: the sub-order closes within tolerance when the office approves.
+        expect(await statusOf()).toMatchObject({ status: 'partly_dispatched', closeKind: null });
+        await approve(t, three.id);
         expect(await statusOf()).toMatchObject({ status: 'completed', closeKind: 'tolerance' });
       });
     });
@@ -727,9 +753,11 @@ export function register(factory: TargetFactory): void {
         expect(item).toMatchObject({
           vehicleNo: 'CG 04 MK 2291',
           netKg: 24_180,
-          dispatchedAt: new Date(at2340 + 10 * MINUTE).toISOString(),
+          status: 'awaiting_approval',
+          weighedAt: new Date(at2340 + 10 * MINUTE).toISOString(),
+          loadingSlipNo: null,
+          dispatchedAt: null,
         });
-        expect(item!.loadingSlipNo).toMatch(/^LS-AIP-\d{4}-\d{4}$/);
         expect(sameDay.totalNetKg).toBe(sameDay.items.reduce((n, x) => n + x.netKg, 0));
       });
     });
@@ -776,7 +804,7 @@ export function register(factory: TargetFactory): void {
         expect(task.lines.every((l) => l.productName.length > 0)).toBe(true);
       });
 
-      it('a partial load dispatches the truck and leaves the rest pending (no tolerance close)', async () => {
+      it('a partial load, once approved, dispatches the truck and leaves the rest pending (no tolerance close)', async () => {
         const t = target();
         const { owner, order, aLine, truck } = await canvasWithTruck(t);
         const ravi = await tokenFor(t, PEOPLE.ravi);
@@ -784,6 +812,8 @@ export function register(factory: TargetFactory): void {
         await arrive(t, truck.id);
         const results = await synced(sync(t, ravi, [ph.atGate(), ph.tare(12_000), ph.gross(22_000, [{ orderLineId: aLine.id, netKg: 10_000 }])]));
         expect(results.every((r) => r.status === 'accepted')).toBe(true);
+        expect((await getTruck(t, owner, truck.id)).state).toBe('weighed');
+        await approve(t, truck.id);
         expect((await getTruck(t, owner, truck.id)).state).toBe('dispatched');
         const after = await getOrder(t, owner, order.id);
         expect(lineIn(after, aLine.id).pendingKg).toBe(aLine.orderedKg - 10_000);
@@ -801,6 +831,7 @@ export function register(factory: TargetFactory): void {
           sync(t, ravi, [ph.atGate(), ph.tare(12_000), ph.gross(12_000 + 20_000 + 5_000, [{ orderLineId: aLine.id, netKg: 20_000 }, { orderLineId: other.id, netKg: 5_000 }])]),
         );
         expect(results.every((r) => r.status === 'accepted')).toBe(true);
+        await approve(t, truck.id);
         const after = await getOrder(t, owner, order.id);
         expect(lineIn(after, other.id).dispatchedKg).toBe(5_000);
       });

@@ -65,7 +65,8 @@ function Detail({ x, refreshing, refetch }: { x: Truck; refreshing: boolean; ref
   const canEdit = may('truck.edit') && x.state !== 'cancelled';
   const canCancel = may('truck.cancel') && open;
   const canWeigh = role === 'owner' && may('weighment.capture') && open && unsent.length === 0;
-  const canCorrect = may('weighment.correctAfterDispatch') && x.state === 'dispatched';
+  // TON-57: owner and city staff change weights awaiting approval and after dispatch.
+  const canCorrect = may('weighment.correct') && (x.state === 'weighed' || x.state === 'dispatched');
   const edit = () =>
     router.push({ pathname: '/assign/[subOrderId]', params: { subOrderId: x.subOrderId, orderId: x.orderId, truckId: x.id } });
   const call = async () => {

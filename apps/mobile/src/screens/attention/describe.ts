@@ -60,11 +60,11 @@ export function restoreExplanation(
   const cancelled = (truck?.state ?? r.serverState) === 'cancelled';
   if (cancelled) {
     const back = tare || gross || (truck?.tareKg ?? null) !== null ? 'loading' : 'assigned';
-    if (gross) return `Puts ${v} back to ${back} and dispatches it with these weights.`;
+    if (gross) return `Puts ${v} back to ${back} and sends these weights for approval.`;
     if (tare) return `Puts ${v} back to loading with this tare.`;
     return `Puts ${v} back to ${back} and marks it at the gate.`;
   }
-  if (gross) return `Dispatches ${v} with these weights.`;
+  if (gross) return `Sends these weights for ${v} to the office for approval.`;
   if (tare) return `Saves this tare and moves ${v} to loading.`;
   return `Marks ${v} at the gate.`;
 }

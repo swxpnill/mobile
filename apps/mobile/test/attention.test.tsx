@@ -144,7 +144,7 @@ describe('Needs attention (Ruling 8)', () => {
     expect(mockRouter.push).toHaveBeenCalledWith('/attention');
   });
 
-  it('lists both refusals in plain words; Restore puts the truck back and dispatches it', async () => {
+  it('lists both refusals in plain words; Restore puts the truck back and its weights await approval', async () => {
     const gh = await rejectedSync();
     let view = await wrap(<NeedsAttentionScreen />);
     expect(await screen.findByText('Truck was cancelled before this weight reached the server')).toBeOnTheScreen();
@@ -153,7 +153,7 @@ describe('Needs attention (Ruling 8)', () => {
     expect(screen.getByText('Tare 12.460 MT')).toBeOnTheScreen();
 
     await press(/^CG 10 GH 4471, tare/);
-    expect(await screen.findByText('Puts CG 10 GH 4471 back to loading and dispatches it with these weights.')).toBeOnTheScreen();
+    expect(await screen.findByText('Puts CG 10 GH 4471 back to loading and sends these weights for approval.')).toBeOnTheScreen();
     expect(screen.getByText(/2 weights from Ravi's phone go back together/)).toBeOnTheScreen();
     await press('Restore');
     expect(await screen.findByText('Nothing needs attention')).toBeOnTheScreen();
@@ -161,7 +161,7 @@ describe('Needs attention (Ruling 8)', () => {
 
     view = await wrap(<TruckDetailScreen id={gh.id} />);
     await screen.findByRole('header', { name: 'CG 10 GH 4471' });
-    expect(screen.getAllByText('Dispatched').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Awaiting approval').length).toBeGreaterThan(0);
     await view.unmount();
   });
 

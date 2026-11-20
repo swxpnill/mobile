@@ -102,6 +102,16 @@ describe('splitProRata', () => {
 });
 
 describe('nextTruckState', () => {
+  it('TON-57 revised: gross sends the truck for approval; approval dispatches', () => {
+    expect(nextTruckState('loading', 'gross')).toBe('weighed');
+    expect(nextTruckState('weighed', 'approve')).toBe('dispatched');
+    expect(nextTruckState('weighed', 'cancel')).toBe('cancelled');
+    for (const e of ['at_gate', 'tare', 'gross'] as const) expect(nextTruckState('weighed', e)).toBeNull();
+    for (const s of ['assigned', 'at_gate', 'loading', 'dispatched', 'cancelled'] as const) {
+      expect(nextTruckState(s, 'approve')).toBeNull();
+    }
+  });
+
   it('gross only from loading; at gate optional; cancel from any open state', () => {
     expect(nextTruckState('assigned', 'tare')).toBe('loading');
     expect(nextTruckState('assigned', 'gross')).toBeNull();
@@ -109,7 +119,6 @@ describe('nextTruckState', () => {
     expect(nextTruckState('assigned', 'at_gate')).toBe('at_gate');
     expect(nextTruckState('at_gate', 'tare')).toBe('loading');
     expect(nextTruckState('loading', 'tare')).toBe('loading');
-    expect(nextTruckState('loading', 'gross')).toBe('dispatched');
     expect(nextTruckState('at_gate', 'gross')).toBeNull();
     expect(nextTruckState('loading', 'at_gate')).toBeNull();
     expect(nextTruckState('loading', 'cancel')).toBe('cancelled');

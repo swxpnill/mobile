@@ -506,6 +506,8 @@ export const deviceStoreContract: DeviceStoreCase[] = [
             customerName: null,
             subOrderNumber: 'SO-1',
             netKg: 20_000,
+            status: 'dispatched' as const,
+            weighedAt: new Date(T0).toISOString(),
             loadingSlipNo: 'LS-1',
             dispatchedAt: new Date(T0).toISOString(),
           },
