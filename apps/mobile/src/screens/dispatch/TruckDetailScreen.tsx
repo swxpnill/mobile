@@ -12,6 +12,7 @@ import { type Tokens } from '../../theme/tokens';
 import { Badge, Button, EmptyState, Group, IconButton, Row, Screen, showToast, Text, UnitTag } from '../../ui';
 import { BackHeader } from '../admin/parts';
 import { MSG, messageFor } from '../messages';
+import { ApproveSheet } from './ApproveSheet';
 import { CancelTruckSheet } from './CancelTruckSheet';
 import { CorrectWeightSheet } from './CorrectWeightSheet';
 import { Progress, Weighments } from './TruckTimeline';
@@ -51,6 +52,7 @@ function Detail({ x, refreshing, refetch }: { x: Truck; refreshing: boolean; ref
   const snap = useDeviceSnapshot();
   const [cancelling, setCancelling] = useState(false);
   const [correcting, setCorrecting] = useState(false);
+  const [approving, setApproving] = useState(false);
   const role = me?.role;
   const may = (a: Parameters<typeof can>[1]) => (role ? can(role, a) : false);
   const all = byCode(companies ?? []);
@@ -64,9 +66,12 @@ function Detail({ x, refreshing, refetch }: { x: Truck; refreshing: boolean; ref
 
   const canEdit = may('truck.edit') && x.state !== 'cancelled';
   const canCancel = may('truck.cancel') && open;
-  const canWeigh = role === 'owner' && may('weighment.capture') && open && unsent.length === 0;
+  const awaiting = x.state === 'weighed';
+  // Weighing is for trucks the phone still has work on; a weighed truck waits for the office.
+  const canWeigh = role === 'owner' && may('weighment.capture') && open && !awaiting && unsent.length === 0;
   // TON-57: owner and city staff change weights awaiting approval and after dispatch.
-  const canCorrect = may('weighment.correct') && (x.state === 'weighed' || x.state === 'dispatched');
+  const canCorrect = may('weighment.correct') && (awaiting || x.state === 'dispatched');
+  const canApprove = may('dispatch.approve') && awaiting;
   const edit = () =>
     router.push({ pathname: '/assign/[subOrderId]', params: { subOrderId: x.subOrderId, orderId: x.orderId, truckId: x.id } });
   const call = async () => {
@@ -78,8 +83,9 @@ function Detail({ x, refreshing, refetch }: { x: Truck; refreshing: boolean; ref
   };
 
   const footer =
-    canWeigh || canEdit || canCancel || canCorrect ? (
+    canWeigh || canEdit || canCancel || canCorrect || canApprove ? (
       <>
+        {canApprove ? <Button onPress={() => setApproving(true)}>Approve dispatch</Button> : null}
         {canWeigh ? (
           <Button variant={x.state === 'loading' ? 'primary' : 'violet'} onPress={() => router.push(`/weigh/${x.id}`)}>
             {x.state === 'loading' ? 'Capture gross weight' : 'Capture tare weight'}
@@ -93,11 +99,11 @@ function Detail({ x, refreshing, refetch }: { x: Truck; refreshing: boolean; ref
           ) : null}
           {canCorrect ? (
             <Button variant="secondary" onPress={() => setCorrecting(true)}>
-              Correct weight
+              {awaiting ? 'Change weights' : 'Correct weight'}
             </Button>
           ) : null}
           {canEdit ? (
-            <Button variant={canWeigh ? 'secondary' : 'primary'} onPress={edit} style={styles.fill}>
+            <Button variant={canWeigh || canApprove ? 'secondary' : 'primary'} onPress={edit} style={styles.fill}>
               {x.state === 'dispatched' ? 'Edit LR' : 'Edit vehicle / LR'}
             </Button>
           ) : null}
@@ -129,6 +135,14 @@ function Detail({ x, refreshing, refetch }: { x: Truck; refreshing: boolean; ref
         ) : null}
       </View>
 
+      {awaiting ? (
+        <View style={[styles.note, { backgroundColor: t.vis }]} accessibilityLiveRegion="polite">
+          <Text color="vi" style={styles.small}>
+            {`Weighed at ${x.plantName}${x.weighedAt ? ` at ${istClock(x.weighedAt)}` : ''} · ${canApprove ? 'check the weights and approve the dispatch' : 'waiting for the office to approve'}`}
+          </Text>
+        </View>
+      ) : null}
+
       {unsent.length > 0 ? (
         <View style={[styles.note, { backgroundColor: t.wns }]} accessibilityLiveRegion="polite">
           <Text color="wnt" style={styles.small}>
@@ -142,7 +156,7 @@ function Detail({ x, refreshing, refetch }: { x: Truck; refreshing: boolean; ref
           <Text variant="overline">Weighment</Text>
           <View style={styles.tiles}>
             <WeightTile label="Tare" kg={x.tareKg} at={x.tareAt} empty="waiting" bg="brs" fg="brt" />
-            <WeightTile label="Gross" kg={x.grossKg} at={x.dispatchedAt} empty={x.tareKg === null ? 'after tare' : 'waiting'} bg="wns" fg="wnt" />
+            <WeightTile label="Gross" kg={x.grossKg} at={x.weighedAt ?? x.dispatchedAt} empty={x.tareKg === null ? 'after tare' : 'waiting'} bg="wns" fg="wnt" />
             <WeightTile label="Net" kg={x.netKg} at={null} empty="after gross" bg="oks" fg="okt" />
           </View>
           <View style={[styles.kv, styles.rule, { borderTopColor: t.bd }]}>
@@ -239,6 +253,14 @@ function Detail({ x, refreshing, refetch }: { x: Truck; refreshing: boolean; ref
       <CancelTruckSheet truck={x} visible={cancelling} onClose={() => setCancelling(false)} />
       {canCorrect || correcting ? (
         <CorrectWeightSheet truck={x} visible={correcting} onClose={() => setCorrecting(false)} />
+      ) : null}
+      {canApprove || approving ? (
+        <ApproveSheet
+          truck={x}
+          visible={approving}
+          onClose={() => setApproving(false)}
+          onChangeWeights={canCorrect ? () => setCorrecting(true) : undefined}
+        />
       ) : null}
     </Screen>
   );

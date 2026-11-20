@@ -23,19 +23,24 @@ export function Progress({ x }: { x: Truck }) {
   const step = stepOf(x);
   const at = (iso: string | null) => (iso ? istClock(iso) : null);
   const tare = x.weighments.find((w) => w.kind === 'tare' && !w.superseded);
+  const gross = x.weighments.find((w) => w.kind === 'gross' && !w.superseded);
   const rows: { label: string; when: string | null }[] = [
     { label: 'Assigned', when: `${at(x.assignedAt)} · ${first(x.assignedBy.name)}` },
     ...(x.atGateAt ? [{ label: 'At gate', when: at(x.atGateAt) }] : []),
     ...(x.tareAt ? [{ label: 'Tare weighed', when: [at(x.tareAt), tare ? first(tare.by.name) : null].filter(Boolean).join(' · ') }] : []),
-    ...(x.dispatchedAt ? [{ label: 'Dispatched', when: at(x.dispatchedAt) }] : []),
+    // TON-57: weights saved at the plant, then the office's approval (the dispatch).
+    ...(x.weighedAt ? [{ label: 'Weighed', when: [at(x.weighedAt), gross ? first(gross.by.name) : null].filter(Boolean).join(' · ') }] : []),
+    ...(x.dispatchedAt ? [{ label: 'Approved · dispatched', when: at(x.dispatchedAt) }] : []),
     ...(x.cancelledAt ? [{ label: 'Cancelled', when: at(x.cancelledAt) }] : []),
   ];
   const next =
     x.state === 'assigned' || x.state === 'at_gate'
       ? 'Next · tare weight, then loading'
       : x.state === 'loading'
-        ? 'Next · gross weight, then dispatch'
-        : null;
+        ? 'Next · gross weight, then the office approves'
+        : x.state === 'weighed'
+          ? 'Next · the office approves the dispatch'
+          : null;
   const colorOf = (i: number): string =>
     x.state === 'cancelled' ? t.act : i < step ? t.ok : i === step && x.state !== 'dispatched' ? t.wn : t.act;
   const fg: keyof Tokens = meta.kind === 'wn' ? 'wnt' : meta.kind === 'ok' ? 'okt' : meta.kind === 'vi' ? 'vi' : meta.kind === 'br' ? 'brt' : 'tx2';

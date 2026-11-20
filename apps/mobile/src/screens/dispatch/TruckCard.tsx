@@ -4,7 +4,7 @@ import { useDisplayBasis } from '../../api/hooks/me';
 import { relativeTime } from '../../format/time';
 import { useTheme } from '../../theme/ThemeProvider';
 import { MIN_TOUCH, type Tokens } from '../../theme/tokens';
-import { Badge, Icon, showToast, Text, UnitTag } from '../../ui';
+import { Badge, Button, Icon, showToast, Text, UnitTag } from '../../ui';
 import { TRUCK_STATE_META, TRUCK_STEPS, planLabel, shownPhone } from './truckStateMeta';
 
 type BoardTruck = DispatchBoard['items'][number];
@@ -16,6 +16,7 @@ export function TruckCard({
   now,
   onOpen,
   onEdit,
+  onApprove,
 }: {
   truck: BoardTruck;
   slot: number;
@@ -23,20 +24,24 @@ export function TruckCard({
   onOpen(): void;
   /** Absent for read-only roles (plant head). */
   onEdit?: () => void;
+  /** TON-57: on a truck awaiting approval, for the roles that approve. */
+  onApprove?: () => void;
 }) {
   const { t } = useTheme();
   const basis = useDisplayBasis();
   const meta = TRUCK_STATE_META[x.state];
   const planned = x.plan.reduce((s, p) => s + p.plannedKg, 0);
-  const since = x.state === 'dispatched' ? x.dispatchedAt : (x.tareAt ?? x.atGateAt ?? x.assignedAt);
+  const weighed = x.state === 'weighed' || x.state === 'dispatched';
+  const since = x.state === 'dispatched' ? x.dispatchedAt : x.state === 'weighed' ? x.weighedAt : (x.tareAt ?? x.atGateAt ?? x.assignedAt);
   const what =
-    x.state === 'dispatched' && x.netKg !== null
+    weighed && x.netKg !== null
       ? `net ${toDisplayQty(x.netKg, basis, { withUnit: true })}`
       : `plan ${toDisplayQty(planned, basis, { withUnit: true })}${x.tareKg !== null ? ` · tare ${toDisplayQty(x.tareKg, basis)}` : ''}`;
   const ago = since && x.state !== 'cancelled' ? relativeTime(since, now) : null;
   const lines = x.plan.map(planLabel).join(', ');
   const done = meta.step;
   const stepColor: (keyof Tokens)[] = ['vi', 'br', 'wn', 'ok'];
+  const approvable = x.state === 'weighed' && onApprove !== undefined;
   const call = async () => {
     try {
       await Linking.openURL(`tel:${x.driverPhone}`);
@@ -75,6 +80,11 @@ export function TruckCard({
           <Text variant="caption" numberOfLines={1}>{`${x.subOrderNumber} · ${lines} · ${what}`}</Text>
         </View>
       </Pressable>
+      {approvable ? (
+        <Button onPress={onApprove} accessibilityLabel={`Approve dispatch, ${x.vehicleNo}`}>
+          Approve dispatch
+        </Button>
+      ) : null}
       <View style={[styles.foot, { borderTopColor: t.bd }]}>
         <View style={styles.fill}>
           <Text variant="caption" numberOfLines={1}>

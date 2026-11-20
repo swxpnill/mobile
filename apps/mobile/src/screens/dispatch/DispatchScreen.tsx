@@ -10,10 +10,13 @@ import { useTheme } from '../../theme/ThemeProvider';
 import { Button, Chip, Icon, Screen, SearchField, Text, UnitTag, useDebouncedValue } from '../../ui';
 import { messageFor } from '../messages';
 import { UnitSwitcherSheet } from '../UnitSwitcherSheet';
+import { ApproveSheet } from './ApproveSheet';
 import { TruckCard } from './TruckCard';
 
 const FILTERS: { value: DispatchState; label: string }[] = [
   { value: 'open', label: 'Open' },
+  // TON-57: weights saved at the plant, waiting for the office.
+  { value: 'weighed', label: 'To approve' },
   { value: 'loading', label: 'Loading' },
   { value: 'at_gate', label: 'At gate' },
   { value: 'assigned', label: 'Assigned' },
@@ -37,12 +40,16 @@ export function DispatchScreen() {
   const slotOf = (code: string) => Math.max(0, all.findIndex((c) => c.code === code));
   const chosen = all.find((c) => c.id === companyId);
   const canEdit = me ? can(me.role, 'truck.edit') : false;
+  const canApprove = me ? can(me.role, 'dispatch.approve') : false;
+  const [approvingId, setApprovingId] = useState<string | null>(null);
   const now = Date.now();
 
   const counts = board.data?.counts;
   const countOf = (s: DispatchState) =>
-    counts === undefined ? undefined : s === 'open' ? counts.assigned + counts.at_gate + counts.loading : counts[s];
+    counts === undefined ? undefined : s === 'open' ? counts.assigned + counts.at_gate + counts.loading + counts.weighed : counts[s];
   const items = board.data?.items ?? [];
+  // The card's own data: the sheet follows the board, so a refetch shows the latest weights.
+  const approving = approvingId ? items.find((x) => x.id === approvingId) : undefined;
   const sentKg = state === 'dispatched_today' ? items.reduce((s, x) => s + (x.netKg ?? 0), 0) : null;
 
   const header = (
@@ -97,6 +104,7 @@ export function DispatchScreen() {
                 ? () => router.push({ pathname: '/assign/[subOrderId]', params: { subOrderId: item.subOrderId, orderId: item.orderId, truckId: item.id } })
                 : undefined
             }
+            onApprove={canApprove ? () => setApprovingId(item.id) : undefined}
           />
         )}
         ListHeaderComponent={header}
@@ -128,6 +136,14 @@ export function DispatchScreen() {
         windowSize={7}
       />
       <UnitSwitcherSheet visible={switcher} onClose={() => setSwitcher(false)} />
+      {approving ? (
+        <ApproveSheet
+          truck={approving}
+          visible
+          onClose={() => setApprovingId(null)}
+          onChangeWeights={() => router.push(`/trucks/${approving.id}`)}
+        />
+      ) : null}
     </Screen>
   );
 }

@@ -38,15 +38,16 @@ export function signedQty(kg: number, basis: UnitBasis): string {
 function refusal(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.code === 'STALE') return 'Someone else changed this truck. Check the weights and save again.';
-    if (e.code === 'TRUCK_LOCKED') return 'Only a dispatched truck can be corrected, and this one has changed.';
+    if (e.code === 'TRUCK_LOCKED') return 'Only a truck awaiting approval or dispatched can be changed, and this one has changed.';
   }
   return messageFor(e);
 }
 
 /**
- * Owner only, dispatched trucks: new tare and gross (both weighments are superseded), the split
- * when the truck carries more than one line, and a reason. The broker earning is rewritten at the
- * rates fixed at dispatch; only the owner sees its ₹ difference, after the save.
+ * Owner and city staff (TON-57), on a truck awaiting approval ("Change weights") or dispatched
+ * ("Correct weight"): new tare and gross (both weighments are superseded), the split when the
+ * truck carries more than one line, and a reason. After dispatch the broker earning is rewritten
+ * at the rates fixed at dispatch; money roles see its ₹ difference, after the save.
  */
 export function CorrectWeightSheet({ truck, visible, onClose }: { truck: Truck; visible: boolean; onClose(): void }) {
   const { t } = useTheme();
@@ -128,7 +129,9 @@ export function CorrectWeightSheet({ truck, visible, onClose }: { truck: Truck; 
     else setStep('split');
   };
 
-  const title = `Correct weight · ${truck.vehicleNo}`;
+  // Before approval nothing is dispatched or earned yet: the weights simply change.
+  const pending = truck.state === 'weighed';
+  const title = `${pending ? 'Change weights' : 'Correct weight'} · ${truck.vehicleNo}`;
   const close = () => (correct.isPending ? undefined : onClose());
 
   if (saved) {
@@ -139,10 +142,10 @@ export function CorrectWeightSheet({ truck, visible, onClose }: { truck: Truck; 
       <Sheet visible={visible} title={title} onClose={close}>
         <View accessibilityLiveRegion="polite" style={[styles.card, { backgroundColor: t.oks }]}>
           <Text weight="semibold" color="okt">
-            Weight corrected
+            {pending ? 'Weights changed' : 'Weight corrected'}
           </Text>
           <Text numeric>{`Net ${toDisplayQty(saved.before.netKg ?? 0, basis)} → ${toDisplayQty(saved.after.netKg ?? 0, basis, { withUnit: true })}`}</Text>
-          {owner && before !== undefined && after !== undefined ? (
+          {owner && !pending && before !== undefined && after !== undefined ? (
             <Text numeric>{`Broker earning ${formatRupees(before)} → ${formatRupees(after)} (${after > before ? '+' : ''}${formatRupees(after - before)})`}</Text>
           ) : null}
         </View>
@@ -199,7 +202,9 @@ export function CorrectWeightSheet({ truck, visible, onClose }: { truck: Truck; 
               maxLength={200}
               hint={`At least ${MIN_REASON} characters`}
             />
-            <Text variant="caption">Broker earning is recalculated with the rates at dispatch</Text>
+            <Text variant="caption">
+              {pending ? 'Nothing is dispatched until you approve' : 'Broker earning is recalculated with the rates at dispatch'}
+            </Text>
             {problem && !(problem === 'Enter both weights' && texts[field] === '') ? (
               <Text color="dgt" accessibilityLiveRegion="polite">
                 {problem}

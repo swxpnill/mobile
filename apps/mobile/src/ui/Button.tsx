@@ -17,6 +17,8 @@ export interface ButtonProps {
   /** Shows a spinner and blocks presses (a request is in flight). */
   loading?: boolean;
   children: string;
+  /** What a screen reader says when the visible words need context (default: the words). */
+  accessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -26,6 +28,7 @@ export function Button({
   disabled,
   loading,
   children,
+  accessibilityLabel,
   style,
 }: ButtonProps) {
   const { t } = useTheme();
@@ -39,7 +42,7 @@ export function Button({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={children}
+      accessibilityLabel={accessibilityLabel ?? children}
       accessibilityState={{ disabled: inactive, busy: Boolean(loading) }}
       disabled={inactive}
       onPress={onPress}

@@ -306,7 +306,9 @@ describe('Correct weight (owner)', () => {
     const line = mk.plan[0]!.orderLineId;
     const r = await raviSyncs(mk.id, [{ type: 'GROSS', grossKg: 36_640, allocations: [{ orderLineId: line, netKg: 24_180 }] } as never]);
     expect(r[0]?.status).toBe('accepted');
-    return api(`/v1/trucks/${mk.id}`, { schema: truckSchema });
+    // TON-57: the weights await the office; approving dispatches the truck.
+    const weighed = await api(`/v1/trucks/${mk.id}`, { schema: truckSchema });
+    return api(`/v1/trucks/${mk.id}/approve`, { method: 'POST', body: { version: weighed.version }, idempotencyKey: `approve-${mk.id}`, schema: truckSchema });
   }
 
   async function typeGross(keys: string) {
