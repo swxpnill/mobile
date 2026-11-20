@@ -184,7 +184,10 @@ export function CaptureScreen({
 
 const STEPS = ['Assigned', 'Arrived', 'Tare', 'Gross', 'Approval'] as const;
 
-/** Canvas step strip: done steps ticked, the current one filled (violet on tare). */
+/**
+ * Canvas step strip: done steps as ticks only (five steps do not fit a phone with every label),
+ * the current one filled (violet on tare) and named, the ones ahead numbered and named.
+ */
 function Steps({ current, violet }: { current: number; violet: boolean }) {
   const { t } = useTheme();
   return (
@@ -201,15 +204,17 @@ function Steps({ current, violet }: { current: number; violet: boolean }) {
         const dotFg: keyof Tokens = done ? 'okt' : on ? (violet ? 'vitx' : 'invtx') : 'tx3';
         const labelColor: keyof Tokens = on ? (violet ? 'vi' : 'tx') : done ? 'tx2' : 'tx3';
         return (
-          <View key={label} style={styles.step}>
+          <View key={label} style={done ? styles.stepDone : styles.step}>
             <View style={[styles.dot, { backgroundColor: dotBg }]}>
               <Text weight="semibold" color={dotFg} style={styles.dotText}>
                 {done ? '✓' : String(n)}
               </Text>
             </View>
-            <Text variant="caption" weight="medium" color={labelColor} numberOfLines={1}>
-              {label}
-            </Text>
+            {done ? null : (
+              <Text variant="caption" weight="medium" color={labelColor} numberOfLines={1} style={styles.stepLabel}>
+                {label}
+              </Text>
+            )}
           </View>
         );
       })}
@@ -319,6 +324,8 @@ const styles = StyleSheet.create({
   content: { paddingTop: 12, paddingBottom: 20, gap: 16 },
   steps: { flexDirection: 'row', gap: 8 },
   step: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
+  stepDone: { flexDirection: 'row', alignItems: 'center' },
+  stepLabel: { flexShrink: 1 },
   dot: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   dotText: { fontSize: 11, lineHeight: 14 },
   readout: { paddingTop: 18, paddingBottom: 6, gap: 6 },
