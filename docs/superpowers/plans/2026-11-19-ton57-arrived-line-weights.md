@@ -172,25 +172,39 @@ Gross · tare + products                      36.640 t  ← read-only, live regi
 
 Commit `feat(mobile): weigh each product; gross calculated; saving sends for approval`.
 
-### Task 5: Dispatch detail: Assigned supervisor card with Call and WhatsApp
+### Task 5 (revised 2026-11-20): Dispatch detail: the plant's supervisors, with Call and WhatsApp
 
-**Files:**
-- Modify: `packages/shared/src/schemas/trucks.ts` (`truckSchema.supervisors: { id, name, mobile }[]`), mock truck view (active supervisors of `truck.plantId`), `packages/contract-tests/src/suites/trucks.contract.ts`
-- Create: `apps/mobile/src/screens/dispatch/SupervisorCard.tsx`, `apps/mobile/src/format/contactLinks.ts`
-- Modify: `apps/mobile/src/screens/dispatch/TruckDetailScreen.tsx`
-- Test: `apps/mobile/test/dispatch.test.tsx`, `apps/mobile/test/contact-links.test.ts`
+Ruling 11. The office reaches whoever weighs at the truck's plant without leaving the truck.
 
-**Interfaces:**
-- `telLink(mobile: string): string | null` (`+919826100014` → `tel:+919826100014`; anything not a normalized Indian mobile → null); `whatsappLink(mobile: string, text: string): string | null` → `https://wa.me/919826100014?text=<encodeURIComponent(text)>`.
+**Contract (server, contract first):**
+- `truckSchema.supervisors: { id, name, mobile, invited }[]`: the **active** users with role `supervisor` whose plants include the truck's plant, sorted by name. `invited` = never signed in (they may not have the app yet). Deactivated supervisors and supervisors of other plants are never listed.
+- Only on the truck detail (`GET /v1/trucks/:id` and every write that returns a truck). The Dispatch board's items omit it (`dispatchBoardSchema` = truck without `weighments` and `supervisors`): a board refresh must not carry every plant's staff.
+- Not money: plant heads see it too. Supervisors have no truck detail (`dispatch.view`), so they never see it.
 
-- [ ] **Step 1: Failing tests:**
-  - Contract: `GET /v1/trucks/:id` for a Siltara truck → `supervisors` = `[{ name: 'Ravi Verma', mobile: '+919826100014' }]` (Deepak, invited at Tilda, is not on Siltara trucks); inactive supervisors are left out.
-  - `contact-links.test.ts`: the examples above; `telLink('')` and `telLink('12345')` → null (Review Focus 4).
-  - Screen: owner on a Siltara truck sees "Assigned supervisor", "Ravi Verma", "Siltara · 98261 00014", buttons "Call Ravi Verma" and "WhatsApp Ravi Verma"; pressing WhatsApp calls `Linking.openURL` with text "CG 04 MK 2291 · SO-2611-0142-A · Loading"; a plant with no supervisor shows "No supervisor at Tilda yet"; a supervisor with an unusable number shows no buttons.
-- [ ] **Step 2:** Run the contract and app tests. Expected: FAIL.
-- [ ] **Step 3:** Implement. The card sits above "Driver & transporter", in the same row style as the driver row (`cb` icon buttons, phone and message icons).
-- [ ] **Step 4:** Run `pnpm test`. Expected: PASS; the dark-theme and a11y suites stay green.
-- [ ] **Step 5:** Commit `feat: assigned supervisor card with Call and WhatsApp on Dispatch detail`.
+**Rules (pure, `apps/mobile/src/format/contactLinks.ts`):**
+- `telLink(mobile)` → `tel:+91XXXXXXXXXX` only for a normalised Indian mobile (`+91` then 10 digits starting 6–9); anything else → null.
+- `whatsappLink(mobile, text)` → `https://wa.me/91XXXXXXXXXX?text=<encodeURIComponent(text)>` under the same rule; else null.
+- Message text: `{vehicleNo} · {subOrderNumber} · {stage}` with the stage as the app names it ("Loading", "Awaiting approval"…).
+- A number that fails the rule shows the name without buttons, and the caption says "No mobile number". The app never builds a broken link.
+- `Linking.openURL` failures (no dialler, WhatsApp not installed) → toast "Couldn't start a call on this phone" / "Couldn't open WhatsApp".
+
+**UI (`SupervisorCard.tsx`, on Dispatch detail above "Driver & transporter"):**
+```
+Supervisor at Siltara                         ← heading; "Supervisors at Siltara" for more than one
+┌──────────────────────────────────────────────┐
+│ (RV) Ravi Verma                     [📞] [💬] │  Call Ravi Verma · WhatsApp Ravi Verma
+│      98261 00014                              │  "· Not signed in yet" when invited
+└──────────────────────────────────────────────┘
+No supervisor at Tilda yet                     ← empty state row, no buttons
+```
+Same row look as the driver row (`Row`, `IconButton`), avatar from `Avatar`.
+
+**Tests first:**
+- Contract: a Siltara truck lists Ravi only (Sanjay is Borai; Deepak, invited, is Tilda); after Ravi is deactivated the list is empty; a Tilda truck lists Deepak with `invited: true`; Kiran (plant head) sees the list; the board's items have no `supervisors` key.
+- `test/contact-links.test.ts`: tel and wa.me for `+919826100014`; `''`, `12345`, `+15551234567`, `+910123456789` → null; the text is URI-encoded.
+- `test/dispatch.test.tsx`: owner on a Siltara truck sees "Supervisor at Siltara", "Ravi Verma", buttons "Call Ravi Verma" / "WhatsApp Ravi Verma"; WhatsApp opens `https://wa.me/919826100014?text=CG%2004%20MK%202291%20%C2%B7%20SO-2611-0142-A%20%C2%B7%20Loading`; Call opens `tel:+919826100014`; a plant with no active supervisor shows "No supervisor at … yet"; a failed open shows the toast; `auditA11y` clean.
+
+Commit `feat: plant supervisors with Call and WhatsApp on Dispatch detail`.
 
 ### Task 6: Docs, Notion and final checks
 

@@ -1,4 +1,4 @@
-import { type Task, type Truck, formatLength, istDateParts, pending, productDisplayName, subOrderNumber } from '@tonnage/shared';
+import { type PlantSupervisor, type Task, type Truck, formatLength, istDateParts, pending, productDisplayName, subOrderNumber } from '@tonnage/shared';
 import { orderMath } from './orders-math.ts';
 import type { OrderCtx } from './order-views.ts';
 import type { MockState, TruckRec } from './store.ts';
@@ -37,6 +37,17 @@ export function boardOrder(
     return x.assignedAt < y.assignedAt ? -1 : 1;
   }
   return x.id < y.id ? -1 : x.id > y.id ? 1 : 0;
+}
+
+/**
+ * TON-57: the active supervisors of the truck's plant, by name; `invited` = never signed in.
+ * Fresh objects (never state references).
+ */
+export function plantSupervisors(state: MockState, t: Pick<TruckRec, 'tenantId' | 'plantId'>): PlantSupervisor[] {
+  return state.users
+    .filter((u) => u.tenantId === t.tenantId && u.active && u.role === 'supervisor' && u.plantIds.includes(t.plantId))
+    .sort((a, b) => a.name.localeCompare(b.name) || (a.id < b.id ? -1 : 1))
+    .map((u) => ({ id: u.id, name: u.name, mobile: u.mobile, invited: u.lastSeenAt === null }));
 }
 
 // Serializers build fresh plain objects (never state references), so responses can't alias state.
@@ -111,6 +122,7 @@ export function toTruck(c: OrderCtx, t: TruckRec, opts: { withWeighments: boolea
             clockSkew: w.clockSkewFlag,
           }))
       : [],
+    supervisors: opts.withWeighments ? plantSupervisors(c.state, t) : [],
     version: t.version,
   };
   if (order.brokerId !== null) {

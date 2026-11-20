@@ -5,6 +5,9 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
 import type { ReactElement } from 'react';
+import { Linking } from 'react-native';
+import type { ReactTestRendererJSON } from 'react-test-renderer';
+import { auditA11y } from './a11y/audit';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import {
   type Order,
@@ -603,5 +606,51 @@ describe('Approve dispatch (TON-57)', () => {
     expect(await screen.findByText(/^CG 04 LT 6619 dispatched/)).toBeOnTheScreen();
     expect(keys).toHaveLength(2);
     expect(keys[1]).toBe(keys[0]);
+  });
+});
+
+describe('Plant supervisors on the truck (TON-57 Ruling 11)', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('owner: Ravi at Siltara with Call and WhatsApp; the message names the truck and its stage', async () => {
+    const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+    const mk = await boardTruck('CG 04 MK 2291');
+    await wrap(<TruckDetailScreen id={mk.id} />);
+    await screen.findByRole('header', { name: 'CG 04 MK 2291' });
+    expect(screen.getByText('Supervisor at Siltara')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Ravi Verma, supervisor, +91 98261 00014')).toBeOnTheScreen();
+
+    await press('WhatsApp Ravi Verma');
+    expect(open).toHaveBeenLastCalledWith(
+      'https://wa.me/919826100014?text=CG%2004%20MK%202291%20%C2%B7%20SO-2611-0142-A%20%C2%B7%20Loading',
+    );
+    await press('Call Ravi Verma');
+    expect(open).toHaveBeenLastCalledWith('tel:+919826100014');
+    expect(auditA11y(screen.toJSON() as ReactTestRendererJSON)).toEqual([]);
+  });
+
+  it('a plant with no active supervisor says so, with no buttons', async () => {
+    await api(`/v1/users/${ids.users.ravi}/deactivate`, { method: 'POST' });
+    const mk = await boardTruck('CG 04 MK 2291');
+    await wrap(<TruckDetailScreen id={mk.id} />);
+    await screen.findByRole('header', { name: 'CG 04 MK 2291' });
+    expect(screen.getByText('No supervisor at Siltara yet')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: /^(Call|WhatsApp) Ravi/ })).toBeNull();
+  });
+
+  it('one who never signed in is marked; when WhatsApp cannot open, the phone says so', async () => {
+    await api('/v1/users', {
+      method: 'POST',
+      idempotent: true,
+      body: { name: 'Naveen Sahu', mobile: '9826100050', role: 'supervisor', plantIds: [ids.plants.siltara] },
+    });
+    jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('no app'));
+    const mk = await boardTruck('CG 04 MK 2291');
+    await wrap(<TruckDetailScreen id={mk.id} />);
+    await screen.findByRole('header', { name: 'CG 04 MK 2291' });
+    expect(screen.getByText('Supervisors at Siltara')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Naveen Sahu, supervisor, +91 98261 00050, not signed in yet')).toBeOnTheScreen();
+    await press('WhatsApp Naveen Sahu');
+    expect(await screen.findByText("Couldn't open WhatsApp")).toBeOnTheScreen();
   });
 });

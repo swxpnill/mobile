@@ -412,7 +412,8 @@ export const truckRoutes: RouteDef[] = [
         .map((t) => {
           const full = toTruck(c, t, { withWeighments: false }) as Partial<Truck>;
           delete full.weighments;
-          return full as Omit<Truck, 'weighments'>;
+          delete full.supervisors;
+          return full as Omit<Truck, 'weighments' | 'supervisors'>;
         });
       return { body: { counts, items } satisfies DispatchBoard };
     },

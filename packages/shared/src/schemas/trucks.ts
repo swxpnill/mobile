@@ -81,6 +81,9 @@ export const weighmentSchema = z.object({
 });
 export type Weighment = z.infer<typeof weighmentSchema>;
 
+export const plantSupervisorSchema = z.object({ id: idSchema, name: z.string(), mobile: z.string(), invited: z.boolean() });
+export type PlantSupervisor = z.infer<typeof plantSupervisorSchema>;
+
 export const truckSchema = z.object({
   id: idSchema,
   subOrderId: idSchema,
@@ -123,6 +126,11 @@ export const truckSchema = z.object({
   earningRupees: z.number().int().optional(),
   weighments: z.array(weighmentSchema),
   warnings: z.array(z.enum(['VEHICLE_BUSY', 'OVER_ASSIGNABLE'])).optional(),
+  /**
+   * TON-57: the active supervisors of the truck's plant, by name, so the office can call or
+   * message them. `invited` = never signed in. On the truck detail only (not on the board).
+   */
+  supervisors: z.array(plantSupervisorSchema),
   version: versionSchema,
 });
 export type Truck = z.infer<typeof truckSchema>;
@@ -152,7 +160,7 @@ export const dispatchBoardSchema = z.object({
     weighed: z.number().int(),
     dispatched_today: z.number().int(),
   }),
-  items: z.array(truckSchema.omit({ weighments: true })),
+  items: z.array(truckSchema.omit({ weighments: true, supervisors: true })),
 });
 export type DispatchBoard = z.infer<typeof dispatchBoardSchema>;
 

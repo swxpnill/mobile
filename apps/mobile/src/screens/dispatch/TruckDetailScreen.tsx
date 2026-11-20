@@ -15,6 +15,7 @@ import { MSG, messageFor } from '../messages';
 import { ApproveSheet } from './ApproveSheet';
 import { CancelTruckSheet } from './CancelTruckSheet';
 import { CorrectWeightSheet } from './CorrectWeightSheet';
+import { SupervisorCard } from './SupervisorCard';
 import { Progress, Weighments } from './TruckTimeline';
 import { TRUCK_STATE_META, isOpenState, planLabel, shownPhone } from './truckStateMeta';
 
@@ -200,6 +201,8 @@ function Detail({ x, refreshing, refetch }: { x: Truck; refreshing: boolean; ref
 
       <Progress x={x} />
       <Weighments x={x} />
+
+      <SupervisorCard truck={x} />
 
       <Text variant="heading">Driver & transporter</Text>
       <Group>
