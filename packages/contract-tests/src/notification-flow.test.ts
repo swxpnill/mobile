@@ -16,7 +16,7 @@ import {
 } from '@tonnage/shared';
 import { createFakeClock, createMockApi } from '@tonnage/mock-api';
 import { COMPANY, DAY, MINUTE, PEOPLE, type ContractTarget, call, expectOk, newKey, signIn } from './harness.ts';
-import { CANVAS_ORDER, createOrder } from './suites/orders.contract.ts';
+import { createOrder } from './suites/orders.contract.ts';
 import { approveCall, phone, sync, synced } from './suites/sync.contract.ts';
 
 type Who = keyof typeof PEOPLE;
