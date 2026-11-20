@@ -132,8 +132,8 @@ describe('My tasks', () => {
     // TON-57: an assigned truck is marked arrived first; its tare waits.
     const gh = screen.getByLabelText(/^CG 10 GH 4471/);
     expect(within(gh).getByRole('button', { name: 'Vehicle arrived' })).toBeEnabled();
-    expect(within(gh).getByRole('button', { name: 'Capture tare weight' })).toBeDisabled();
-    expect(within(gh).getByText('Mark the vehicle arrived first')).toBeOnTheScreen();
+    expect(within(gh).getByRole('button', { name: 'Capture tare weight, unlocks when the vehicle arrives' })).toBeDisabled();
+    expect(within(gh).getByText('Unlocks when the vehicle arrives')).toBeOnTheScreen();
     expect(screen.queryByText(/at gate/i)).toBeNull();
     expect(await screen.findByText('Aarav Ispat Pvt Ltd · Siltara')).toBeOnTheScreen();
     expect(screen.getByLabelText('Need tare, 2')).toBeOnTheScreen();

@@ -6,7 +6,7 @@ import { useDisplayBasis, useMe } from '../../api/hooks/me';
 import { type DisplayTask, doneRows, useDeviceSnapshot } from '../../offline/useDeviceData';
 import { syncNow } from '../../offline/useSync';
 import { useTheme } from '../../theme/ThemeProvider';
-import { MIN_TOUCH, type Tokens } from '../../theme/tokens';
+import { MIN_TOUCH, type Tokens, radius } from '../../theme/tokens';
 import {
   Avatar,
   Badge,
@@ -98,6 +98,33 @@ export function TasksScreen() {
         ))
       )}
     </Screen>
+  );
+}
+
+/**
+ * The next step, shown but not yet available (TON-57: tare after arrival): a lock, its name and
+ * what unlocks it. A disabled control to a screen reader, so the order of the steps is clear.
+ */
+function LockedStep({ title, hint }: { title: string; hint: string }) {
+  const { t } = useTheme();
+  return (
+    <View
+      accessible
+      accessibilityRole="button"
+      accessibilityLabel={`${title}, ${hint.toLowerCase()}`}
+      accessibilityState={{ disabled: true }}
+      style={[styles.locked, { backgroundColor: t.bg, borderColor: t.bd }]}
+    >
+      <View style={[styles.lockIcon, { backgroundColor: t.ctl }]}>
+        <Icon name="lock" size={16} color={t.tx3} strokeWidth={2} />
+      </View>
+      <View style={styles.fill}>
+        <Text weight="semibold" color="tx3">
+          {title}
+        </Text>
+        <Text variant="caption">{hint}</Text>
+      </View>
+    </View>
   );
 }
 
@@ -193,12 +220,7 @@ function TaskCard({ task, onWeigh }: { task: DisplayTask; onWeigh(): void }) {
           <Button variant="violet" loading={arrival.busy === task.truckId} onPress={() => void arrival.mark(task.truckId)}>
             Vehicle arrived
           </Button>
-          <Button variant="secondary" disabled onPress={onWeigh}>
-            Capture tare weight
-          </Button>
-          <Text variant="caption" style={styles.centered}>
-            Mark the vehicle arrived first
-          </Text>
+          <LockedStep title="Capture tare weight" hint="Unlocks when the vehicle arrives" />
         </>
       ) : (
         <Button variant="violet" onPress={onWeigh}>
@@ -230,5 +252,15 @@ const styles = StyleSheet.create({
   plan: { padding: 12, borderRadius: 12, gap: 6 },
   planRow: { flexDirection: 'row', gap: 12 },
   planLine: { fontSize: 13, lineHeight: 18 },
-  centered: { textAlign: 'center' },
+  locked: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: MIN_TOUCH + 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: radius.button,
+    borderWidth: 1,
+  },
+  lockIcon: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
 });
