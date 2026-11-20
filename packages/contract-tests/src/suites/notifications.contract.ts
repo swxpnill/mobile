@@ -5,8 +5,10 @@ import {
   istDateOf,
   notificationPageSchema,
   orderSchema,
+  rejectionSchema,
   unreadCountSchema,
 } from '@tonnage/shared';
+import { z } from 'zod';
 import {
   DAY,
   DEVICE_A,
@@ -107,6 +109,55 @@ export function register(factory: TargetFactory): void {
       const kirans = of(await all(t, await tokenFor(t, PEOPLE.kiran)), 'truck.assigned');
       expect(kirans[0]!.deepLink).toBe(`/trucks/${truck.id}`);
       expect(await all(t, await tokenFor(t, PEOPLE.sanjay))).toEqual([]);
+    });
+
+    describe('truck arrived (TON-57 Ruling 21)', () => {
+      it('Ravi marks it arrived: Kiran, the owner and city staff get a row; Ravi and Borai are not told', async () => {
+        const t = target();
+        const { owner, truck } = await canvasWithTruck(t);
+        const ravi = await tokenFor(t, PEOPLE.ravi);
+        const ph = phone(truck.id, () => t.clock.now() - 2 * MINUTE); // the tap, two minutes before the sync
+        const gate = ph.atGate();
+        const [r] = await synced(sync(t, ravi, [gate]));
+        expect(r!.status).toBe('accepted');
+
+        const kiran = of(await all(t, await tokenFor(t, PEOPLE.kiran)), 'truck.arrived');
+        expect(kiran).toHaveLength(1);
+        expect(kiran[0]).toMatchObject({
+          deepLink: `/trucks/${truck.id}`,
+          readAt: null,
+          data: { truckId: truck.id, vehicleNo: truck.vehicleNo, plannedKg: 24_000, plantName: 'Siltara', arrivedAt: gate.capturedAtDevice },
+        });
+        for (const who of [PEOPLE.rajesh, PEOPLE.priya, PEOPLE.amit]) {
+          expect(of(await all(t, await tokenFor(t, who)), 'truck.arrived').map((n) => n.data.truckId)).toEqual([truck.id]);
+        }
+        for (const who of [PEOPLE.ravi, PEOPLE.sanjay]) {
+          expect(of(await all(t, await tokenFor(t, who)), 'truck.arrived')).toEqual([]);
+        }
+        // The row counts on the bell like any other.
+        expect(await unread(t, owner)).toBeGreaterThan(0);
+      });
+
+      it('a repeated or late arrival writes nothing more', async () => {
+        const t = target();
+        const { truck } = await canvasWithTruck(t);
+        const ravi = await tokenFor(t, PEOPLE.ravi);
+        const ph = phone(truck.id, () => t.clock.now());
+        await synced(sync(t, ravi, [ph.atGate()]));
+        await synced(sync(t, ravi, [ph.atGate(), ph.tare(12_460)]));
+        await synced(sync(t, ravi, [ph.atGate()]));
+        expect(of(await all(t, await tokenFor(t, PEOPLE.kiran)), 'truck.arrived')).toHaveLength(1);
+      });
+
+      it('the arrival Restore puts in front of a refused early tare tells no one', async () => {
+        const t = target();
+        const { owner, truck } = await canvasWithTruck(t);
+        const ravi = await tokenFor(t, PEOPLE.ravi);
+        await synced(sync(t, ravi, [phone(truck.id, () => t.clock.now()).tare(12_000)]));
+        const [rej] = expectOk(await call(t, 'GET', '/v1/weighment-rejections', { token: owner }), z.array(rejectionSchema));
+        expect((await call(t, 'POST', `/v1/weighment-rejections/${rej!.id}/restore`, { token: owner, idempotencyKey: newKey() })).status).toBe(200);
+        expect(of(await all(t, await tokenFor(t, PEOPLE.kiran)), 'truck.arrived')).toEqual([]);
+      });
     });
 
     it('an approved dispatch over tolerance tells the owner twice: dispatched and over-loaded', async () => {

@@ -22,8 +22,12 @@ export interface RecipientUser {
 export interface Recipient {
   userId: string;
   role: Role;
-  /** `row-and-sync`: a list row plus a silent sync push (supervisors' tasks changed). */
-  delivery: 'alert' | 'row-and-sync';
+  /**
+   * `alert`: a list row and a phone notification. `row-and-sync`: also a silent sync push
+   * (supervisors' tasks changed). `row`: the list row only, no push at all (TON-57 Ruling 21:
+   * the office is not buzzed for every truck that arrives; the bell still counts it).
+   */
+  delivery: 'alert' | 'row-and-sync' | 'row';
 }
 
 type Rule = (u: RecipientUser, e: NotifyEvent, atPlant: boolean) => Recipient['delivery'] | null;
@@ -38,6 +42,8 @@ const RULES: Record<NotificationKind, Rule> = {
   'order.created': (u, _e, at) => alertIf(owner(u) || plantHeadHere(u, at)),
   'truck.assigned': (u, _e, at) =>
     u.role === 'supervisor' && at ? 'row-and-sync' : alertIf(plantHeadHere(u, at)),
+  // TON-57 Ruling 21: the plant head runs the yard and is alerted; the office keeps a quiet row.
+  'truck.arrived': (u, _e, at) => (plantHeadHere(u, at) ? 'alert' : owner(u) || u.role === 'city_staff' ? 'row' : null),
   // TON-57: saving the weights asks the approvers; approving (the dispatch) tells the office, the
   // plant head, and the plant's supervisors by a silent sync so their Done today updates.
   'truck.weighed': (u) => alertIf(can(u.role, 'dispatch.approve')),

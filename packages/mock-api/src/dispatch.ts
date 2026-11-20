@@ -11,7 +11,7 @@ import {
   toleranceCloseKg,
   truckEarning,
 } from '@tonnage/shared';
-import { notifyDispatched, notifyOverTolerance, notifyWeighed } from './notifications.ts';
+import { notifyArrived, notifyDispatched, notifyOverTolerance, notifyWeighed } from './notifications.ts';
 import { toIso } from './clock.ts';
 import { errorMessage } from './errors.ts';
 import { nextNumber, orderMath } from './orders-math.ts';
@@ -139,6 +139,8 @@ function decide(state: MockState, ctx: DispatchCtx, event: SyncEvent): SyncResul
       if (truck.state !== 'assigned') return accepted();
       markArrived(truck, w.capturedAt, now);
       log('truck.at_gate');
+      // Ruling 21: only a real arrival tells anyone (a late or repeated one returned above).
+      notifyArrived(state, a, ctx.now, truck, w.capturedAt);
       return accepted();
     }
 

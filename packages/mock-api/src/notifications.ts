@@ -86,7 +86,10 @@ function deliver<K extends NotificationKind>(state: MockState, now: number, d: D
     // The mock answers like the real API: a payload that breaks the contract is a bug, not a row.
     notificationSchema.parse(toNotification(rec));
     state.notifications.push(rec);
-    state.pushOutbox.push({ id: newId(), userId: user.id, message: { type: 'alert', notificationId: rec.id }, orderId: d.orderId });
+    // `row`: the list row only, nothing pushed (TON-57 Ruling 21).
+    if (r.delivery !== 'row') {
+      state.pushOutbox.push({ id: newId(), userId: user.id, message: { type: 'alert', notificationId: rec.id }, orderId: d.orderId });
+    }
     if (r.delivery === 'row-and-sync') {
       state.pushOutbox.push({ id: newId(), userId: user.id, message: { type: 'sync' }, orderId: d.orderId });
     }
@@ -171,6 +174,29 @@ export function notifyDispatched(state: MockState, a: Authed, now: number, truck
     tenantId: truck.tenantId,
     orderId: order.id,
     event: { kind: 'truck.dispatched', actorId: a.user.id, plantIds: [truck.plantId] },
+    dataFor: () => data,
+  });
+}
+
+/**
+ * TON-57 Ruling 21: the supervisor marked the truck arrived. The plant head is alerted; owner and
+ * city staff get a quiet row. `arrivedAt` is the arrival's business time.
+ */
+export function notifyArrived(state: MockState, a: Authed, now: number, truck: TruckRec, arrivedAt: string): void {
+  const { order } = truckContext(state, truck);
+  const data: DataOf<'truck.arrived'> = {
+    truckId: truck.id,
+    orderId: order.id,
+    vehicleNo: truck.vehicleNo,
+    plannedKg: truck.plan.reduce((s, p) => s + p.plannedKg, 0),
+    partyName: partyName(state, order),
+    plantName: state.plants.find((p) => p.id === truck.plantId)?.name ?? '?',
+    arrivedAt,
+  };
+  deliver(state, now, {
+    tenantId: truck.tenantId,
+    orderId: order.id,
+    event: { kind: 'truck.arrived', actorId: a.user.id, plantIds: [truck.plantId] },
     dataFor: () => data,
   });
 }
@@ -407,6 +433,11 @@ export function seedDemoNotifications(state: MockState, now: number): void {
     if (by) events.push({ at: fromIso(truck.assignedAt), run: (at) => notifyTruckAssigned(state, by, at, truck) });
     const w = authedOf(weigherAt(truck));
     const net = truck.allocations.reduce((s, x) => s + x.netKg, 0);
+    // TON-57 Ruling 21: a truck still at the plant's gate told the plant head and the office.
+    if (truck.state === 'at_gate' && truck.atGateAt && w) {
+      const arrivedAt = truck.atGateAt;
+      events.push({ at: fromIso(arrivedAt), run: (at) => notifyArrived(state, w, at, truck, arrivedAt) });
+    }
     // TON-57: a truck awaiting approval asked the office; a dispatched one was approved by the office.
     if (truck.state === 'weighed' && truck.weighedAt && w) {
       events.push({ at: fromIso(truck.weighedAt), run: (at) => notifyWeighed(state, w, at, truck, net) });

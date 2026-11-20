@@ -37,6 +37,10 @@ export function renderNotification(
 ): { title: string; body: string } {
   const qty = (kg: number) => toDisplayQty(kg, basis, { withUnit: true });
   switch (n.kind) {
+    case 'truck.arrived': {
+      const d = n.data;
+      return { title: `${d.vehicleNo} arrived at ${d.plantName}`, body: `${qty(d.plannedKg)} planned · ${d.partyName} · ${istTime(d.arrivedAt)}` };
+    }
     case 'truck.weighed': {
       const d = n.data;
       return { title: `${d.vehicleNo} needs approval`, body: `${qty(d.netKg)} for ${d.partyName} · weighed at ${d.plantName} · ${istTime(n.createdAt)}` };
@@ -90,6 +94,7 @@ export type NotificationTone = 'bl' | 'vi' | 'gr' | 'am' | 'rd';
 const TILES: Record<NotificationKind, { icon: string; tone: NotificationTone }> = {
   'truck.dispatched': { icon: 'check', tone: 'gr' },
   'truck.weighed': { icon: 'scales', tone: 'vi' },
+  'truck.arrived': { icon: 'mapPin', tone: 'vi' },
   'order.over_tolerance': { icon: 'scales', tone: 'am' },
   'order.created': { icon: 'orders', tone: 'bl' },
   'orders.aged': { icon: 'clock', tone: 'rd' },

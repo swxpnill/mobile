@@ -10,6 +10,7 @@ import { syncRejectCodeSchema } from '../schemas/trucks.ts';
 export const NOTIFICATION_KINDS = [
   'order.created',
   'truck.assigned',
+  'truck.arrived',
   'truck.dispatched',
   'truck.weighed',
   'order.over_tolerance',
@@ -48,6 +49,17 @@ const DATA = {
     netKg: kg,
     partyName: name,
     companyName: name,
+  }),
+  // TON-57 Ruling 21: the supervisor marked the truck arrived. `arrivedAt` is the business time of
+  // the arrival (the phone's capture), so a late sync still shows when it really arrived.
+  'truck.arrived': z.strictObject({
+    truckId: idSchema,
+    orderId: idSchema,
+    vehicleNo: name,
+    plannedKg: kg,
+    partyName: name,
+    plantName: name,
+    arrivedAt: z.iso.datetime({ offset: true }),
   }),
   // TON-57: weights saved at the plant; the office approves the dispatch.
   'truck.weighed': z.strictObject({
@@ -109,6 +121,7 @@ const row = <K extends NotificationKind>(kind: K) =>
 export const notificationSchema = z.discriminatedUnion('kind', [
   row('order.created'),
   row('truck.assigned'),
+  row('truck.arrived'),
   row('truck.dispatched'),
   row('truck.weighed'),
   row('order.over_tolerance'),

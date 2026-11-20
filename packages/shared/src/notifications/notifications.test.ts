@@ -41,6 +41,18 @@ describe('recipientsFor', () => {
     ]);
   });
 
+  it('arrived (TON-57 Ruling 21): the plant head is alerted; owner and city staff get a row, no buzz; never supervisors', () => {
+    const r = recipientsFor({ kind: 'truck.arrived', actorId: 'ravi', plantIds: ['siltara'] }, users);
+    expect(r).toEqual([
+      { userId: 'owner', role: 'owner', delivery: 'row' },
+      { userId: 'priya', role: 'city_staff', delivery: 'row' },
+      { userId: 'amit', role: 'city_staff', delivery: 'row' },
+      { userId: 'kiran', role: 'plant_head', delivery: 'alert' },
+    ]);
+    // Another plant's head is not told; the owner arriving a truck is not told about it.
+    expect(ids(recipientsFor({ kind: 'truck.arrived', actorId: 'owner', plantIds: ['borai'] }, users))).toEqual(['priya', 'amit']);
+  });
+
   it('weighed (TON-57): the approvers, owner and every city staff; never plant roles', () => {
     const r = recipientsFor({ kind: 'truck.weighed', actorId: 'ravi', plantIds: ['siltara'] }, users);
     expect(r).toEqual([
@@ -90,7 +102,21 @@ const weighed: NotificationContent = {
   data: { truckId: ID, orderId: ID2, vehicleNo: 'CG 04 MK 2291', netKg: 24_180, partyName: 'Shubham Traders', plantName: 'Siltara' },
 };
 
+const arrived: NotificationContent = {
+  kind: 'truck.arrived',
+  data: { truckId: ID, orderId: ID2, vehicleNo: 'CG 10 GH 4471', plannedKg: 10_000, partyName: 'Shubham Traders', plantName: 'Siltara', arrivedAt: '2026-11-19T04:42:00.000Z' },
+};
+
 describe('renderNotification (board 37)', () => {
+  it('arrived: the plant, what is planned, and when it arrived (not when the row was written)', () => {
+    expect(renderNotification({ ...arrived, createdAt: AT }, 'mt')).toEqual({
+      title: 'CG 10 GH 4471 arrived at Siltara',
+      body: '10.000 MT planned · Shubham Traders · 10:12',
+    });
+    expect(renderNotification({ ...arrived, createdAt: AT }, 'kg').body).toBe('10,000 kg planned · Shubham Traders · 10:12');
+    expect(tileFor('truck.arrived')).toEqual({ icon: 'mapPin', tone: 'vi' });
+  });
+
   it('weighed asks for approval, in the viewer’s unit', () => {
     expect(renderNotification({ ...weighed, createdAt: AT }, 'mt')).toEqual({
       title: 'CG 04 MK 2291 needs approval',
@@ -162,6 +188,8 @@ describe('deep links', () => {
     expect(deepLinkFor(dispatched, 'owner')).toBe(`/trucks/${ID}`);
     expect(deepLinkFor(dispatched, 'supervisor')).toBe('/done');
     expect(deepLinkFor(weighed, 'city_staff')).toBe(`/trucks/${ID}`);
+    expect(deepLinkFor(arrived, 'plant_head')).toBe(`/trucks/${ID}`);
+    expect(deepLinkFor(arrived, 'owner')).toBe(`/trucks/${ID}`);
     expect(isAllowedDeepLink('/done')).toBe(true);
     expect(deepLinkFor({ kind: 'orders.aged', data: { count: 2, days: 10, pendingKg: 1 } }, 'owner')).toBe('/orders?aged=1');
     expect(deepLinkFor({ kind: 'rejection.created', data: { rejectionId: ID, vehicleNo: 'X', code: 'TARE_CONFLICT' } }, 'owner')).toBe('/attention');

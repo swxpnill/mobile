@@ -166,7 +166,8 @@ export const rejectionRoutes: RouteDef[] = [
         delete state.appliedEvents[r.event.eventId];
         const dispatchCtx = { user: senderOf(state, a, r), deviceId: r.deviceId, now, offsetMs: r.offsetMs ?? 0 };
         // TON-57: a tare sent before "Vehicle arrived" (an outbox from before the rule) is restored
-        // as arrival then tare; the arrival takes the tare's own business time.
+        // as arrival then tare; the arrival takes the tare's own business time. No "truck arrived"
+        // notification: this is the owner's own action on a past event (Ruling 21).
         if (r.event.type === 'TARE' && truck.state === 'assigned') {
           markArrived(truck, toIso(Date.parse(r.event.capturedAtDevice) + dispatchCtx.offsetMs), at);
           logActivity(state, a, now, {

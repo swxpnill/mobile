@@ -128,3 +128,40 @@ describe('sign-out drops the phone', () => {
     expect(got).toHaveLength(1);
   });
 });
+
+describe('truck arrived (TON-57 Ruling 21)', () => {
+  it('pushes an alert to the plant head; the owner gets a row but no push', async () => {
+    const { createMockApi } = await import('./index.ts');
+    const clock = createFakeClock(Date.UTC(2026, 10, 3, 4, 30));
+    const api = await createMockApi({ clock, seedOrders: true });
+    const got: PushMessage[] = [];
+    api.controls.onPush((m) => got.push(m));
+    const req = async (userId: string, method: 'GET' | 'POST', path: string, body?: unknown) => {
+      const { accessToken } = await api.controls.signInAs(userId, `phone-of-${userId}`);
+      return api.transport.request({
+        method,
+        path,
+        body,
+        headers: { authorization: `Bearer ${accessToken}`, 'idempotency-key': `k-${Math.random()}`, 'content-type': 'application/json' },
+      });
+    };
+    for (const u of [U.rajesh, U.kiran]) {
+      await req(u, 'POST', '/v1/notifications/push-token', { deviceId: `phone-of-${u}`, token: `mock:${u}` });
+    }
+    const tasks = (await req(U.ravi, 'GET', '/v1/supervisor/tasks')).body as { items: { truckId: string; state: string; vehicleNo: string }[] };
+    const gh = tasks.items.find((x) => x.state === 'assigned')!;
+    got.length = 0;
+    const res = await req(U.ravi, 'POST', '/v1/weighments/sync', {
+      deviceId: 'phone-of-ravi',
+      events: [{ eventId: '019a4c00-00ee-7000-8000-0000000000a1', truckId: gh.truckId, deviceSeq: 0, capturedAtDevice: new Date(clock.now()).toISOString(), type: 'AT_GATE' }],
+    });
+    expect(res.status).toBe(200);
+    await tick();
+    const arrivedPushes = got.filter((m) => m.message.type === 'alert' && m.message.notification.kind === 'truck.arrived');
+    expect(arrivedPushes.map((m) => m.token)).toEqual([`mock:${U.kiran}`]);
+
+    const owners = (await req(U.rajesh, 'GET', '/v1/notifications')).body as { items: { kind: string; data: { truckId?: string } }[] };
+    // The demo seed already has one arrival (CG 07 KL 3304); this one is added as a row.
+    expect(owners.items.filter((n) => n.kind === 'truck.arrived').map((n) => n.data.truckId)).toContain(gh.truckId);
+  });
+});

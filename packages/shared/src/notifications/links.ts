@@ -9,6 +9,7 @@ export function deepLinkFor(n: NotificationContent, role: Role): string {
     case 'order.short_closed':
       return `/orders/${n.data.orderId}`;
     case 'truck.weighed':
+    case 'truck.arrived':
       return `/trucks/${n.data.truckId}`;
     case 'truck.dispatched':
       return role === 'supervisor' ? '/done' : `/trucks/${n.data.truckId}`;

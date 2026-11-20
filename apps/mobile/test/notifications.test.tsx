@@ -143,6 +143,18 @@ describe('Notifications screen (board 37)', () => {
     await waitFor(async () => expect((await serverList()).find((n) => n.id === target.id)!.readAt).not.toBeNull());
   });
 
+  it('TON-57: Kiran sees the truck that arrived at Siltara; tapping it opens that truck', async () => {
+    await signIn(ids.users.kiran);
+    const arrived = (await serverList()).find((n) => n.kind === 'truck.arrived');
+    expect(arrived).toBeDefined();
+    await render(<NotificationsScreen />, { wrapper: Providers });
+    const row = await screen.findByRole('button', { name: /^CG 07 KL 3304 arrived at Siltara\. / });
+    expect(within(row).getByText(/^10\.000 MT planned · Shubham Traders · \d{2}:\d{2}$/)).toBeOnTheScreen();
+    await fireEvent.press(row);
+    expect(mockRouter.push).toHaveBeenCalledWith(arrived!.deepLink);
+    expect(arrived!.deepLink).toMatch(/^\/trucks\//);
+  });
+
   it('Mark all read clears every dot and hides itself', async () => {
     await render(<NotificationsScreen />, { wrapper: Providers });
     await fireEvent.press(await screen.findByRole('button', { name: 'Mark all read' }));

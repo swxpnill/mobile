@@ -37,6 +37,8 @@
 19. **The office:** the Dispatch board gets a count and filter **To approve** (`weighed`), listed first in Open; a `weighed` card shows "Awaiting approval" and, for owner and city staff, **Approve dispatch**; never "Dispatched" before approval. Truck detail shows the weights, **Change weights** and **Approve dispatch**. Plant heads see the state, without the actions.
 20. **Demo data:** one Siltara truck seeded `weighed` so To approve is populated after Reset demo data.
 
+21. **"Truck arrived" notification (added 2026-11-20).** New kind `truck.arrived`, written when the server applies a supervisor's `AT_GATE` that moves a truck from assigned to arrived (inside that event's transaction). Recipients: the **plant head** of that plant gets an **alert** (push and row); **owner and city staff** get a **row only** (new delivery `row`: no push, no buzz; the Home bell counts it); **never** the actor, never supervisors. Not written for an arrival that changes nothing (late or repeated `AT_GATE`), nor for the arrival Restore backfills from a refused tare (that is the owner's own action on a past event). The payload carries `arrivedAt` (business time from the phone's capture), so a late sync still reads "arrived 10:12". Copy: "CG 10 GH 4471 arrived at Siltara" / "10.000 MT planned · Shubham Traders · 10:12". Deep link: the truck. The arrival still reaches the server only when the phone syncs (offline first); the notification follows the sync, not the tap.
+
 ## Global Constraints
 
 - Integer kg in storage and arithmetic; format and parse only with `packages/shared/src/units.ts` (`toDisplayQty`, `parseQtyInput`). MT shows 3 decimals.
