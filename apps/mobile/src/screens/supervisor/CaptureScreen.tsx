@@ -139,7 +139,8 @@ export function CaptureScreen({
   }
 
   const heading = gross ? 'Gross weight' : 'Tare weight';
-  const action = gross ? 'Save gross · mark dispatched' : 'Save tare · start loading';
+  // TON-57: the office approves the dispatch; saving the gross sends it to them.
+  const action = gross ? 'Save gross · send for approval' : 'Save tare · start loading';
 
   return (
     <Screen
@@ -239,7 +240,7 @@ export function CaptureScreen({
   );
 }
 
-const STEPS = ['Assigned', 'Tare', 'Gross', 'Dispatch'] as const;
+const STEPS = ['Assigned', 'Tare', 'Gross', 'Approval'] as const;
 
 /** Canvas step strip: done steps ticked, the current one filled (violet on tare). */
 function Steps({ current, violet }: { current: number; violet: boolean }) {

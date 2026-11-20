@@ -71,6 +71,8 @@ export interface DoneRow {
   at: string;
   slipNo: string | null;
   synced: boolean;
+  /** TON-57: the office approved it (dispatched); false while it awaits approval or sync. */
+  approved: boolean;
 }
 
 /**
@@ -94,6 +96,7 @@ export function doneRows(snap: DeviceSnapshot): {
     at: weighedAtOf(i),
     slipNo: i.loadingSlipNo,
     synced: true,
+    approved: isApproved(i),
   }));
   let waiting = 0;
   for (const r of snap.outbox) {
@@ -111,6 +114,7 @@ export function doneRows(snap: DeviceSnapshot): {
       at: r.capturedAtDevice,
       slipNo: null,
       synced: false,
+      approved: false,
     });
   }
   rows.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));

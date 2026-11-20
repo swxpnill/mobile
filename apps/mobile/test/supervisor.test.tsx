@@ -189,7 +189,7 @@ describe('Capture', () => {
     expect(screen.getByText('+0.180 over · allowed')).toBeOnTheScreen();
 
     mock.controls.setOffline(true); // Demo tools → Offline
-    await press('Save gross · mark dispatched');
+    await press('Save gross · send for approval');
     expect(await screen.findByText('Saved on this phone')).toBeOnTheScreen();
     const rows = await (await ravisStore()).outbox();
     expect(rows.map((r) => r.type)).toEqual(['GROSS']);
@@ -253,7 +253,7 @@ describe('Capture', () => {
     await typeWeight('22.460');
     expect(screen.getByText('10.000 MT')).toBeOnTheScreen();
     expect(screen.getByText('−14.000 under · allowed')).toBeOnTheScreen();
-    await press('Save gross · mark dispatched');
+    await press('Save gross · send for approval');
     expect(await screen.findByText('Net is 42 % of the plan. Save anyway?')).toBeOnTheScreen();
     expect(await (await ravisStore()).outbox()).toEqual([]);
     await press('Save anyway');
@@ -268,7 +268,7 @@ describe('Capture', () => {
     await screen.findByText('Gross weight');
     await typeWeight('12.4');
     expect(screen.getByText('Gross must be more than the tare')).toBeOnTheScreen();
-    expect(screen.getByRole('button', { name: 'Save gross · mark dispatched' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save gross · send for approval' })).toBeDisabled();
     await view.unmount();
   });
 
@@ -293,13 +293,13 @@ describe('Capture', () => {
     const view = await wrap(<WeighTruckScreen truckId={truckId} />);
     await screen.findByText('Gross weight');
     await typeWeight('32.001');
-    await press('Save gross · mark dispatched');
+    await press('Save gross · send for approval');
 
     const first = await screen.findByLabelText('TMT Fe500D · 12 mm · 12 m');
     const second = screen.getByLabelText('TMT Fe500D · 12 mm · 6 m');
     expect(first.props.value).toBe('10.001'); // largest remainder goes to the first line
     expect(second.props.value).toBe('10.000');
-    const save = () => screen.getByRole('button', { name: 'Save gross · mark dispatched' });
+    const save = () => screen.getByRole('button', { name: 'Save gross · send for approval' });
     expect(save()).toBeEnabled();
 
     await fireEvent.changeText(first, '9.000');
