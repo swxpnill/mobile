@@ -126,14 +126,15 @@ describe('My tasks', () => {
     expect(within(card).getByText('Load TMT Fe500D · 12 mm · 12 m')).toBeOnTheScreen();
     expect(within(card).getByText('24.000 MT')).toBeOnTheScreen();
     expect(within(card).getByRole('button', { name: 'Capture gross weight' })).toBeOnTheScreen();
-    expect(
-      within(screen.getByLabelText(/^CG 07 KL 3304/)).getByRole('button', {
-        name: 'Capture tare weight',
-      }),
-    ).toBeOnTheScreen();
-    expect(
-      within(screen.getByLabelText(/^CG 10 GH 4471/)).getByRole('button', { name: 'At gate' }),
-    ).toBeOnTheScreen();
+    const kl = screen.getByLabelText(/^CG 07 KL 3304/);
+    expect(within(kl).getByText('Arrived')).toBeOnTheScreen();
+    expect(within(kl).getByRole('button', { name: 'Capture tare weight' })).toBeEnabled();
+    // TON-57: an assigned truck is marked arrived first; its tare waits.
+    const gh = screen.getByLabelText(/^CG 10 GH 4471/);
+    expect(within(gh).getByRole('button', { name: 'Vehicle arrived' })).toBeEnabled();
+    expect(within(gh).getByRole('button', { name: 'Capture tare weight' })).toBeDisabled();
+    expect(within(gh).getByText('Mark the vehicle arrived first')).toBeOnTheScreen();
+    expect(screen.queryByText(/at gate/i)).toBeNull();
     expect(await screen.findByText('Aarav Ispat Pvt Ltd · Siltara')).toBeOnTheScreen();
     expect(screen.getByLabelText('Need tare, 2')).toBeOnTheScreen();
     expect(screen.getByLabelText('Need gross, 1')).toBeOnTheScreen();
@@ -141,20 +142,58 @@ describe('My tasks', () => {
     await view.unmount();
   });
 
-  it('At gate saves an event on this phone and moves the truck to At gate', async () => {
+  it('Vehicle arrived saves one arrival on this phone; the card reads Arrived, the button goes and tare opens', async () => {
     const view = await wrap(<TasksScreen />);
     const card = await screen.findByLabelText(/^CG 10 GH 4471/);
-    await fireEvent.press(within(card).getByRole('button', { name: 'At gate' }));
+    await fireEvent.press(within(card).getByRole('button', { name: 'Vehicle arrived' }));
     expect(await screen.findByText('Saved on this phone')).toBeOnTheScreen();
     const rows = await (await ravisStore()).outbox();
     expect(rows.map((r) => r.type)).toEqual(['AT_GATE']);
-    await waitFor(() =>
-      expect(
-        within(screen.getByLabelText(/^CG 10 GH 4471/)).getByRole('button', {
-          name: 'Capture tare weight',
-        }),
-      ).toBeOnTheScreen(),
-    );
+    await waitFor(() => {
+      const now = screen.getByLabelText(/^CG 10 GH 4471/);
+      expect(within(now).getByText('Arrived')).toBeOnTheScreen();
+      expect(within(now).getByRole('button', { name: 'Capture tare weight' })).toBeEnabled();
+      expect(within(now).queryByRole('button', { name: 'Vehicle arrived' })).toBeNull();
+    });
+    await view.unmount();
+  });
+
+  it('offline: arrival then tare queue in order and are both accepted on sync', async () => {
+    let view = await wrap(<TasksScreen />);
+    const card = await screen.findByLabelText(/^CG 10 GH 4471/); // tasks pulled while online
+    mock.controls.setOffline(true);
+    await fireEvent.press(within(card).getByRole('button', { name: 'Vehicle arrived' }));
+    await waitFor(() => expect(within(screen.getByLabelText(/^CG 10 GH 4471/)).getByRole('button', { name: 'Capture tare weight' })).toBeEnabled());
+    await view.unmount();
+
+    const truckId = await openTask('Capture tare weight', 'CG 10 GH 4471');
+    view = await wrap(<WeighTruckScreen truckId={truckId} />);
+    await screen.findByText('Tare weight');
+    await typeWeight('11.5');
+    await press('Save tare · start loading');
+    expect(await screen.findAllByText('Saved on this phone')).not.toHaveLength(0);
+    const store = await ravisStore();
+    expect((await store.outbox()).map((r) => r.type)).toEqual(['AT_GATE', 'TARE']);
+
+    mock.controls.setOffline(false);
+    await act(() => syncNow());
+    expect((await store.outbox()).map((r) => r.status)).toEqual(['accepted', 'accepted']);
+    await view.unmount();
+  });
+
+  it('a tare link on a truck not marked arrived asks for the arrival first, then shows the keypad', async () => {
+    // The truck as it reached this phone (a supervisor has no Dispatch board).
+    const tasks = await wrap(<TasksScreen />);
+    await screen.findByLabelText(/^CG 10 GH 4471/);
+    await tasks.unmount();
+    const gh = (await (await ravisStore()).getTasks()).find((x) => x.vehicleNo === 'CG 10 GH 4471')!;
+    const view = await wrap(<WeighTruckScreen truckId={gh.truckId} />);
+    expect(await screen.findByText('Mark the vehicle arrived first')).toBeOnTheScreen();
+    expect(screen.queryByTestId('weight-readout')).toBeNull();
+    await press('Vehicle arrived');
+    expect(await screen.findByTestId('weight-readout')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Progress: step 3 of 5, Tare')).toBeOnTheScreen();
+    expect((await (await ravisStore()).outbox()).map((r) => r.type)).toEqual(['AT_GATE']);
     await view.unmount();
   });
 });
@@ -341,7 +380,7 @@ describe('Sign-out guard (Ruling 11)', () => {
     const view = await wrap(<TasksScreen />);
     const card = await screen.findByLabelText(/^CG 10 GH 4471/);
     mock.controls.setOffline(true);
-    await fireEvent.press(within(card).getByRole('button', { name: 'At gate' }));
+    await fireEvent.press(within(card).getByRole('button', { name: 'Vehicle arrived' }));
     await waitFor(() => expect(useSyncStatus.getState().online).toBe(false));
     return view;
   }

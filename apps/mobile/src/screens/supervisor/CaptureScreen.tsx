@@ -31,9 +31,11 @@ import {
   showToast,
 } from '../../ui';
 import { type Allocation, SplitStep } from './SplitStep';
+import { useMarkArrived } from './useMarkArrived';
 
-export const SAVED_ON_PHONE = 'Saved on this phone';
-export const SAVE_FAILED = 'Could not save on this phone. Try again.';
+import { SAVED_ON_PHONE, SAVE_FAILED } from './saveMessages';
+
+export { SAVED_ON_PHONE, SAVE_FAILED };
 
 export type CaptureMode = 'tare' | 'gross';
 
@@ -164,7 +166,7 @@ export function CaptureScreen({
       }
       contentStyle={styles.content}
     >
-      <Steps current={gross ? 3 : 2} violet={!gross} />
+      <Steps current={gross ? 4 : 3} violet={!gross} />
 
       {step === 'split' && net !== null && kg !== null ? (
         <SplitStep
@@ -240,7 +242,7 @@ export function CaptureScreen({
   );
 }
 
-const STEPS = ['Assigned', 'Tare', 'Gross', 'Approval'] as const;
+const STEPS = ['Assigned', 'Arrived', 'Tare', 'Gross', 'Approval'] as const;
 
 /** Canvas step strip: done steps ticked, the current one filled (violet on tare). */
 function Steps({ current, violet }: { current: number; violet: boolean }) {
@@ -387,6 +389,7 @@ export function WeighTruckScreen({ truckId }: { truckId: string }) {
     };
   }
   const shown = last.current;
+  const arrival = useMarkArrived();
 
   if (!shown) {
     if (snap === null)
@@ -402,6 +405,22 @@ export function WeighTruckScreen({ truckId }: { truckId: string }) {
           title="This truck is not on your list"
           body="It may have been cancelled, or weighed on another phone."
           actions={[{ label: 'Back to my tasks', onPress: () => router.back() }]}
+        />
+      </Screen>
+    );
+  }
+  // TON-57: the tare waits for "Vehicle arrived" (a link or notification may open this early).
+  if (shown.mode === 'tare' && shown.task.state === 'assigned') {
+    return (
+      <Screen>
+        <EmptyState
+          icon="truck"
+          title="Mark the vehicle arrived first"
+          body={`${shown.task.vehicleNo} is weighed once it is at the plant.`}
+          actions={[
+            { label: 'Vehicle arrived', onPress: () => void arrival.mark(shown.task.truckId) },
+            { label: 'Back to my tasks', onPress: () => router.back() },
+          ]}
         />
       </Screen>
     );

@@ -2,7 +2,7 @@ import { type ErrorCode, type Rejection, type Truck, type UnitBasis, toDisplayQt
 import { MSG, weightCodeMessage } from '../messages';
 
 export const EVENT_LABEL: Record<Rejection['eventType'], string> = {
-  AT_GATE: 'At gate',
+  AT_GATE: 'Arrived',
   TARE: 'Tare',
   GROSS: 'Gross',
 };
@@ -17,7 +17,7 @@ const kgOf = (v: unknown): number | null => (typeof v === 'number' && Number.isI
 /** What the phone sent, in the user's basis: "Tare 12.460 MT", "Gross 22.460 MT · net 10.000 MT". */
 export function sentLine(r: Rejection, basis: UnitBasis): string {
   const q = (kg: number) => toDisplayQty(kg, basis, { withUnit: true });
-  if (r.eventType === 'AT_GATE') return 'Marked at the gate';
+  if (r.eventType === 'AT_GATE') return 'Marked arrived';
   if (r.eventType === 'TARE') {
     const tare = kgOf(r.payload.tareKg);
     return tare === null ? 'Tare' : `Tare ${q(tare)}`;
@@ -62,11 +62,11 @@ export function restoreExplanation(
     const back = tare || gross || (truck?.tareKg ?? null) !== null ? 'loading' : 'assigned';
     if (gross) return `Puts ${v} back to ${back} and sends these weights for approval.`;
     if (tare) return `Puts ${v} back to loading with this tare.`;
-    return `Puts ${v} back to ${back} and marks it at the gate.`;
+    return `Puts ${v} back to ${back} and marks it arrived.`;
   }
   if (gross) return `Sends these weights for ${v} to the office for approval.`;
   if (tare) return `Saves this tare and moves ${v} to loading.`;
-  return `Marks ${v} at the gate.`;
+  return `Marks ${v} arrived.`;
 }
 
 const first = (name: string) => name.split(/\s+/)[0] ?? name;

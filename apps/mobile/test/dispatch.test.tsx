@@ -147,7 +147,7 @@ describe('Assign vehicle (canvas 07)', () => {
     view = await wrap(<TruckDetailScreen id={href.replace('/trucks/', '')} />);
     expect(await screen.findByRole('header', { name: 'CG 04 MK 2291' })).toBeOnTheScreen();
     expect(screen.getAllByText('Assigned').length).toBeGreaterThan(0);
-    expect(screen.getByLabelText('Progress: step 1 of 4, Assigned')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Progress: step 1 of 5, Assigned')).toBeOnTheScreen();
     expect(screen.queryByText('Gross weighed')).toBeNull();
     await view.unmount();
 
@@ -215,7 +215,8 @@ describe('Dispatch board (canvas 08)', () => {
     expect(within(mk).getByText('Loading')).toBeOnTheScreen();
     expect(screen.getByLabelText(/^CG 07 BR 8810/)).toBeOnTheScreen();
     expect(screen.getByRole('button', { name: 'Open, 5' })).toBeOnTheScreen();
-    await press('At gate, 1');
+    await press('Arrived, 1');
+    expect(screen.queryByText(/at gate/i)).toBeNull();
     await waitFor(() => expect(screen.queryByLabelText(/^CG 04 MK 2291/)).toBeNull());
     expect(screen.getByLabelText(/^CG 07 KL 3304/)).toBeOnTheScreen();
   });

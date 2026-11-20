@@ -5,7 +5,7 @@ import { relativeTime } from '../../format/time';
 import { useTheme } from '../../theme/ThemeProvider';
 import { MIN_TOUCH, type Tokens } from '../../theme/tokens';
 import { Badge, Button, Icon, showToast, Text, UnitTag } from '../../ui';
-import { TRUCK_STATE_META, TRUCK_STEPS, planLabel, shownPhone } from './truckStateMeta';
+import { TRUCK_STATE_META, TRUCK_STEPS, planLabel, shownPhone, stepIndex } from './truckStateMeta';
 
 type BoardTruck = DispatchBoard['items'][number];
 
@@ -39,8 +39,9 @@ export function TruckCard({
       : `plan ${toDisplayQty(planned, basis, { withUnit: true })}${x.tareKg !== null ? ` · tare ${toDisplayQty(x.tareKg, basis)}` : ''}`;
   const ago = since && x.state !== 'cancelled' ? relativeTime(since, now) : null;
   const lines = x.plan.map(planLabel).join(', ');
-  const done = meta.step;
-  const stepColor: (keyof Tokens)[] = ['vi', 'br', 'wn', 'ok'];
+  const done = x.state === 'cancelled' ? 0 : stepIndex(x);
+  // One colour per step: assigned, arrived, tare, weighed, dispatched.
+  const stepColor: (keyof Tokens)[] = ['vi', 'br', 'br', 'wn', 'ok'];
   const approvable = x.state === 'weighed' && onApprove !== undefined;
   const call = async () => {
     try {

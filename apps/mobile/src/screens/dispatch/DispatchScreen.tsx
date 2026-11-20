@@ -18,7 +18,7 @@ const FILTERS: { value: DispatchState; label: string }[] = [
   // TON-57: weights saved at the plant, waiting for the office.
   { value: 'weighed', label: 'To approve' },
   { value: 'loading', label: 'Loading' },
-  { value: 'at_gate', label: 'At gate' },
+  { value: 'at_gate', label: 'Arrived' },
   { value: 'assigned', label: 'Assigned' },
   { value: 'dispatched_today', label: 'Dispatched today' },
 ];

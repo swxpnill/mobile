@@ -5,28 +5,22 @@ import { istClock, relativeTime } from '../../format/time';
 import { useTheme } from '../../theme/ThemeProvider';
 import { type Tokens } from '../../theme/tokens';
 import { Group, Text } from '../../ui';
-import { TRUCK_STATE_META, TRUCK_STEPS } from './truckStateMeta';
+import { TRUCK_STATE_META, TRUCK_STEPS, stepIndex } from './truckStateMeta';
 
 const first = (name: string) => name.split(/\s+/)[0] ?? name;
 
 /** Which of Assigned → Tare → Gross → Dispatched the truck has reached (1-based). */
-function stepOf(x: Truck): number {
-  if (x.state === 'dispatched') return 4;
-  if (x.tareKg !== null) return 2;
-  return 1;
-}
-
-/** Canvas 09 "Progress": the four steps and when each happened. No "gross weighed" step. */
+/** Canvas 09 "Progress": the five steps (TON-57) and when each happened. */
 export function Progress({ x }: { x: Truck }) {
   const { t } = useTheme();
   const meta = TRUCK_STATE_META[x.state];
-  const step = stepOf(x);
+  const step = stepIndex(x);
   const at = (iso: string | null) => (iso ? istClock(iso) : null);
   const tare = x.weighments.find((w) => w.kind === 'tare' && !w.superseded);
   const gross = x.weighments.find((w) => w.kind === 'gross' && !w.superseded);
   const rows: { label: string; when: string | null }[] = [
     { label: 'Assigned', when: `${at(x.assignedAt)} · ${first(x.assignedBy.name)}` },
-    ...(x.atGateAt ? [{ label: 'At gate', when: at(x.atGateAt) }] : []),
+    ...(x.atGateAt ? [{ label: 'Arrived', when: at(x.atGateAt) }] : []),
     ...(x.tareAt ? [{ label: 'Tare weighed', when: [at(x.tareAt), tare ? first(tare.by.name) : null].filter(Boolean).join(' · ') }] : []),
     // TON-57: weights saved at the plant, then the office's approval (the dispatch).
     ...(x.weighedAt ? [{ label: 'Weighed', when: [at(x.weighedAt), gross ? first(gross.by.name) : null].filter(Boolean).join(' · ') }] : []),
@@ -34,7 +28,9 @@ export function Progress({ x }: { x: Truck }) {
     ...(x.cancelledAt ? [{ label: 'Cancelled', when: at(x.cancelledAt) }] : []),
   ];
   const next =
-    x.state === 'assigned' || x.state === 'at_gate'
+    x.state === 'assigned'
+      ? 'Next · the vehicle arrives, then the tare'
+      : x.state === 'at_gate'
       ? 'Next · tare weight, then loading'
       : x.state === 'loading'
         ? 'Next · gross weight, then the office approves'

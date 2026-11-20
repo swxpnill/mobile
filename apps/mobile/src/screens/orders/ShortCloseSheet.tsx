@@ -22,7 +22,7 @@ import { MSG, messageFor } from '../messages';
 
 const TRUCK_STATE: Record<OpenTruck['state'], string> = {
   assigned: 'assigned',
-  at_gate: 'at the gate',
+  at_gate: 'arrived',
   loading: 'loading',
   weighed: 'waiting for approval',
   dispatched: 'dispatched',

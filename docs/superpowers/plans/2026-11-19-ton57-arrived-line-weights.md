@@ -108,20 +108,26 @@ Rulings 9, 10 and 12–20. Two commits: 2a server (shared, mock, contract), 2b a
 **2b (app):** `truckStateMeta` (`weighed`: "Awaiting approval"), Dispatch board chip **To approve**, `TruckCard` and `TruckDetailScreen` (**Approve dispatch**, **Change weights** for `may('weighment.correct')` on `weighed | dispatched`), `useApproveTruck` hook, supervisor Done today and the Dispatched screen read `status`, Home "In plant now". Tests first in `test/dispatch.test.tsx`, `test/supervisor.test.tsx`; a11y and dark-theme suites stay green. Commit `feat(mobile): approve dispatch; change weights before approval`.
 
 
-### Task 3: "Arrived" across the app, and the Vehicle arrived button
+### Task 3 (revised 2026-11-20): "Arrived" across the app, and the Vehicle arrived button
 
-**Files:**
-- Modify: `apps/mobile/src/screens/dispatch/truckStateMeta.tsx` (`at_gate` label `Arrived`; `TRUCK_STEPS = ['Assigned', 'Arrived', 'Tare weighed', 'Loading', 'Dispatched']` and a `stepIndex(state)` for the 5-segment bar), `TruckTimeline.tsx`, `TruckCard.tsx`, Home "In plant now" badge, `apps/mobile/src/screens/supervisor/TasksScreen.tsx` (badge `Arrived`; button "Vehicle arrived" replaces "At gate"; "Capture tare weight" disabled until arrived, with the caption "Mark the vehicle arrived first")
-- Test: `apps/mobile/test/supervisor.test.tsx`, `apps/mobile/test/dispatch.test.tsx`
+The server already refuses a tare before arrival (Task 1). This task makes the phone ask for the arrival explicitly and renames the step everywhere. No server change.
 
-**Interfaces:**
-- Produces: `stepIndex(state: TruckState): 0..4` (assigned 0, at_gate 1, loading 3 — Tare weighed done, Loading current — dispatched 4).
+**Design**
+- **One source for steps.** `truckStateMeta.tsx` owns the five progress steps, now that approval exists: `TRUCK_STEPS = ['Assigned', 'Arrived', 'Tare weighed', 'Weighed', 'Dispatched']` and a pure `stepIndex(x: { state, tareKg, atGateAt })`: assigned 1, at_gate 2, loading 3, weighed 4, dispatched 5; a cancelled truck shows how far it got (tare 3, arrived 2, else 1). The board card and the detail timeline both use it (the timeline's own `stepOf` goes).
+- **Labels.** `at_gate` reads **Arrived** on every screen: state badge, board filter chip, timeline row, order trucks summary, short close ("arrived"), Needs attention ("Marked arrived", "marks it arrived"). Sync event names stay `AT_GATE` (Ruling 3).
+- **My tasks card (assigned truck):** **Vehicle arrived** (violet, primary) first; **Capture tare weight** below it, disabled, with the caption "Mark the vehicle arrived first". After the press (saved on this phone, offline too) the badge reads **Arrived** and the tare button is enabled; nothing else changes. Arrived and loading cards are unchanged apart from the badge.
+- **One arrival action.** `useMarkArrived()` (`src/screens/supervisor/useMarkArrived.ts`): records one `AT_GATE` in the outbox, single flight (a double tap records once), toast "Saved on this phone" or the save-failed message. Used by the card and the weigh screen.
+- **Weigh screen guard.** A supervisor who reaches `/weigh/:id` on a truck still assigned (an old link, a notification) sees "Mark the vehicle arrived first" with **Vehicle arrived**; once pressed, the tare keypad appears. The owner's weigh path keeps recording the arrival with the tare (Task 1), since the owner is not at the gate.
+- **Capture steps** read Assigned ✓ · Arrived ✓ · Tare · Gross · Approval.
 
-- [ ] **Step 1: Failing tests:** an assigned task shows "Vehicle arrived" and a disabled "Capture tare weight" (`accessibilityState.disabled`); pressing "Vehicle arrived" saves an `AT_GATE` row and the badge reads "Arrived"; then tare is enabled. Dispatch board and truck detail show "Arrived" for `at_gate`, and detail's timeline lists Assigned, Arrived, Tare weighed, Loading, Dispatched.
-- [ ] **Step 2:** Run `pnpm --filter mobile exec jest test/supervisor.test.tsx test/dispatch.test.tsx`. Expected: FAIL.
-- [ ] **Step 3:** Implement; update the existing tests' "At gate" expectations.
-- [ ] **Step 4:** Run again plus `test/a11y.test.tsx`. Expected: PASS.
-- [ ] **Step 5:** Commit `feat(mobile): Vehicle arrived step before tare`.
+**Tests first** (`test/supervisor.test.tsx`, `test/dispatch.test.tsx`, a unit test for `stepIndex`):
+- Assigned card: "Vehicle arrived" enabled, "Capture tare weight" disabled (`accessibilityState.disabled`) with the caption; pressing it saves one `AT_GATE` row, the badge reads Arrived and tare is enabled; a double press records one row.
+- Offline: arrival then tare queue in order (AT_GATE before TARE) and both are accepted on sync.
+- `/weigh` on an assigned truck shows the gate; after Vehicle arrived the tare keypad shows.
+- Board chip "Arrived", detail timeline row "Arrived", progress "Step 2 of 5 · Arrived"; no "At gate" text anywhere (a render search over the board, detail and tasks).
+- `stepIndex` for every state, cancelled after tare and after arrival.
+
+Commit `feat(mobile): Vehicle arrived step before tare`.
 
 ### Task 4: Weigh each product; gross is calculated; Save weights sends for approval
 
