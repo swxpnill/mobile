@@ -26,9 +26,10 @@ export function createDb(connectionString: string, opts: { max?: number } = {}):
 /**
  * Runs `fn` in a transaction scoped to one tenant: `app.tenant_id` is set transaction-locally
  * (`set_config(..., true)`), so RLS sees only that tenant's rows and the setting is gone at commit
- * or rollback, never left on the pooled connection.
+ * or rollback, never left on the pooled connection. Given a transaction (auth, which learns the tenant
+ * mid-transaction), it runs in a savepoint of it and the setting lasts until that transaction ends.
  */
-export function withTenant<T>(db: Db, tenantId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
+export function withTenant<T>(db: Db | Tx, tenantId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
   return db.transaction(async (tx) => {
     await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
     return fn(tx);

@@ -2,16 +2,15 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { serializerCompiler } from 'fastify-type-provider-zod';
 import type { DestinationStream } from 'pino';
 import { v7 as uuidv7 } from 'uuid';
+import { DevOtpProvider, type OtpProvider } from './auth/otp-provider.ts';
+import { createOtpService } from './auth/otp.service.ts';
+import { createTokens } from './auth/tokens.ts';
 import type { Clock } from './clock.ts';
 import type { Db } from './db/client.ts';
 import type { Env } from './env.ts';
 import { registerErrorHandling, zodValidatorCompiler } from './http/errors.ts';
+import { authRoutes } from './routes/auth.ts';
 import { metaRoutes } from './routes/meta.ts';
-
-/** Sends one-time codes. Task 3 defines the dev provider. */
-export interface OtpProvider {
-  send(mobile: string, code: string): Promise<void>;
-}
 
 export interface AppDeps {
   env: Env;
@@ -50,6 +49,17 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     reply.header('x-request-id', request.id);
   });
 
+  const tokens = createTokens(env.JWT_SECRET);
+  const otp = createOtpService({
+    db: deps.db,
+    env,
+    otp: deps.otp ?? new DevOtpProvider(app.log),
+    tokens,
+  });
+
   await app.register(metaRoutes({ env, clock: deps.clock }), { prefix: '/v1' });
+  await app.register(authRoutes({ env, db: deps.db, clock: deps.clock, otp, tokens }), {
+    prefix: '/v1/auth',
+  });
   return app;
 }

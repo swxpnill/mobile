@@ -14,10 +14,12 @@
     "seed": "echo \"seed arrives with the schema (Task 2)\""
   },
   "dependencies": {
+    "@fastify/rate-limit": "^11.3.0",
     "@tonnage/shared": "workspace:*",
     "drizzle-orm": "^0.45.4",
     "fastify": "^5.12.8",
     "fastify-type-provider-zod": "^7.0.0",
+    "jose": "^6.2.18",
     "pg": "^8",
     "uuid": "^14.0.3",
     "zod": "^4.6.7"

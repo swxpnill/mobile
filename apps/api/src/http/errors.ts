@@ -57,6 +57,21 @@ export const zodValidatorCompiler = ({ schema }: { schema: unknown }) => {
   };
 };
 
+function clientErrorFor(status: number): AppError {
+  switch (status) {
+    case 401:
+      return new AppError(401, 'UNAUTHENTICATED');
+    case 403:
+      return new AppError(403, 'FORBIDDEN');
+    case 404:
+      return new AppError(404, 'NOT_FOUND');
+    case 429:
+      return new AppError(429, 'RATE_LIMITED');
+    default:
+      return new AppError(422, 'VALIDATION', [{ path: [], message: 'Invalid request' }]);
+  }
+}
+
 function toAppError(error: unknown): AppError {
   if (error instanceof AppError) return error;
   if (error instanceof ValidationFailure) return new AppError(422, 'VALIDATION', error.details);
@@ -71,6 +86,11 @@ function toAppError(error: unknown): AppError {
     fe.statusCode < 500
   ) {
     return new AppError(422, 'VALIDATION', [{ path: [], message: fe.message ?? 'Invalid request' }]);
+  }
+  // Any other 4xx a plugin throws (e.g. @fastify/rate-limit's 429) keeps its meaning by status. Its
+  // message is not ours to show, so none of it reaches the client.
+  if (fe && typeof fe.statusCode === 'number' && fe.statusCode >= 400 && fe.statusCode < 500) {
+    return clientErrorFor(fe.statusCode);
   }
   return new AppError(500, 'INTERNAL');
 }

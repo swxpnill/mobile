@@ -1,12 +1,14 @@
 import { createFakeClock } from '@tonnage/mock-api';
 import type { Role } from '@tonnage/shared';
 import type { FastifyInstance } from 'fastify';
+import type { DestinationStream } from 'pino';
 import { v7 as uuidv7 } from 'uuid';
 import { inject } from 'vitest';
 import type { Clock } from '../src/clock.ts';
 import { createDb, type Db } from '../src/db/client.ts';
 import { companies, tenants, users } from '../src/db/schema/index.ts';
 import { loadEnv, type Env } from '../src/env.ts';
+import type { OtpProvider } from '../src/auth/otp-provider.ts';
 import { buildApp } from '../src/server.ts';
 
 /** 2026-11-03T04:30:00Z, the instant the contract examples use. */
@@ -40,12 +42,18 @@ export interface TestApp {
 const open: TestApp[] = [];
 
 export async function buildTestApp(
-  opts: { clock?: Clock; env?: NodeJS.ProcessEnv } = {},
+  opts: { clock?: Clock; env?: NodeJS.ProcessEnv; otp?: OtpProvider; logStream?: DestinationStream } = {},
 ): Promise<TestApp> {
   const clock = opts.clock ?? createFakeClock(TEST_NOW);
   const runtime = createDb(inject('appDatabaseUrl'));
   const owner = createDb(inject('ownerDatabaseUrl'));
-  const app = await buildApp({ env: testEnv(opts.env), db: runtime.db, clock });
+  const app = await buildApp({
+    env: testEnv(opts.env),
+    db: runtime.db,
+    clock,
+    ...(opts.otp ? { otp: opts.otp } : {}),
+    ...(opts.logStream ? { logStream: opts.logStream } : {}),
+  });
   const testApp: TestApp = {
     app,
     db: runtime.db,

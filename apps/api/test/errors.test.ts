@@ -88,6 +88,30 @@ describe('error contract', () => {
     await close();
   });
 
+  it('maps a 4xx error thrown by a plugin (not ours, not Fastify’s) by status, never to 500', async () => {
+    const t = await buildTestApp();
+    const cases: [number, number, string][] = [
+      [429, 429, 'RATE_LIMITED'],
+      [401, 401, 'UNAUTHENTICATED'],
+      [403, 403, 'FORBIDDEN'],
+      [404, 404, 'NOT_FOUND'],
+      [400, 422, 'VALIDATION'],
+      [413, 422, 'VALIDATION'],
+    ];
+    for (const [thrown] of cases) {
+      t.app.get(`/v1/_t/status-${thrown}`, async () => {
+        throw Object.assign(new Error(`plugin said ${thrown}`), { statusCode: thrown });
+      });
+    }
+    await t.app.ready();
+    for (const [thrown, status, code] of cases) {
+      const res = await t.app.inject({ method: 'GET', url: `/v1/_t/status-${thrown}` });
+      expect(res.statusCode).toBe(status);
+      expect(res.json()).toMatchObject({ code, message: ERROR_MESSAGES[code as keyof typeof ERROR_MESSAGES] });
+      expect(res.body).not.toContain('plugin said');
+    }
+  });
+
   it('answers an unknown route with 404 NOT_FOUND', async () => {
     const app = await appWithThrowawayRoutes();
     const res = await app.inject({ method: 'GET', url: '/v1/nope' });
