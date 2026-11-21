@@ -430,3 +430,162 @@ describe('request log', () => {
     expect(lines.filter((l) => l.msg === 'incoming request')).toEqual([]);
   });
 });
+
+describe('responses are checked against their schema before commit', () => {
+  let t: TestApp;
+  let w: World;
+  beforeEach(async () => {
+    t = await buildTestApp();
+    w = await seed(t);
+    defineRoute(t.app, 'POST', '/v1/test/bad-shape', {
+      action: 'companies.manage',
+      idempotent: true,
+      response: { 201: z.object({ id: z.string() }) },
+      handler: async (ctx) => {
+        await insertCompany(ctx, 'SHAPE');
+        return { status: 201, body: { id: 5 } };
+      },
+    });
+    defineRoute(t.app, 'POST', '/v1/test/money-required', {
+      action: 'weighment.capture',
+      idempotent: true,
+      response: { 201: z.object({ kg: z.number(), amountRupees: z.number() }) },
+      handler: async (ctx) => {
+        await insertCompany(ctx, `M${ctx.user.role.length}`);
+        return { status: 201, body: { kg: 1, amountRupees: 2 } };
+      },
+    });
+  });
+
+  const post = async (url: string, userId: string, key: string) =>
+    t.app.inject({ method: 'POST', url, headers: { ...(await bearer(t, w, userId)), 'idempotency-key': key } });
+  const companyCodes = async () => (await t.ownerDb.select({ code: companies.code }).from(companies)).map((c) => c.code);
+
+  it('a write whose response fails its schema → 500, the write and the key row rolled back', async () => {
+    const res = await post('/v1/test/bad-shape', w.ownerId, 'shape-1');
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toEqual({ code: 'INTERNAL', message: ERROR_MESSAGES.INTERNAL });
+    expect(await companyCodes()).toEqual(['VSL']);
+    expect(await t.ownerDb.select().from(idempotencyKeys)).toEqual([]);
+  });
+
+  it('the redacted view is what is checked: a schema needing a money key fails for a supervisor, nothing committed', async () => {
+    const sup = await post('/v1/test/money-required', w.supervisorId, 'money-1');
+    expect(sup.statusCode).toBe(500);
+    expect(await companyCodes()).toEqual(['VSL']);
+    expect(await t.ownerDb.select().from(idempotencyKeys)).toEqual([]);
+
+    // Control: the owner's unredacted view passes and commits.
+    const owner = await post('/v1/test/money-required', w.ownerId, 'money-2');
+    expect(owner.statusCode).toBe(201);
+    expect((await companyCodes()).sort()).toEqual(['M5', 'VSL']);
+  });
+
+  it('a replay is checked too, for the caller’s current role', async () => {
+    expect((await post('/v1/test/money-required', w.ownerId, 'money-3')).statusCode).toBe(201);
+    await t.ownerDb.update(users).set({ role: 'supervisor' }).where(eq(users.id, w.ownerId));
+    const replay = await post('/v1/test/money-required', w.ownerId, 'money-3');
+    expect(replay.statusCode).toBe(500);
+    // The stored result is untouched: the read-only replay check changes nothing.
+    expect(await t.ownerDb.select().from(idempotencyKeys)).toHaveLength(1);
+  });
+});
+
+describe('body parse errors come after auth and policy (Ruling 10)', () => {
+  let t: TestApp;
+  let w: World;
+  let runs: number;
+  beforeEach(async () => {
+    t = await buildTestApp();
+    w = await seed(t);
+    runs = 0;
+    defineRoute(t.app, 'POST', '/v1/test/manage-users', {
+      action: 'users.manage',
+      body: z.object({ name: z.string() }),
+      handler: async (ctx) => {
+        runs += 1;
+        return { body: { name: ctx.body.name } };
+      },
+    });
+    defineRoute(t.app, 'POST', '/v1/test/public-body', {
+      public: true,
+      body: z.object({ name: z.string() }),
+      handler: async ({ body }) => ({ body }),
+    });
+  });
+
+  const malformed = (headers: Record<string, string>, url = '/v1/test/manage-users') =>
+    t.app.inject({ method: 'POST', url, headers: { ...headers, 'content-type': 'application/json' }, payload: '{"name": ' });
+
+  it('a valid token of a deactivated user + malformed JSON → 401', async () => {
+    const headers = await bearer(t, w, w.ownerId);
+    await t.ownerDb.update(users).set({ active: false }).where(eq(users.id, w.ownerId));
+    const res = await malformed(headers);
+    expect(res.statusCode).toBe(401);
+    expect(res.json().code).toBe('UNAUTHENTICATED');
+  });
+
+  it('a supervisor + malformed JSON or an unsupported content type on a users.manage route → 403', async () => {
+    const headers = await bearer(t, w, w.supervisorId);
+    expect((await malformed(headers)).statusCode).toBe(403);
+    const xml = await t.app.inject({
+      method: 'POST',
+      url: '/v1/test/manage-users',
+      headers: { ...headers, 'content-type': 'application/xml' },
+      payload: '<name/>',
+    });
+    expect(xml.statusCode).toBe(403);
+  });
+
+  it('the owner + malformed JSON or an unsupported content type → 422 VALIDATION; the handler never runs', async () => {
+    const headers = await bearer(t, w, w.ownerId);
+    const res = await malformed(headers);
+    expect(res.statusCode).toBe(422);
+    expect(res.json()).toEqual({
+      code: 'VALIDATION',
+      message: ERROR_MESSAGES.VALIDATION,
+      details: [{ path: [], message: 'Body is not valid JSON' }],
+    });
+    const xml = await t.app.inject({
+      method: 'POST',
+      url: '/v1/test/manage-users',
+      headers: { ...headers, 'content-type': 'application/xml' },
+      payload: '<name/>',
+    });
+    expect(xml.statusCode).toBe(422);
+    expect(xml.json().details).toEqual([{ path: [], message: 'Unsupported content type' }]);
+    expect(runs).toBe(0);
+  });
+
+  it('an empty JSON body is no body: the schema reports it, and valid JSON still works', async () => {
+    const headers = await bearer(t, w, w.ownerId);
+    const empty = await t.app.inject({
+      method: 'POST',
+      url: '/v1/test/manage-users',
+      headers: { ...headers, 'content-type': 'application/json' },
+      payload: '',
+    });
+    expect(empty.statusCode).toBe(422);
+    expect(empty.json().details[0].path).toEqual([]);
+    const ok = await t.app.inject({ method: 'POST', url: '/v1/test/manage-users', headers, payload: { name: 'A' } });
+    expect(ok.json()).toEqual({ name: 'A' });
+  });
+
+  it('a public route still answers malformed JSON with 422 VALIDATION', async () => {
+    const res = await malformed({}, '/v1/test/public-body');
+    expect(res.statusCode).toBe(422);
+    expect(res.json().details).toEqual([{ path: [], message: 'Body is not valid JSON' }]);
+  });
+
+  it('JSON prototype poisoning is still refused', async () => {
+    const headers = await bearer(t, w, w.ownerId);
+    const res = await t.app.inject({
+      method: 'POST',
+      url: '/v1/test/manage-users',
+      headers: { ...headers, 'content-type': 'application/json' },
+      payload: '{"name":"A","__proto__":{"x":1}}',
+    });
+    expect(res.statusCode).toBe(422);
+    expect(runs).toBe(0);
+  });
+});

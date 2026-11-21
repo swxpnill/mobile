@@ -1,6 +1,7 @@
 import { ERROR_MESSAGES, type ApiErrorBody, type ErrorCode } from '@tonnage/shared';
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { badBodyReason } from './body-parser.ts';
 
 /** Thrown by handlers; turned into `{ code, message, details? }` (same signature as the mock's `ApiError`). */
 export class AppError extends Error {
@@ -51,6 +52,8 @@ export class ValidationFailure extends Error {
 /** Fastify validator compiler for zod schemas that keeps issue paths intact (numbers stay numbers). */
 export const zodValidatorCompiler = ({ schema }: { schema: unknown }) => {
   return (data: unknown) => {
+    const bad = badBodyReason(data);
+    if (bad !== null) return { error: new ValidationFailure([{ path: [], message: bad }]) };
     const result = z.safeParse(schema as z.ZodType, data);
     if (result.success) return { value: result.data };
     return { error: new ValidationFailure(issueDetails(result.error.issues)) };

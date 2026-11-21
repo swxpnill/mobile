@@ -5,6 +5,7 @@ import type { AccessClaims, Tokens } from '../auth/tokens.ts';
 import type { Clock } from '../clock.ts';
 import { withTenant, type Db, type Tx } from '../db/client.ts';
 import { bearerClaims, loadAuthedUser, type AuthedUser } from './auth-hook.ts';
+import { badBodyReason } from './body-parser.ts';
 import { AppError, issueDetails } from './errors.ts';
 import { claimKey, storeResult } from './idempotency.ts';
 import { redactBody, toWire } from './redact.ts';
@@ -107,6 +108,8 @@ export function routeTable(app: FastifyInstance): RouteTableEntry[] {
 const is2xx = (s: number) => s >= 200 && s < 300;
 
 function parseWith<T>(schema: ZodType<T> | undefined, value: unknown): T {
+  const bad = badBodyReason(value);
+  if (bad !== null) throw new AppError(422, 'VALIDATION', [{ path: [], message: bad }]);
   if (!schema) return value as T;
   const r = schema.safeParse(value);
   if (!r.success) throw new AppError(422, 'VALIDATION', issueDetails(r.error.issues));
@@ -121,6 +124,28 @@ function lastValues(query: unknown): Record<string, string> {
     if (last !== undefined) out[k] = last;
   }
   return out;
+}
+
+/**
+ * Throws (a 500, and the request transaction rolls back) when a body does not match its response
+ * schema. Fastify checks it again when it serializes, but only after the commit: checking here means
+ * a broken body never comes with a committed write, nor with a stored result replayed for 24 h.
+ */
+function assertResponseShape(
+  name: string,
+  schemas: Record<number, ZodType> | undefined,
+  status: number,
+  views: readonly unknown[],
+): void {
+  const schema = schemas?.[status];
+  if (!schema) return;
+  for (const view of views) {
+    const r = schema.safeParse(view ?? null);
+    if (!r.success) {
+      const paths = r.error.issues.map((i) => i.path.map(String).join('.') || '(root)').join(', ');
+      throw new Error(`Response of ${name} (${status}) does not match its schema at: ${paths}`);
+    }
+  }
 }
 
 const paramsOf = (req: FastifyRequest) => (req.params ?? {}) as Record<string, string>;
@@ -217,7 +242,10 @@ export function defineRoute<B = unknown, Q = Record<string, string>>(
           if (c.idempotent) {
             if (!key) throw new AppError(400, 'IDEMPOTENCY_KEY_REQUIRED');
             const claim = await claimKey(tx, slot, now);
-            if (claim.kind === 'replay') return { role, status: claim.status, body: claim.body, replay: true };
+            if (claim.kind === 'replay') {
+              assertResponseShape(name, c.response, claim.status, [redactBody(role, claim.body)]);
+              return { role, status: claim.status, body: claim.body, replay: true };
+            }
           }
 
           const result = await c.handler({
@@ -232,6 +260,9 @@ export function defineRoute<B = unknown, Q = Record<string, string>>(
           });
           const status = result.status ?? 200;
           const plain = toWire(result.body);
+          // What this caller is sent, and the full body that is stored and replayed to other roles.
+          const sentView = redactBody(role, plain);
+          assertResponseShape(name, c.response, status, sentView === plain ? [plain] : [sentView, plain]);
           if (!is2xx(status)) throw new NonSuccess({ role, status, body: plain, replay: false });
           if (c.idempotent) await storeResult(tx, slot, status, plain, now);
           return { role, status, body: plain, replay: false };

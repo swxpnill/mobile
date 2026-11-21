@@ -8,6 +8,7 @@ import { createTokens } from './auth/tokens.ts';
 import type { Clock } from './clock.ts';
 import type { Db } from './db/client.ts';
 import type { Env } from './env.ts';
+import { registerBodyParsers } from './http/body-parser.ts';
 import { registerErrorHandling, zodValidatorCompiler } from './http/errors.ts';
 import { registerPipeline } from './http/route.ts';
 import { authRoutes } from './routes/auth.ts';
@@ -47,6 +48,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.setValidatorCompiler(zodValidatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   registerErrorHandling(app);
+  registerBodyParsers(app);
 
   app.addHook('onSend', async (request, reply) => {
     reply.header('x-request-id', request.id);
