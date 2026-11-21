@@ -9,7 +9,7 @@ export const ERROR_CODES = [
   'PLANT_REQUIRED', 'PLANT_INACTIVE', 'CUSTOMER_REQUIRED', 'TRUCK_LOCKED', 'TRUCK_CANCELLED', 'ALREADY_RESOLVED', 'ARRIVAL_REQUIRED',
   'PLANT_SCOPE', 'TARE_CONFLICT', 'INVALID_WEIGHT', 'ALLOC_MISMATCH', 'LINE_REMOVED', 'TARE_REQUIRED',
   'ALREADY_DISPATCHED', 'INVALID_STATE', 'NOT_REVERSIBLE', 'ALREADY_REVERSED',
-  'ALREADY_WEIGHED', 'NOT_AWAITING_APPROVAL',
+  'ALREADY_WEIGHED', 'NOT_AWAITING_APPROVAL', 'RATE_LIMITED',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -68,6 +68,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   ALREADY_REVERSED: 'This payment was already reversed',
   ALREADY_WEIGHED: 'This vehicle is already weighed and waiting for approval',
   NOT_AWAITING_APPROVAL: 'This vehicle is not waiting for approval',
+  RATE_LIMITED: 'Too many attempts. Try again in a minute.',
 };
 
 export interface ApiErrorBody {
