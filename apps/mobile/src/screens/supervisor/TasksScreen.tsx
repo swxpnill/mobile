@@ -244,7 +244,7 @@ const styles = StyleSheet.create({
   },
   counts: { flexDirection: 'row', gap: 8 },
   count: { flex: 1, padding: 12, borderRadius: 16, borderWidth: 1 },
-  countValue: { fontSize: 20, lineHeight: 26, marginTop: 2 },
+  countValue: { fontSize: 20, lineHeight: 26, marginTop: 2, textAlign: 'center' },
   card: { padding: 16, gap: 12, borderRadius: 16, borderWidth: 1 },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   tile: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
