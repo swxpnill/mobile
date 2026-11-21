@@ -1,5 +1,6 @@
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
 
 export interface EmbeddedCluster {
@@ -12,10 +13,39 @@ export const EMBEDDED_USER = 'postgres';
 export const EMBEDDED_PASSWORD = 'postgres';
 
 /**
+ * PostgreSQL major version of the bundled binaries. Every embedded-postgres release is tagged
+ * `-beta.N` (the wrapper's own versioning); the 16.x line bundles stable PostgreSQL 16.x, which
+ * matches the postgres:16 service CI uses.
+ */
+function binaryMajor(): string {
+  // The package does not export its package.json, so walk up from its entry point to find it.
+  let dir = dirname(createRequire(import.meta.url).resolve('embedded-postgres'));
+  for (;;) {
+    const file = join(dir, 'package.json');
+    if (existsSync(file)) {
+      const pkg = JSON.parse(readFileSync(file, 'utf8')) as { name?: string; version: string };
+      if (pkg.name === 'embedded-postgres') return pkg.version.split('.')[0] ?? '';
+    }
+    const parent = dirname(dir);
+    if (parent === dir) throw new Error('Cannot locate the embedded-postgres package');
+    dir = parent;
+  }
+}
+
+/** A data directory written by another major version cannot be started; delete it so it is re-created. */
+export function discardStaleDataDir(dataDir: string): void {
+  const marker = join(dataDir, 'PG_VERSION');
+  if (existsSync(marker) && readFileSync(marker, 'utf8').trim() !== binaryMajor()) {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+}
+
+/**
  * Starts a local PostgreSQL cluster (the `embedded-postgres` package, no Docker). The data
  * directory is created on first use and reused afterwards.
  */
 export async function startEmbedded(opts: { dataDir: string; port: number }): Promise<EmbeddedCluster> {
+  discardStaleDataDir(opts.dataDir);
   const pg = new EmbeddedPostgres({
     databaseDir: opts.dataDir,
     user: EMBEDDED_USER,
