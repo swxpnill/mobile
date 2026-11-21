@@ -1,0 +1,32 @@
+{
+  "name": "@tonnage/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "lint": "eslint src test",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:dev": "tsx src/scripts/dev-db.ts",
+    "db:migrate": "echo \"db:migrate arrives with the schema (Task 2)\"",
+    "db:generate": "echo \"db:generate arrives with the schema (Task 2)\"",
+    "seed": "echo \"seed arrives with the schema (Task 2)\""
+  },
+  "dependencies": {
+    "@tonnage/shared": "workspace:*",
+    "drizzle-orm": "^0.45.4",
+    "fastify": "^5.12.8",
+    "fastify-type-provider-zod": "^7.0.0",
+    "pg": "^8",
+    "uuid": "^14.0.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@tonnage/mock-api": "workspace:*",
+    "@types/pg": "^8",
+    "embedded-postgres": "18.7.0-beta.19",
+    "tsx": "^4.23.15",
+    "vitest": "^5.1.0"
+  }
+}

@@ -8,3 +8,6 @@ build/
 *.log
 .DS_Store
 .superpowers/
+
+.pgdata*
+apps/api/.env
