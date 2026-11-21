@@ -5,26 +5,24 @@ import { eq } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { createTokens } from '../src/auth/tokens.ts';
 import { activityLog, companies, idempotencyKeys, plants, userPlants, users } from '../src/db/schema/index.ts';
 import { AppError } from '../src/http/errors.ts';
 import { defineRoute, routeTable, type RouteCtx } from '../src/http/route.ts';
 import { logActivity } from '../src/services/activity.ts';
 import {
+  bearerFor,
   buildTestApp,
   closeTestApps,
   ownerInsertCompany,
   ownerInsertTenant,
   ownerInsertUser,
   TEST_NOW,
-  testEnv,
   type TestApp,
 } from './helpers.ts';
 
 afterEach(closeTestApps);
 
 const DAY = 24 * 60 * 60 * 1000;
-const tokens = () => createTokens(testEnv().JWT_SECRET);
 
 interface World {
   tenantId: string;
@@ -55,8 +53,7 @@ async function seed(t: TestApp): Promise<World> {
 }
 
 async function bearer(t: TestApp, w: World, userId: string): Promise<Record<string, string>> {
-  const { token } = await tokens().issueAccess({ id: userId, tenantId: w.tenantId }, uuidv7(), t.clock.now());
-  return { authorization: `Bearer ${token}` };
+  return bearerFor(t, w.tenantId, userId);
 }
 
 /** Every key of `value`, at any depth. */

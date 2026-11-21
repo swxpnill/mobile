@@ -7,6 +7,7 @@ import { inject } from 'vitest';
 import type { Clock } from '../src/clock.ts';
 import { createDb, type Db } from '../src/db/client.ts';
 import { companies, tenants, users } from '../src/db/schema/index.ts';
+import { createTokens } from '../src/auth/tokens.ts';
 import { loadEnv, type Env } from '../src/env.ts';
 import type { OtpProvider } from '../src/auth/otp-provider.ts';
 import { buildApp } from '../src/server.ts';
@@ -124,4 +125,18 @@ export async function ownerInsertUser(
     ...stamps,
   });
   return id;
+}
+
+/** An `Authorization` header for a user, signed with the test secret at the test clock's time. */
+export async function bearerFor(
+  t: TestApp,
+  tenantId: string,
+  userId: string,
+): Promise<Record<string, string>> {
+  const { token } = await createTokens(testEnv().JWT_SECRET).issueAccess(
+    { id: userId, tenantId },
+    uuidv7(),
+    t.clock.now(),
+  );
+  return { authorization: `Bearer ${token}` };
 }

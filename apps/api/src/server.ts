@@ -12,7 +12,10 @@ import { registerBodyParsers } from './http/body-parser.ts';
 import { registerErrorHandling, zodValidatorCompiler } from './http/errors.ts';
 import { registerPipeline } from './http/route.ts';
 import { authRoutes } from './routes/auth.ts';
+import { companyRoutes } from './routes/companies.ts';
 import { metaRoutes } from './routes/meta.ts';
+import { plantRoutes } from './routes/plants.ts';
+import { settingsRoutes } from './routes/settings.ts';
 
 export interface AppDeps {
   env: Env;
@@ -78,6 +81,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
 
   await app.register(metaRoutes({ env }), { prefix: '/v1' });
+  await app.register(companyRoutes, { prefix: '/v1' });
+  await app.register(plantRoutes, { prefix: '/v1' });
+  await app.register(settingsRoutes, { prefix: '/v1' });
   await app.register(authRoutes({ env, otp, tokens }), {
     prefix: '/v1/auth',
   });
