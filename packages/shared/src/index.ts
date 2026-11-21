@@ -24,3 +24,4 @@ export * from './transport.ts';
 export * from './fixtures/sample-world.ts';
 export * from './fixtures/sample-masters.ts';
 export * from './reports/index.ts';
+export * from './notifications/index.ts';

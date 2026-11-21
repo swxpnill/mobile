@@ -77,20 +77,22 @@ afterEach(() => {
 });
 
 describe('OrderDetailScreen', () => {
-  it('SO-2611-0141: status, customer, dispatched card, lines with pending, the loading truck', async () => {
+  it('SO-2611-0141: status, customer, dispatched card, lines with pending, the loading truck, the one to approve', async () => {
     const o = await orderNo('SO-2611-0141');
     await wrap(<OrderDetailScreen id={o.id} />);
     expect(await screen.findByText('Patel Infra Projects')).toBeOnTheScreen();
     expect(screen.getByText('Partly dispatched')).toBeOnTheScreen();
     expect(screen.getByLabelText('Dispatched 72.400 of 120.000 MT')).toBeOnTheScreen();
     expect(screen.getByLabelText('Pending, 47.600 MT')).toBeOnTheScreen();
-    expect(screen.getByLabelText('Trucks, 3 + 1 loading')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Trucks, 3 + 1 loading · 1 to approve')).toBeOnTheScreen();
     expect(screen.getByText('TMT Fe500D · 16 mm · 12 m')).toBeOnTheScreen();
     expect(screen.getByText('28.400 of 40.000 MT · 11.600 pending')).toBeOnTheScreen();
     expect(screen.getByLabelText('CG 07 BR 8810, loading, tare 12.460 MT')).toBeOnTheScreen();
+    // TON-57: weighed, not dispatched: it is not in the 72.400 MT until the office approves.
+    expect(screen.getByLabelText('CG 04 LT 6619, waiting for approval, tare 11.780 MT')).toBeOnTheScreen();
   });
 
-  it('Review Focus 4: short close meets the loading truck, confirms it, then closes', async () => {
+  it('Review Focus 4: short close meets the loading truck and the one awaiting approval, confirms them, then closes', async () => {
     const o = await orderNo('SO-2611-0141');
     await wrap(<OrderDetailScreen id={o.id} />);
     await fireEvent.press(await screen.findByRole('button', { name: 'Short close' }));
@@ -99,7 +101,9 @@ describe('OrderDetailScreen', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Short close order' }));
     expect(await screen.findByText('CG 07 BR 8810 — loading, tare 12.460 MT')).toBeOnTheScreen();
     expect(screen.getByText('May be loading now')).toBeOnTheScreen();
-    await fireEvent.press(screen.getByRole('button', { name: 'Cancel 1 truck and short close' }));
+    expect(screen.getByText('CG 04 LT 6619 — waiting for approval, tare 11.780 MT')).toBeOnTheScreen();
+    expect(screen.getByText('Loaded and weighed, waiting for approval')).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole('button', { name: 'Cancel 2 trucks and short close' }));
     expect(await screen.findByText(/^Short closed · Stock not available/)).toBeOnTheScreen();
     const after = await orderNo('SO-2611-0141');
     expect(after.status).toBe('short_closed');

@@ -10,8 +10,8 @@ import { Badge, Button, EmptyState, Icon, Screen, Text } from '../../ui';
 import { usePlantTitle } from './usePlantTitle';
 
 /**
- * Canvas 13 after "Save gross · mark dispatched": the net, and the loading slip number once the
- * server has it ("Waiting for network" until then). The order progress bar, WhatsApp updates and
+ * Canvas 13 after saving the weights: the net, and (TON-57) "Awaiting approval" until the office
+ * approves the dispatch, then the loading slip ("Waiting for network" before the server has it). The order progress bar, WhatsApp updates and
  * "Share loading slip" are left out: a supervisor's data has no order totals, and notifications
  * come in F4/F5.
  */
@@ -46,18 +46,18 @@ export function DispatchedScreen({ truckId }: { truckId: string }) {
     );
   }
 
-  const left = place
-    ? `${view.vehicleNo} left ${place} at ${istClock(view.at)}`
-    : `${view.vehicleNo} left at ${istClock(view.at)}`;
+  const where = place ? ` ${view.approved ? 'left' : 'weighed at'} ${place}` : view.approved ? ' left' : ' weighed';
+  const left = `${view.vehicleNo}${where} at ${istClock(view.at)}`;
+  const slipState = view.slipNo ?? (view.sync === 'rejected' ? 'needs the owner' : view.sync === 'waiting' ? 'waiting for network' : 'awaiting approval');
 
   return (
     <Screen contentStyle={styles.content}>
       <View style={styles.top}>
-        <View style={[styles.check, { backgroundColor: t.oks }]}>
-          <Icon name="check" size={36} color={t.okt} strokeWidth={2} />
+        <View style={[styles.check, { backgroundColor: view.approved ? t.oks : t.wns }]}>
+          <Icon name={view.approved ? 'check' : 'clock'} size={36} color={view.approved ? t.okt : t.wnt} strokeWidth={2} />
         </View>
         <Text variant="title" accessibilityRole="header">
-          Dispatched
+          {view.approved ? 'Dispatched' : 'Weights saved'}
         </Text>
         <Text color="tx2" style={styles.lead}>
           {left}
@@ -90,7 +90,7 @@ export function DispatchedScreen({ truckId }: { truckId: string }) {
           style={[styles.section, { borderTopColor: t.bd }]}
           accessible
           accessibilityLiveRegion="polite"
-          accessibilityLabel={`Loading slip, ${view.slipNo ?? (view.sync === 'rejected' ? 'needs the owner' : 'waiting for network')}`}
+          accessibilityLabel={`Loading slip, ${slipState}`}
         >
           <Text color="tx2" style={styles.fill}>
             Loading slip
@@ -103,9 +103,13 @@ export function DispatchedScreen({ truckId }: { truckId: string }) {
             <Badge kind="dg" dot>
               Needs the owner
             </Badge>
-          ) : (
+          ) : view.sync === 'waiting' ? (
             <Badge kind="wn" dot>
               Waiting for network
+            </Badge>
+          ) : (
+            <Badge kind="vi" dot>
+              Awaiting approval
             </Badge>
           )}
         </View>

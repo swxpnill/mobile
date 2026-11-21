@@ -1,4 +1,5 @@
 import type { ControlState, MockControls } from '@tonnage/mock-api';
+import { runBackgroundSync } from '../offline/backgroundSync';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import {
@@ -8,6 +9,7 @@ import {
   type FailureKey,
   getMockControls,
   resetDemoData,
+  simulateActivity,
 } from '../api/demo';
 import { useTheme } from '../theme/ThemeProvider';
 import {
@@ -21,6 +23,7 @@ import {
   SegmentedControl,
   Switch,
   Text,
+  showToast,
 } from '../ui';
 import { Sheet } from '../ui/Sheet';
 import { BackHeader } from './admin/parts';
@@ -46,6 +49,8 @@ export function DemoToolsScreen() {
   // A person switch signs this person out: weights not sent yet get the sign-out guard.
   const pending = useSyncStatus(notSent);
   const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
+  const [simulating, setSimulating] = useState(false);
+  const [bgSyncing, setBgSyncing] = useState(false);
 
   const refresh = useCallback((c: MockControls) => {
     setSim((prev) => {
@@ -79,6 +84,27 @@ export function DemoToolsScreen() {
     );
   }
   const c = controls;
+
+  async function simulate() {
+    setSimulating(true);
+    try {
+      showToast(await simulateActivity());
+    } catch (e) {
+      showToast(messageFor(e));
+    } finally {
+      setSimulating(false);
+    }
+  }
+
+  async function backgroundSync() {
+    setBgSyncing(true);
+    try {
+      const r = await runBackgroundSync();
+      showToast(r === 'synced' ? 'Background sync done' : r === 'skipped' ? 'Nothing to sync for this role' : 'Background sync failed; it retries later');
+    } finally {
+      setBgSyncing(false);
+    }
+  }
 
   async function reset() {
     setResetting(true);
@@ -171,6 +197,25 @@ export function DemoToolsScreen() {
       </Group>
       <Text variant="caption" style={styles.hint}>
         Fires once, then turns itself off.
+      </Text>
+
+      <SectionLabel>Notifications</SectionLabel>
+      <Button variant="secondary" loading={simulating} onPress={() => void simulate()}>
+        Simulate someone else’s action
+      </Button>
+      <Text variant="caption" style={styles.hint}>
+        You are never told about your own actions. This has another person do something real that
+        notifies you: a ₹1,000 payment to R.K. Agarwal (owner, city staff) or a truck at your plant
+        (plant head, supervisor). Watch for the phone notification.
+      </Text>
+
+      <SectionLabel>Background sync</SectionLabel>
+      <Button variant="secondary" loading={bgSyncing} onPress={() => void backgroundSync()}>
+        Run background sync now
+      </Button>
+      <Text variant="caption" style={styles.hint}>
+        Expo Go does not run the every-15-minutes background task, so this runs the same sync on
+        demand. It weighs nothing; it sends what is waiting on this phone and pulls new tasks.
       </Text>
 
       <SectionLabel>Data</SectionLabel>

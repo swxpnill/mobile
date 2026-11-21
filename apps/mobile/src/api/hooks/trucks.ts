@@ -79,7 +79,7 @@ function useTruckMutation<V>(run: (v: V) => Promise<Truck>) {
     },
     onError: (e) => {
       // Someone else changed it: fetch the latest so the next try carries its version.
-      if (e instanceof ApiError && (e.code === 'STALE' || e.code === 'TRUCK_LOCKED')) {
+      if (e instanceof ApiError && (e.code === 'STALE' || e.code === 'TRUCK_LOCKED' || e.code === 'NOT_AWAITING_APPROVAL')) {
         void qc.invalidateQueries({ queryKey: TRUCK_KEY });
         void qc.invalidateQueries({ queryKey: DISPATCH_KEY });
       }
@@ -100,6 +100,12 @@ export const useAssignTruck = () =>
 export const useEditTruck = () =>
   useTruckMutation(({ id, body, key }: { id: string; body: EditTruckBody; key: string }) =>
     api(`/v1/trucks/${id}`, { method: 'PATCH', body, idempotencyKey: key, schema: truckSchema }),
+  );
+
+/** TON-57: the office approves a weighed truck; that is the dispatch (slip, earning). Keyed and versioned. */
+export const useApproveTruck = () =>
+  useTruckMutation(({ id, version, key }: { id: string; version: number; key: string }) =>
+    api(`/v1/trucks/${id}/approve`, { method: 'POST', body: { version }, idempotencyKey: key, schema: truckSchema }),
   );
 
 export const useCancelTruck = () =>

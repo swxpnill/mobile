@@ -378,7 +378,7 @@ export function register(factory: TargetFactory): void {
         });
         const open = expectOk(await call(t, 'GET', '/v1/dispatch', { token: owner }), dispatchBoardSchema);
         expect(open.items.map((x) => x.state)).toEqual(['loading', 'at_gate', 'assigned']);
-        expect(open.counts).toEqual({ assigned: 1, at_gate: 1, loading: 1, dispatched_today: 1 });
+        expect(open.counts).toEqual({ assigned: 1, at_gate: 1, loading: 1, weighed: 0, dispatched_today: 1 });
         expect(open.items[2]!.id).toBe(assigned.id);
 
         const today = expectOk(await call(t, 'GET', '/v1/dispatch?state=dispatched_today', { token: owner }), dispatchBoardSchema);
@@ -386,7 +386,7 @@ export function register(factory: TargetFactory): void {
 
         const krm = expectOk(await call(t, 'GET', `/v1/dispatch?companyId=${b.companyId}`, { token: owner }), dispatchBoardSchema);
         expect(krm.items.map((x) => x.vehicleNo)).toEqual(['CG 07 CC 3333']);
-        expect(krm.counts).toEqual({ assigned: 0, at_gate: 1, loading: 0, dispatched_today: 0 });
+        expect(krm.counts).toEqual({ assigned: 0, at_gate: 1, loading: 0, weighed: 0, dispatched_today: 0 });
 
         const q = expectOk(await call(t, 'GET', '/v1/dispatch?q=cg04bb', { token: owner }), dispatchBoardSchema);
         expect(q.items.map((x) => x.vehicleNo)).toEqual(['CG 04 BB 2222']);

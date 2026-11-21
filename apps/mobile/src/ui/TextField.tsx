@@ -1,4 +1,5 @@
 import { type ComponentRef, forwardRef, useState } from 'react';
+import { inputTheme } from './inputTheme';
 import { StyleSheet, TextInput, type TextInputProps, View } from 'react-native';
 import { useTheme } from '../theme/ThemeProvider';
 import { fontFamily } from '../theme/tokens';
@@ -27,7 +28,7 @@ export const TextField = forwardRef<ComponentRef<typeof TextInput>, TextFieldPro
     { label, hideLabel, value, onChangeText, prefix, hint, error, onFocus, onBlur, ...input },
     ref,
   ) {
-    const { t, scale } = useTheme();
+    const { scheme, t, scale } = useTheme();
     const [focused, setFocused] = useState(false);
     const border = error ? t.dgt : focused ? t.br : t.bd2;
     return (
@@ -56,13 +57,13 @@ export const TextField = forwardRef<ComponentRef<typeof TextInput>, TextFieldPro
               </Text>
             ) : null}
             <TextInput
+              {...inputTheme(t, scheme)}
               ref={ref}
               {...input}
               accessibilityLabel={label}
               accessibilityHint={error ?? hint}
               value={value}
               onChangeText={onChangeText}
-              placeholderTextColor={t.tx3}
               onFocus={(e) => {
                 setFocused(true);
                 onFocus?.(e);

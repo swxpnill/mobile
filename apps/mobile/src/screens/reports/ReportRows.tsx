@@ -1,4 +1,5 @@
 import { type UnitBasis, groupIndian, toDisplayQty } from '@tonnage/shared';
+import { useReduceMotion } from '../../a11y/useReduceMotion';
 import { memo } from 'react';
 import { FlatList, Modal, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -77,8 +78,9 @@ export const ListRow = memo(function ListRow({ line }: { line: ListLine }) {
 /** "See all N rows": every row of the report in a virtualised full-screen list. */
 export function AllRowsSheet({ title, lines, onClose }: { title: string; lines: readonly ListLine[]; onClose(): void }) {
   const { t } = useTheme();
+  const reduceMotion = useReduceMotion();
   return (
-    <Modal visible animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
+    <Modal visible animationType={reduceMotion ? 'fade' : 'slide'} onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <SafeAreaView style={[styles.fill, { backgroundColor: t.bg }]} edges={['top', 'bottom']}>
         <View style={styles.head}>
           <IconButton icon="close" label="Close" onPress={onClose} />

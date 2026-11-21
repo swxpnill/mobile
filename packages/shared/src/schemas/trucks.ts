@@ -1,12 +1,10 @@
 import { z } from 'zod';
-import { TRUCK_CANCEL_REASONS } from '../rules/trucks.ts';
+import { MAX_READING_KG, TRUCK_CANCEL_REASONS } from '../rules/trucks.ts';
 import { idSchema, versionSchema } from './common.ts';
 import { lengthSchema, phoneInputSchema } from './masters.ts';
 import { orderedKgSchema, truckStateSchema } from './orders.ts';
 
-/** One weighbridge reading, at most 100 t. */
-/** The heaviest weighbridge reading the app takes, in kg (100 MT). */
-export const MAX_READING_KG = 100_000;
+/** One weighbridge reading, at most `MAX_READING_KG` (100 t). */
 export const weightKgSchema = z.number().int().min(1).max(MAX_READING_KG);
 export type WeightKg = z.infer<typeof weightKgSchema>;
 export const planKgSchema = orderedKgSchema;
@@ -83,6 +81,9 @@ export const weighmentSchema = z.object({
 });
 export type Weighment = z.infer<typeof weighmentSchema>;
 
+export const plantSupervisorSchema = z.object({ id: idSchema, name: z.string(), mobile: z.string(), invited: z.boolean() });
+export type PlantSupervisor = z.infer<typeof plantSupervisorSchema>;
+
 export const truckSchema = z.object({
   id: idSchema,
   subOrderId: idSchema,
@@ -116,17 +117,26 @@ export const truckSchema = z.object({
   assignedBy: refSchema,
   atGateAt: z.string().nullable(),
   tareAt: z.string().nullable(),
+  /** Business time the weights were saved (TON-57: the truck then awaits approval); null before. */
+  weighedAt: z.string().nullable(),
+  /** The office's approval: the dispatch. */
   dispatchedAt: z.string().nullable(),
   cancelledAt: z.string().nullable(),
   cancelReason: z.string().nullable(),
   earningRupees: z.number().int().optional(),
   weighments: z.array(weighmentSchema),
   warnings: z.array(z.enum(['VEHICLE_BUSY', 'OVER_ASSIGNABLE'])).optional(),
+  /**
+   * TON-57: the active supervisors of the truck's plant, by name, so the office can call or
+   * message them. `invited` = never signed in. On the truck detail only (not on the board).
+   */
+  supervisors: z.array(plantSupervisorSchema),
   version: versionSchema,
 });
 export type Truck = z.infer<typeof truckSchema>;
 
-export const DISPATCH_STATES = ['open', 'assigned', 'at_gate', 'loading', 'dispatched_today'] as const;
+/** `weighed` = "To approve" (TON-57). `open` lists every open truck, weighed first. */
+export const DISPATCH_STATES = ['open', 'assigned', 'at_gate', 'loading', 'weighed', 'dispatched_today'] as const;
 export const dispatchQuerySchema = z.object({
   companyId: idSchema.optional(),
   state: z.enum(DISPATCH_STATES).default('open'),
@@ -147,9 +157,10 @@ export const dispatchBoardSchema = z.object({
     assigned: z.number().int(),
     at_gate: z.number().int(),
     loading: z.number().int(),
+    weighed: z.number().int(),
     dispatched_today: z.number().int(),
   }),
-  items: z.array(truckSchema.omit({ weighments: true })),
+  items: z.array(truckSchema.omit({ weighments: true, supervisors: true })),
 });
 export type DispatchBoard = z.infer<typeof dispatchBoardSchema>;
 
@@ -168,6 +179,13 @@ export const taskSchema = z.object({
   tareAt: z.string().nullable(),
   tareDeviceId: z.string().nullable(),
   plan: z.array(z.object({ orderLineId: idSchema, productName: z.string(), plannedKg: z.number().int() })),
+  /**
+   * Every line of the truck's sub-order (TON-57 "Add product"): a supervisor may weigh a line that
+   * is not on the plan. Defaults to none so tasks stored on a phone before it still parse.
+   */
+  lines: z
+    .array(z.object({ orderLineId: idSchema, productName: z.string(), pendingKg: z.number().int() }))
+    .default([]),
   version: versionSchema,
   changedAt: z.string(),
 });
@@ -191,6 +209,10 @@ export const tasksPageSchema = z.object({
 });
 export type TasksPage = z.infer<typeof tasksPageSchema>;
 
+/**
+ * Trucks this plant weighed today (IST, by `weighedAt`). TON-57: each awaits the office's approval
+ * until it is dispatched; slip and dispatch time come with the approval.
+ */
 export const doneTodaySchema = z.object({
   items: z.array(
     z.object({
@@ -199,8 +221,10 @@ export const doneTodaySchema = z.object({
       customerName: z.string().nullable(),
       subOrderNumber: z.string(),
       netKg: z.number().int(),
-      loadingSlipNo: z.string(),
-      dispatchedAt: z.string(),
+      status: z.enum(['awaiting_approval', 'dispatched']),
+      weighedAt: z.string(),
+      loadingSlipNo: z.string().nullable(),
+      dispatchedAt: z.string().nullable(),
     }),
   ),
   totalNetKg: z.number().int(),
@@ -231,6 +255,10 @@ export type SyncBody = z.infer<typeof syncBodySchema>;
 export const SYNC_REJECT_CODES = [
   'PLANT_SCOPE', 'TARE_CONFLICT', 'TRUCK_CANCELLED', 'INVALID_WEIGHT', 'ALLOC_MISMATCH',
   'LINE_REMOVED', 'TARE_REQUIRED', 'ALREADY_DISPATCHED', 'INVALID_STATE',
+  // TON-57: the truck must be marked arrived (`AT_GATE`) before its tare.
+  'ARRIVAL_REQUIRED',
+  // TON-57 revised: weights already saved; the office approves or changes them, not the phone.
+  'ALREADY_WEIGHED',
 ] as const;
 export const syncRejectCodeSchema = z.enum(SYNC_REJECT_CODES);
 export type SyncRejectCode = z.infer<typeof syncRejectCodeSchema>;
@@ -300,6 +328,11 @@ export type RestoreRejectionResult = z.infer<typeof restoreRejectionResultSchema
 export const dismissRejectionBodySchema = z.object({ reason: z.string().trim().min(3).max(200) }).strict();
 export type DismissRejectionBody = z.infer<typeof dismissRejectionBodySchema>;
 
+/** `POST /v1/trucks/:id/approve` (TON-57): the office approves a weighed truck; that is the dispatch. */
+export const approveTruckBodySchema = z.object({ version: versionSchema }).strict();
+export type ApproveTruckBody = z.infer<typeof approveTruckBodySchema>;
+
+/** Changes a weighed (awaiting approval) or dispatched truck's weights (owner, city staff). */
 export const correctWeightBodySchema = z
   .object({
     tareKg: weightKgSchema,

@@ -134,8 +134,13 @@ function Detail({ o, refetch, refreshing }: { o: Order; refetch(): void; refresh
     o.type === 'broker_only' ? `Broker order · ${o.broker?.name ?? ''}` : o.broker ? `Via ${o.broker.name}` : 'Direct order';
   const shipTo = o.shipTo ? ` · Ship to ${o.shipTo.label}, ${o.shipTo.address}` : '';
   // Canvas "3 + 1 loading"; "open" when some of them are not loading yet.
-  const openWord = openTrucks.every((x) => x.state === 'loading') ? 'loading' : 'open';
-  const trucksText = `${dispatchedTrucks}${openTrucks.length > 0 ? ` + ${openTrucks.length} ${openWord}` : ''}`;
+  // TON-57: trucks awaiting the office's approval are counted on their own.
+  const toApprove = openTrucks.filter((x) => x.state === 'weighed').length;
+  const atPlant = openTrucks.filter((x) => x.state !== 'weighed');
+  const openWord = atPlant.every((x) => x.state === 'loading') ? 'loading' : 'open';
+  const trucksText =
+    `${dispatchedTrucks}${atPlant.length > 0 ? ` + ${atPlant.length} ${openWord}` : ''}` +
+    (toApprove > 0 ? ` · ${toApprove} to approve` : '');
 
   return (
     <Screen

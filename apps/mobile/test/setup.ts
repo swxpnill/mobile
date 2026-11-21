@@ -31,3 +31,28 @@ jest.mock('expo-local-authentication', () => ({
   isEnrolledAsync: jest.fn(async () => true),
   authenticateAsync: jest.fn(async () => ({ success: true })),
 }));
+
+// F5: notifications and background tasks are native; tests drive these fakes (jest.clearAllMocks in beforeEach).
+jest.mock('expo-notifications', () => ({
+  scheduleNotificationAsync: jest.fn(async () => 'local-id'),
+  dismissNotificationAsync: jest.fn(async () => undefined),
+  setNotificationHandler: jest.fn(),
+  addNotificationResponseReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+  getLastNotificationResponseAsync: jest.fn(async () => null),
+  clearLastNotificationResponseAsync: jest.fn(async () => undefined),
+  getPermissionsAsync: jest.fn(async () => ({ status: 'undetermined', granted: false, canAskAgain: true })),
+  requestPermissionsAsync: jest.fn(async () => ({ status: 'granted', granted: true, canAskAgain: true })),
+}));
+jest.mock('expo-background-task', () => ({
+  BackgroundTaskStatus: { Restricted: 1, Available: 2 },
+  BackgroundTaskResult: { Success: 1, Failed: 2 },
+  getStatusAsync: jest.fn(async () => 2),
+  registerTaskAsync: jest.fn(async () => undefined),
+  unregisterTaskAsync: jest.fn(async () => undefined),
+  triggerTaskWorkerForTestingAsync: jest.fn(async () => true),
+}));
+jest.mock('expo-task-manager', () => ({
+  defineTask: jest.fn(),
+  isTaskRegisteredAsync: jest.fn(async () => false),
+  isTaskDefined: jest.fn(() => true),
+}));

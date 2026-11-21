@@ -40,6 +40,7 @@ const MESSAGES: Record<ErrorCode, string> = {
   CUSTOMER_REQUIRED: 'Add a customer to this order before assigning a vehicle',
   TRUCK_LOCKED: 'This vehicle can no longer be changed',
   TRUCK_CANCELLED: 'This vehicle was cancelled',
+  ARRIVAL_REQUIRED: 'Mark the vehicle arrived before its tare',
   ALREADY_RESOLVED: 'This was already resolved',
   PLANT_SCOPE: 'This vehicle is not at your plant',
   TARE_CONFLICT: 'Another tare weight was already recorded for this vehicle',
@@ -51,6 +52,8 @@ const MESSAGES: Record<ErrorCode, string> = {
   INVALID_STATE: 'This vehicle is not in the right step for that',
   NOT_REVERSIBLE: 'Only a payment can be reversed',
   ALREADY_REVERSED: 'This payment was already reversed',
+  ALREADY_WEIGHED: 'This vehicle is already weighed and waiting for approval',
+  NOT_AWAITING_APPROVAL: 'This vehicle is not waiting for approval',
 };
 
 /** The user-facing message for an error code (also used for sync rejections, which are not thrown). */

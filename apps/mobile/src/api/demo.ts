@@ -1,5 +1,6 @@
 import type { MockControls } from '@tonnage/mock-api';
-import { SAMPLE_WORLD } from '@tonnage/shared';
+import { SAMPLE_MASTERS, SAMPLE_WORLD, istDateOf, meSchema, orderListSchema, orderSchema, plantSchema } from '@tonnage/shared';
+import { z } from 'zod';
 import { useSession } from '../auth/session';
 import { clearAllDeviceStores } from '../offline/sqliteDeviceStore';
 import { API_MODE, getMockApi } from './transport';
@@ -104,3 +105,76 @@ export function armedKey(c: MockControls): FailureKey {
   if (f.code === 'FORBIDDEN') return 'forbidden';
   return 'internal';
 }
+
+/** The pretend phone other people act from in `simulateActivity` (never this phone). */
+export const DEMO_ACTOR_DEVICE = 'demo-actor-phone';
+
+/**
+ * Demo: someone else does something that notifies the person signed in here, so a push shows on
+ * this phone (you are never told about your own actions). Money roles: another money person
+ * records a ₹1,000 cash payment to R.K. Agarwal. Plant roles: the owner assigns a truck at their
+ * plant (supervisors also sync). Real business writes, through the normal API rules.
+ * Resolves with what happened, in one line.
+ */
+export async function simulateActivity(): Promise<string> {
+  const c = await controls();
+  const mock = await getMockApi();
+  const me = meSchema.parse(
+    (await mock.transport.request({ method: 'GET', path: '/v1/me', headers: auth(useSession.getState().accessToken) })).body,
+  );
+  const U = SAMPLE_WORLD.ids.users;
+  const money = me.role === 'owner' || me.role === 'city_staff';
+  const actorId = money ? ([U.priya, U.amit, U.rajesh].find((id) => id !== me.id) ?? U.priya) : U.rajesh;
+  const actor = SAMPLE_WORLD.users.find((u) => u.id === actorId)!;
+  const pair = await c.signInAs(actorId, DEMO_ACTOR_DEVICE);
+  let n = 0;
+  const call = (method: 'GET' | 'POST', path: string, body?: unknown) =>
+    mock.transport.request({
+      method,
+      path,
+      body,
+      headers: { ...auth(pair.accessToken), 'idempotency-key': `demo-${Date.now()}-${++n}` },
+    });
+  try {
+    const first = actor.name.split(' ')[0];
+    if (money) {
+      const res = await call('POST', `/v1/brokers/${SAMPLE_MASTERS.ids.parties.rkAgarwal}/payments`, {
+        paidRupees: 1_000,
+        tdsRupees: 0,
+        mode: 'cash',
+        utr: null,
+        paidOn: istDateOf(Date.now()),
+      });
+      if (res.status !== 201) throw new Error(`payment refused (${res.status})`);
+      return `${first} recorded ₹1,000 cash to R.K. Agarwal.`;
+    }
+    const plantId = me.plantIds[0];
+    const plants = z.array(plantSchema).parse((await call('GET', '/v1/plants')).body);
+    const plant = plants.find((p) => p.id === plantId);
+    if (!plant) return 'You have no plant to send a truck to.';
+    const list = orderListSchema.parse((await call('GET', '/v1/orders?status=all&limit=50')).body);
+    for (const summary of list.items) {
+      const o = orderSchema.parse((await call('GET', `/v1/orders/${summary.id}`)).body);
+      const sub = o.subOrders.find((s) => s.companyId === plant.companyId && (s.status === 'open' || s.status === 'partly_dispatched'));
+      const line = sub?.lines.find((l) => l.pendingKg > 0);
+      if (!sub || !line) continue;
+      const vehicleNo = `CG 04 DM ${String(1000 + Math.floor(Math.random() * 9000))}`;
+      const res = await call('POST', `/v1/sub-orders/${sub.id}/trucks`, {
+        plantId: plant.id,
+        vehicleNo,
+        transporterId: null,
+        driverName: 'Demo Driver',
+        driverPhone: '98261 00099',
+        lrNo: null,
+        plan: [{ orderLineId: line.id, plannedKg: Math.min(line.pendingKg, 10_000) }],
+      });
+      if (res.status !== 201) throw new Error(`assign refused (${res.status})`);
+      return `${first} assigned ${vehicleNo} at ${plant.name}.`;
+    }
+    return `No open order at ${plant.name} to load.`;
+  } finally {
+    await c.revokeRefreshToken(pair.refreshToken);
+  }
+}
+
+const auth = (token: string | undefined): Record<string, string> => (token ? { authorization: `Bearer ${token}` } : {});

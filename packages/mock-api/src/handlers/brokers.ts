@@ -15,6 +15,7 @@ import {
   reverseEntryBodySchema,
   statementTotals,
 } from '@tonnage/shared';
+import { notifyPayment } from '../notifications.ts';
 import { toIso } from '../clock.ts';
 import { ApiError, notFound, validationError } from '../errors.ts';
 import { brokerSummary, entryDateOf, ledgerRows, toLedgerEntry } from '../ledger-views.ts';
@@ -222,6 +223,13 @@ export const brokerRoutes: RouteDef[] = [
         entry: toLedgerEntry(state, rec),
         dueRupees: brokerDue(ledgerRows(state, broker.id)),
       };
+      notifyPayment(state, a, now, {
+        brokerId: broker.id,
+        brokerName: broker.name,
+        paidRupees: body.paidRupees,
+        dueRupees: result.dueRupees,
+        mode: body.mode,
+      });
       return { status: 201, body: result };
     },
   }),

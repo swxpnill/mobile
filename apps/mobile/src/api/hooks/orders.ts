@@ -76,12 +76,14 @@ export function useOrders(filters: OrderFilters = {}) {
   });
 }
 
+/** One order's detail query (shared by `useOrder` and lists that expand orders into sub-orders). */
+export const orderQuery = (id: string) => ({
+  queryKey: orderKey(id),
+  queryFn: () => api(`/v1/orders/${id}`, { schema: orderSchema }),
+});
+
 export function useOrder(id: string | undefined) {
-  return useQuery({
-    queryKey: orderKey(id ?? ''),
-    enabled: useSignedIn() && id !== undefined,
-    queryFn: () => api(`/v1/orders/${id}`, { schema: orderSchema }),
-  });
+  return useQuery({ ...orderQuery(id ?? ''), enabled: useSignedIn() && id !== undefined });
 }
 
 export function useOrderActivity(id: string, enabled = true) {

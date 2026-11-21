@@ -45,6 +45,18 @@ export function useDeviceSnapshot(): DeviceSnapshot | null {
 
 const UNSENT: OutboxRow['status'][] = ['pending', 'sending'];
 
+type DoneItem = NonNullable<DeviceSnapshot['doneToday']>['items'][number];
+
+/**
+ * When the truck was weighed. A done-today list stored on the phone before TON-57's approval step
+ * has no `weighedAt`; its trucks were weighed when they were dispatched.
+ */
+const weighedAtOf = (i: DoneItem): string => (i as Partial<DoneItem>).weighedAt ?? i.dispatchedAt ?? '';
+
+/** Dispatched by the office. A list stored before TON-57 has no status: a slip meant dispatched. */
+export const isApproved = (i: DoneItem): boolean =>
+  ((i as Partial<DoneItem>).status ?? (i.loadingSlipNo ? 'dispatched' : 'awaiting_approval')) === 'dispatched';
+
 const netOf = (row: OutboxRow) =>
   (row.payload.allocations ?? []).reduce((sum, a) => sum + a.netKg, 0);
 
@@ -59,6 +71,8 @@ export interface DoneRow {
   at: string;
   slipNo: string | null;
   synced: boolean;
+  /** TON-57: the office approved it (dispatched); false while it awaits approval or sync. */
+  approved: boolean;
 }
 
 /**
@@ -79,9 +93,10 @@ export function doneRows(snap: DeviceSnapshot): {
     subOrderNumber: i.subOrderNumber,
     productName: null,
     netKg: i.netKg,
-    at: i.dispatchedAt,
+    at: weighedAtOf(i),
     slipNo: i.loadingSlipNo,
     synced: true,
+    approved: isApproved(i),
   }));
   let waiting = 0;
   for (const r of snap.outbox) {
@@ -99,6 +114,7 @@ export function doneRows(snap: DeviceSnapshot): {
       at: r.capturedAtDevice,
       slipNo: null,
       synced: false,
+      approved: false,
     });
   }
   rows.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
@@ -114,6 +130,8 @@ export interface DispatchedView {
   slipNo: string | null;
   /** waiting: saved on this phone, not sent; synced: the server took it; rejected: the owner decides. */
   sync: 'waiting' | 'synced' | 'rejected';
+  /** TON-57: the office approved the weights; that is the dispatch (and the loading slip). */
+  approved: boolean;
 }
 
 /** One dispatched truck (canvas 13), from the server's done today or this phone's gross weight. */
@@ -125,9 +143,10 @@ export function dispatchedView(snap: DeviceSnapshot, truckId: string): Dispatche
       customerName: item.customerName,
       subOrderNumber: item.subOrderNumber,
       netKg: item.netKg,
-      at: item.dispatchedAt,
+      at: item.dispatchedAt ?? weighedAtOf(item),
       slipNo: item.loadingSlipNo,
       sync: 'synced',
+      approved: isApproved(item),
     };
   }
   // A resolved row is the owner's call made on the server: it says nothing about this phone.
@@ -144,5 +163,6 @@ export function dispatchedView(snap: DeviceSnapshot, truckId: string): Dispatche
     at: row.capturedAtDevice,
     slipNo: null,
     sync: row.status === 'rejected' || row.status === 'blocked' ? 'rejected' : 'waiting',
+    approved: false,
   };
 }

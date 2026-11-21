@@ -4,8 +4,8 @@ export const ACTIONS = [
   'order.create', 'order.edit', 'order.duplicate', 'order.shortClose', 'order.reopen',
   'order.editDispatched', 'order.hardDelete', 'order.view',
   'truck.assign', 'truck.edit', 'truck.cancel',
-  'weighment.capture', 'weighment.correctAfterDispatch', 'rejections.manage',
-  'dispatch.view', 'tasks.view', 'masters.manage', 'import.run', 'broker.pay',
+  'weighment.capture', 'weighment.correct', 'rejections.manage',
+  'dispatch.view', 'dispatch.approve', 'tasks.view', 'masters.manage', 'import.run', 'broker.pay',
   'reports.view', 'reports.doneToday', 'money.view',
   'users.manage', 'companies.manage', 'settings.manage', 'self.view',
 ] as const;
@@ -15,7 +15,7 @@ const ALLOWED: Record<Role, ReadonlySet<Action>> = {
   owner: new Set<Action>(ACTIONS),
   city_staff: new Set<Action>([
     'order.create', 'order.edit', 'order.duplicate', 'order.shortClose', 'order.view',
-    'truck.assign', 'truck.edit', 'truck.cancel', 'dispatch.view', 'masters.manage',
+    'truck.assign', 'truck.edit', 'truck.cancel', 'dispatch.view', 'dispatch.approve', 'weighment.correct', 'masters.manage',
     'import.run', 'broker.pay', 'reports.view', 'money.view', 'self.view',
   ]),
   plant_head: new Set<Action>(['order.view', 'dispatch.view', 'self.view']),

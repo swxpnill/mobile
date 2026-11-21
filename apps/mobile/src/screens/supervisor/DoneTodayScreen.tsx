@@ -9,7 +9,10 @@ import { useTheme } from '../../theme/ThemeProvider';
 import { EmptyState, Group, Icon, Row, Screen, Text } from '../../ui';
 import { usePlantTitle } from './usePlantTitle';
 
-/** Canvas 35: trucks dispatched today at this plant, from the device store, with the total net. */
+/**
+ * Canvas 35: trucks weighed today at this plant, from the device store, with the total net. TON-57:
+ * each one awaits the office's approval until it is dispatched.
+ */
 export function DoneTodayScreen() {
   const { t } = useTheme();
   const basis = useDisplayBasis();
@@ -47,9 +50,9 @@ export function DoneTodayScreen() {
             <View
               style={styles.total}
               accessible
-              accessibilityLabel={`Trucks dispatched, ${done.rows.length}`}
+              accessibilityLabel={`Trucks weighed, ${done.rows.length}`}
             >
-              <Text variant="caption">Trucks dispatched</Text>
+              <Text variant="caption">Trucks weighed</Text>
               <Text numeric weight="semibold" color="brt" style={styles.big}>
                 {String(done.rows.length)}
               </Text>
@@ -86,13 +89,14 @@ export function DoneTodayScreen() {
           {done.rows.length === 0 ? (
             <EmptyState
               icon="check"
-              title="Nothing dispatched yet"
-              body="Trucks you weigh and dispatch today show here."
+              title="Nothing weighed yet"
+              body="Trucks you weigh today show here."
             />
           ) : (
             <Group>
               {done.rows.map((r) => {
-                const detail = [r.customerName, r.productName ?? r.subOrderNumber]
+                const status = r.approved ? 'Dispatched' : r.synced ? 'Awaiting approval' : null;
+                const detail = [r.customerName, r.productName ?? r.subOrderNumber, status]
                   .filter(Boolean)
                   .join(' · ');
                 const net = toDisplayQty(r.netKg, basis);

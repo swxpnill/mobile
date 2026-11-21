@@ -9,6 +9,7 @@ import {
   orderListQuerySchema,
   subOrderSuffix,
 } from '@tonnage/shared';
+import { notifyOrderCreated } from '../notifications.ts';
 import { toIso } from '../clock.ts';
 import { ApiError, type IssueDetail, validationError } from '../errors.ts';
 import { type OrderCtx, findOrder, orderCtx, toOrder, toSummary, visibleSubOrders } from '../order-views.ts';
@@ -219,6 +220,7 @@ export const orderRoutes: RouteDef[] = [
         action: 'order.created',
         meta: { number: order.number },
       });
+      notifyOrderCreated(state, a, now, order);
       return { status: 201, body: toOrder(orderCtx(state, orderMath(state), a, now), order) };
     },
   }),

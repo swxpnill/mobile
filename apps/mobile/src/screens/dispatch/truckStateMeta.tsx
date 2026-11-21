@@ -1,19 +1,45 @@
-import { type Task, type Truck, type TruckState, formatLength, formatMobile } from '@tonnage/shared';
+import { type Task, type Truck, type TruckState, formatLength, formatMobile, isOpenTruckState } from '@tonnage/shared';
 import type { BadgeKind } from '../../ui';
 
-/** Status words (plan): Assigned, At gate, Loading, Dispatched, Cancelled. */
-export const TRUCK_STATE_META: Record<TruckState, { label: string; kind: BadgeKind; step: number }> = {
-  assigned: { label: 'Assigned', kind: 'vi', step: 1 },
-  at_gate: { label: 'At gate', kind: 'br', step: 1 },
-  loading: { label: 'Loading', kind: 'wn', step: 2 },
-  dispatched: { label: 'Dispatched', kind: 'ok', step: 4 },
-  cancelled: { label: 'Cancelled', kind: 'nu', step: 0 },
+/**
+ * Status words (TON-57): Assigned, Arrived (`at_gate`; the sync event keeps its name), Loading,
+ * Awaiting approval (weights saved, the office approves), Dispatched, Cancelled.
+ */
+export const TRUCK_STATE_META: Record<TruckState, { label: string; kind: BadgeKind }> = {
+  assigned: { label: 'Assigned', kind: 'vi' },
+  at_gate: { label: 'Arrived', kind: 'br' },
+  loading: { label: 'Loading', kind: 'wn' },
+  // Never shown as dispatched before the office approves.
+  weighed: { label: 'Awaiting approval', kind: 'wn' },
+  dispatched: { label: 'Dispatched', kind: 'ok' },
+  cancelled: { label: 'Cancelled', kind: 'nu' },
 };
 
-/** Truck progress; there is no separate "gross weighed" step: gross is the dispatch. */
-export const TRUCK_STEPS = ['Assigned', 'Tare', 'Gross', 'Dispatched'] as const;
+/** Truck progress (TON-57): five steps, the same on the board card and the truck detail. */
+export const TRUCK_STEPS = ['Assigned', 'Arrived', 'Tare weighed', 'Weighed', 'Dispatched'] as const;
 
-export const isOpenState = (s: TruckState) => s === 'assigned' || s === 'at_gate' || s === 'loading';
+/**
+ * How many steps of `TRUCK_STEPS` the truck has done (1–5). A cancelled truck shows how far it
+ * got before it was cancelled.
+ */
+export function stepIndex(x: { state: TruckState; tareKg: number | null; atGateAt: string | null }): number {
+  switch (x.state) {
+    case 'assigned':
+      return 1;
+    case 'at_gate':
+      return 2;
+    case 'loading':
+      return 3;
+    case 'weighed':
+      return 4;
+    case 'dispatched':
+      return 5;
+    case 'cancelled':
+      return x.tareKg !== null ? 3 : x.atGateAt !== null ? 2 : 1;
+  }
+}
+
+export const isOpenState = (s: TruckState) => isOpenTruckState(s);
 
 /** "98271 44012" from "+919827144012", for a phone field the person can edit. */
 export function phoneForInput(normalized: string): string {
@@ -47,6 +73,8 @@ export function truckToTask(t: Truck): Task {
     tareAt: t.tareKg === null ? null : t.tareAt,
     tareDeviceId: null,
     plan: t.plan.map((p) => ({ orderLineId: p.orderLineId, productName: planLabel(p), plannedKg: p.plannedKg })),
+    // The truck does not carry its sub-order's other lines; TON-57 Task 4 fills these from the order.
+    lines: [],
     version: t.version,
     changedAt: t.tareAt ?? t.atGateAt ?? t.assignedAt,
   };

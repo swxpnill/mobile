@@ -26,7 +26,7 @@ export function TabBar({
       accessibilityRole="tablist"
       style={[
         styles.bar,
-        { backgroundColor: t.card, borderTopColor: t.bd, paddingBottom: 14 + insets.bottom },
+        { backgroundColor: t.tabBar, borderTopColor: t.bd, paddingBottom: 14 + insets.bottom },
       ]}
     >
       {tabs.map((key) => {

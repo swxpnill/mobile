@@ -11,10 +11,10 @@ import { truckLine } from './ShortCloseSheet';
 export const assignHref = (o: Order, s: SubOrder) =>
   ({ pathname: '/assign/[subOrderId]', params: { subOrderId: s.id, orderId: o.id } }) as const;
 
-/** "1 loading · 1 at gate · 1 assigned" for a sub-order's open trucks; null when it has none. */
+/** "1 awaiting approval · 1 loading · 1 arrived · 1 assigned" for a sub-order's open trucks; null when it has none. */
 export function truckSummary(s: SubOrder): string | null {
-  const n = (state: 'loading' | 'at_gate' | 'assigned') => s.openTrucks.filter((x) => x.state === state).length;
-  const parts = (['loading', 'at_gate', 'assigned'] as const)
+  const n = (state: 'weighed' | 'loading' | 'at_gate' | 'assigned') => s.openTrucks.filter((x) => x.state === state).length;
+  const parts = (['weighed', 'loading', 'at_gate', 'assigned'] as const)
     .filter((st) => n(st) > 0)
     .map((st) => `${n(st)} ${TRUCK_STATE_META[st].label.toLowerCase()}`);
   if (s.dispatchedTrucks > 0) parts.push(`${s.dispatchedTrucks} dispatched`);

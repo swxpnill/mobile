@@ -1,4 +1,5 @@
 import { type ComponentRef, useRef, useState } from 'react';
+import { inputTheme } from './inputTheme';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { useTheme } from '../theme/ThemeProvider';
 import { Text } from './Text';
@@ -31,7 +32,7 @@ export function OtpInput({
   invalid,
   editable = true,
 }: OtpInputProps) {
-  const { t } = useTheme();
+  const { scheme, t } = useTheme();
   const ref = useRef<ComponentRef<typeof TextInput>>(null);
   const [focused, setFocused] = useState(Boolean(autoFocus));
   const active = Math.min(value.length, length - 1);
@@ -62,6 +63,7 @@ export function OtpInput({
         );
       })}
       <TextInput
+        {...inputTheme(t, scheme)}
         ref={ref}
         accessibilityLabel="One-time code"
         value={value}

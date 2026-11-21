@@ -11,8 +11,7 @@ import {
   plausibility,
   splitProRata,
   toleranceCloseKg,
-  truckEarning,
-} from './trucks.ts';
+  truckEarning, grossFromLines, lineDiff, checkLineWeights } from './trucks.ts';
 
 describe('truckEarning', () => {
   it('canvas earning: 24.180 MT × (₹150 + ₹300) = ₹10,881', () => {
@@ -103,6 +102,16 @@ describe('splitProRata', () => {
 });
 
 describe('nextTruckState', () => {
+  it('TON-57 revised: gross sends the truck for approval; approval dispatches', () => {
+    expect(nextTruckState('loading', 'gross')).toBe('weighed');
+    expect(nextTruckState('weighed', 'approve')).toBe('dispatched');
+    expect(nextTruckState('weighed', 'cancel')).toBe('cancelled');
+    for (const e of ['at_gate', 'tare', 'gross'] as const) expect(nextTruckState('weighed', e)).toBeNull();
+    for (const s of ['assigned', 'at_gate', 'loading', 'dispatched', 'cancelled'] as const) {
+      expect(nextTruckState(s, 'approve')).toBeNull();
+    }
+  });
+
   it('gross only from loading; at gate optional; cancel from any open state', () => {
     expect(nextTruckState('assigned', 'tare')).toBe('loading');
     expect(nextTruckState('assigned', 'gross')).toBeNull();
@@ -110,7 +119,6 @@ describe('nextTruckState', () => {
     expect(nextTruckState('assigned', 'at_gate')).toBe('at_gate');
     expect(nextTruckState('at_gate', 'tare')).toBe('loading');
     expect(nextTruckState('loading', 'tare')).toBe('loading');
-    expect(nextTruckState('loading', 'gross')).toBe('dispatched');
     expect(nextTruckState('at_gate', 'gross')).toBeNull();
     expect(nextTruckState('loading', 'at_gate')).toBeNull();
     expect(nextTruckState('loading', 'cancel')).toBe('cancelled');
@@ -178,5 +186,35 @@ describe('constants', () => {
   it('are fixed', () => {
     expect(CLOCK_SKEW_FLAG_MS).toBe(300_000);
     expect(TRUCK_CANCEL_REASONS).toEqual(['Vehicle did not arrive', 'Order short closed', 'Wrong vehicle', 'Other']);
+  });
+});
+
+describe('grossFromLines and lineDiff (TON-57)', () => {
+  it('gross is tare plus every line weight', () => {
+    expect(grossFromLines(12_460, [24_000, 180])).toBe(36_640);
+    expect(grossFromLines(12_460, [])).toBe(12_460);
+  });
+
+  it('a line over, under or on its plan', () => {
+    expect(lineDiff(24_180, 24_000)).toEqual({ kind: 'over', kg: 180 });
+    expect(lineDiff(23_500, 24_000)).toEqual({ kind: 'under', kg: 500 });
+    expect(lineDiff(24_000, 24_000)).toEqual({ kind: 'exact', kg: 0 });
+  });
+});
+
+describe('checkLineWeights (TON-57: one weight per product, gross calculated)', () => {
+  it('gross is tare + every line; 0-kg lines stay in nets', () => {
+    expect(checkLineWeights(12_460, [24_180, 0])).toEqual({ ok: true, grossKg: 36_640, nets: [24_180, 0] });
+  });
+  it('a blank line wins over everything else', () => {
+    expect(checkLineWeights(12_460, [null, 0])).toEqual({ ok: false, reason: 'LINE_BLANK' });
+  });
+  it('every line 0 is nothing weighed', () => {
+    expect(checkLineWeights(12_460, [0, 0])).toEqual({ ok: false, reason: 'NOTHING_WEIGHED' });
+    expect(checkLineWeights(12_460, [])).toEqual({ ok: false, reason: 'NOTHING_WEIGHED' });
+  });
+  it('the calculated gross is a weighbridge reading: at most 100 MT', () => {
+    expect(checkLineWeights(12_000, [88_000]).ok).toBe(true);
+    expect(checkLineWeights(12_000, [88_001])).toEqual({ ok: false, reason: 'READING_TOO_HIGH' });
   });
 });

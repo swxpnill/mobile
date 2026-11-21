@@ -44,7 +44,7 @@ describe('seed', () => {
     });
   });
 
-  it('demo order 0141: 72.400 MT dispatched of 120.000, one truck loading with its tare', () => {
+  it('demo order 0141: 72.400 MT dispatched of 120.000, one truck loading with its tare, one awaiting approval', () => {
     const s = demoState();
     const m = orderMath(s);
     const o = s.orders.find((x) => x.number === 'SO-2611-0141')!;
@@ -52,6 +52,8 @@ describe('seed', () => {
     expect(m.subOrderTotals(sub)).toMatchObject({ orderedKg: 120_000, dispatchedKg: 72_400, pendingKg: 47_600 });
     expect(m.openTrucksOf(sub.id)).toEqual([
       expect.objectContaining({ vehicleNo: 'CG 07 BR 8810', state: 'loading', tareKg: 12_460 }),
+      // TON-57: weighed, not dispatched: its 11.040 MT is not in the 72.400 until the office approves.
+      expect.objectContaining({ vehicleNo: 'CG 04 LT 6619', state: 'weighed', tareKg: 11_780 }),
     ]);
   });
 
@@ -117,6 +119,6 @@ describe('createMockApi seedOrders and snapshots', () => {
     await expect(
       api.controls.addTruck({ subOrderId: SAMPLE_MASTERS.ids.products.tmt12, state: 'assigned', vehicleNo: 'X', plan: [] }),
     ).rejects.toThrow(/sub-order/i);
-    expect((await api.controls.stats()).trucks).toBe(11);
+    expect((await api.controls.stats()).trucks).toBe(12);
   });
 });

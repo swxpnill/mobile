@@ -13,6 +13,7 @@ import {
   subOrderSuffix,
   updateOrderBodySchema,
 } from '@tonnage/shared';
+import { notifyShortClosed, purgeOrderNotifications, queueSync } from '../notifications.ts';
 import { toIso } from '../clock.ts';
 import { ApiError, notFound, stale, validationError } from '../errors.ts';
 import { type OrderCtx, ctxFor, findOrder, toOrder } from '../order-views.ts';
@@ -230,6 +231,7 @@ export const orderLifecycleRoutes: RouteDef[] = [
       if (open.length > 0 && !body.cancelOpenTrucks) throw new ApiError(409, 'OPEN_TRUCKS', { trucks: open });
 
       const at = toIso(now);
+      const cancelledPlants = [...new Set(state.trucks.filter((t) => open.some((o) => o.id === t.id)).map((t) => t.plantId))];
       const cancelled = cancelTrucks(c.math, sub, at, a.user.id, 'Order short closed');
       // Pending after the cancellations (reserved no longer matters; dispatched is unchanged).
       const lines = c.math.linesOf(sub.id);
@@ -258,6 +260,7 @@ export const orderLifecycleRoutes: RouteDef[] = [
         action: dispatched === 0 ? 'order.sub_cancelled' : 'order.short_closed',
         meta: { subOrderId: sub.id, suffix: sub.suffix, reason: body.reason, trucksCancelled: cancelled },
       });
+      notifyShortClosed(state, a, now, sub, lines.reduce((s, l) => s + l.closedKg, 0), cancelledPlants);
       return { body: toOrder(ctxFor(ctx, a), order) };
     },
   }),
@@ -399,6 +402,8 @@ export const orderLifecycleRoutes: RouteDef[] = [
       for (const t of purged) {
         state.truckTombstones.push({ truckId: t.id, tenantId: t.tenantId, plantId: t.plantId, removedAt, reason: 'deleted' });
       }
+      purgeOrderNotifications(state, order.id);
+      queueSync(state, order.tenantId, [...new Set(purged.map((t) => t.plantId))], null);
       state.weighments = state.weighments.filter((w) => !truckIds.has(w.truckId));
       state.rejections = state.rejections.filter((r) => !truckIds.has(r.truckId));
       state.brokerLedger = state.brokerLedger.filter((r) => r.truckId === null || !truckIds.has(r.truckId));

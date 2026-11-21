@@ -37,7 +37,7 @@ export function ToastHost() {
       <View
         testID="toast"
         accessibilityLiveRegion="polite"
-        style={[styles.toast, { backgroundColor: t.tx }]}
+        style={[styles.toast, { backgroundColor: t.tx, shadowColor: t.shadow }]}
       >
         <Text weight="medium" style={{ color: t.bg }}>
           {message}
@@ -54,7 +54,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
     maxWidth: 480,
-    shadowColor: '#000',
     shadowOpacity: 0.18,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },

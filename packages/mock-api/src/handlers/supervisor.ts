@@ -6,10 +6,11 @@ import {
   type TasksPage,
   syncBodySchema,
 } from '@tonnage/shared';
+import { notifyRejection } from '../notifications.ts';
 import { z } from 'zod';
 import { DAY, fromIso, toIso } from '../clock.ts';
 import { applyEvent, remember, replayed } from '../dispatch.ts';
-import { isOpenTruck } from '../orders-math.ts';
+import { isPhoneTask } from '../orders-math.ts';
 import { runEventTransaction } from '../pipeline.ts';
 import { route, type RouteDef } from '../router.ts';
 import type { MockState, TruckRec } from '../store.ts';
@@ -71,6 +72,7 @@ function recordRejection(
     resolvedAt: null,
     resolutionNote: null,
   });
+  notifyRejection(state, a, now, { rejectionId: state.rejections.at(-1)!.id, truck, code: r.code });
 }
 
 export const supervisorRoutes: RouteDef[] = [
@@ -84,8 +86,8 @@ export const supervisorRoutes: RouteDef[] = [
       // At-least-once: a change at exactly the cursor is sent again (the phone replaces rows).
       const since = query.cursor === undefined ? null : fromIso(query.cursor);
       const changed = since === null ? mine : mine.filter((t) => fromIso(t.updatedAt) >= since);
-      const items = changed.filter(isOpenTruck).sort(boardOrder).map((t) => toTask(state, t));
-      // Tombstones: no longer open (cancelled, dispatched by another phone or the owner), or purged
+      const items = changed.filter(isPhoneTask).sort(boardOrder).map((t) => toTask(state, t));
+      // Tombstones: no longer the phone's (weighed, cancelled, dispatched by the owner), or purged
       // with their order. A full pull (no cursor) is a snapshot and needs none.
       const graves = state.truckTombstones.filter(
         (g) => g.tenantId === a.user.tenantId && plantInScope(a.scope, g.plantId),
@@ -95,7 +97,7 @@ export const supervisorRoutes: RouteDef[] = [
           ? []
           : [
               ...new Set([
-                ...changed.filter((t) => !isOpenTruck(t)).map((t) => t.id),
+                ...changed.filter((t) => !isPhoneTask(t)).map((t) => t.id),
                 ...graves.filter((g) => fromIso(g.removedAt) >= since).map((g) => g.truckId),
               ]),
             ];
@@ -128,20 +130,27 @@ export const supervisorRoutes: RouteDef[] = [
     async handler(ctx) {
       const a = authed(ctx);
       const { state, now } = ctx;
-      // `dispatchedAt` is the gross weighment's business time, so a late sync counts on its own day.
+      // TON-57: what this plant weighed today. `weighedAt` is the gross weighment's business time,
+      // so a late sync counts on its own day; each truck then awaits the office or is dispatched.
       const done = myTrucks(state, a)
-        .filter((t) => t.state === 'dispatched' && t.dispatchedAt !== null && sameIstDay(t.dispatchedAt, now))
-        .sort(boardOrder);
-      const items = done.map((t) => {
+        .filter(
+          (t): t is typeof t & { weighedAt: string } =>
+            (t.state === 'weighed' || t.state === 'dispatched') && t.weighedAt !== null && sameIstDay(t.weighedAt, now),
+        )
+        .sort((x, y) => (x.weighedAt !== y.weighedAt ? (x.weighedAt < y.weighedAt ? 1 : -1) : x.id < y.id ? -1 : 1));
+      const items: DoneToday['items'] = done.map((t) => {
         const task = toTask(state, t);
+        const dispatched = t.state === 'dispatched';
         return {
           truckId: t.id,
           vehicleNo: t.vehicleNo,
           customerName: task.customerName,
           subOrderNumber: task.subOrderNumber,
           netKg: (t.grossKg ?? 0) - (t.tareKg ?? 0),
-          loadingSlipNo: t.loadingSlipNo ?? '',
-          dispatchedAt: t.dispatchedAt ?? '',
+          status: dispatched ? 'dispatched' : 'awaiting_approval',
+          weighedAt: t.weighedAt,
+          loadingSlipNo: dispatched ? t.loadingSlipNo : null,
+          dispatchedAt: dispatched ? t.dispatchedAt : null,
         };
       });
       const totalNetKg = items.reduce((n, x) => n + x.netKg, 0);

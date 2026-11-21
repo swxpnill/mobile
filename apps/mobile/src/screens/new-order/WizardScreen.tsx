@@ -362,6 +362,7 @@ function Wizard({
 type Update = (c: Partial<WizardState> | ((x: WizardState) => WizardState)) => void;
 
 function PartiesStep({ s, update }: { s: WizardState; update: Update }) {
+  const { t } = useTheme();
   const basis = useDisplayBasis();
   const [pick, setPick] = useState<'customer' | 'broker' | null>(null);
   const customer = useParty(s.customerId ?? undefined);
@@ -403,7 +404,7 @@ function PartiesStep({ s, update }: { s: WizardState; update: Update }) {
           </Text>
           {detail ? <Text variant="caption">{detail}</Text> : null}
         </View>
-        <Icon name="chevronRight" size={18} color="#888" />
+        <Icon name="chevronRight" size={18} color={t.tx3} />
       </Row>
     </Group>
   );

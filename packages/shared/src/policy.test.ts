@@ -8,8 +8,12 @@ const T = (role: Role, allowed: readonly Action[]) =>
   ACTIONS.forEach((a) => expect([role, a, can(role, a)]).toEqual([role, a, allowed.includes(a)]));
 
 it('owner', () => T('owner', ACTIONS));
+it('TON-57: the office approves dispatch and changes weights', () => {
+  expect(ACTIONS).toEqual(expect.arrayContaining(['dispatch.approve', 'weighment.correct']));
+  expect(ACTIONS).not.toContain('weighment.correctAfterDispatch');
+});
 it('city_staff', () =>
-  T('city_staff', ['order.create','order.edit','order.duplicate','order.shortClose','order.view','truck.assign','truck.edit','truck.cancel','dispatch.view','masters.manage','import.run','broker.pay','reports.view','money.view','self.view']));
+  T('city_staff', ['order.create','order.edit','order.duplicate','order.shortClose','order.view','truck.assign','truck.edit','truck.cancel','dispatch.view','dispatch.approve','weighment.correct','masters.manage','import.run','broker.pay','reports.view','money.view','self.view']));
 it('plant_head', () => T('plant_head', ['order.view','dispatch.view','self.view']));
 it('supervisor', () => T('supervisor', ['weighment.capture','tasks.view','reports.doneToday','self.view']));
 it('scope and plant rules', () => {

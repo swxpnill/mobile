@@ -25,7 +25,8 @@
       "expo-secure-store",
       "expo-font",
       "expo-splash-screen",
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-background-task"
     ],
     "scheme": "tonnage"
   }

@@ -4,6 +4,7 @@ import {
   signOutBodySchema,
   verifyCodeBodySchema,
 } from '@tonnage/shared';
+import { dropDevice } from '../notifications.ts';
 import { MINUTE, SECOND, fromIso, toIso } from '../clock.ts';
 import { ApiError, unauthenticated } from '../errors.ts';
 import { route, type RouteDef } from '../router.ts';
@@ -126,7 +127,10 @@ export const authRoutes: RouteDef[] = [
     body: signOutBodySchema,
     async handler({ body, state, now }) {
       const rec = state.refreshTokens[body.refreshToken];
-      if (rec && rec.revokedAt === null) rec.revokedAt = toIso(now);
+      if (rec && rec.revokedAt === null) {
+        rec.revokedAt = toIso(now);
+        dropDevice(state, rec.userId, rec.deviceId);
+      }
       return { status: 204 };
     },
   }),

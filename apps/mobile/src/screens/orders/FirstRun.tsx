@@ -39,7 +39,7 @@ export function FirstRun({ canCreate }: { canCreate: boolean }) {
         icon="orders"
         title="No orders yet"
         body="Create your first order, or bring your current Excel sheet in and keep working from where you are."
-        actions={[{ label: 'Create first order', onPress: () => router.push('/new') }]}
+        actions={[{ label: 'Create first order', onPress: () => router.push('/order-form') }]}
       />
       <Text variant="caption" style={styles.soon}>
         Import from Excel arrives in a later update.

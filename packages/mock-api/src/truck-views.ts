@@ -1,4 +1,5 @@
-import { type Task, type Truck, formatLength, istDateParts, productDisplayName, subOrderNumber } from '@tonnage/shared';
+import { type PlantSupervisor, type Task, type Truck, formatLength, istDateParts, pending, productDisplayName, subOrderNumber } from '@tonnage/shared';
+import { orderMath } from './orders-math.ts';
 import type { OrderCtx } from './order-views.ts';
 import type { MockState, TruckRec } from './store.ts';
 
@@ -18,10 +19,10 @@ export function newestFirst(x: { assignedAt: string; id: string }, y: { assigned
   return x.id < y.id ? 1 : x.id > y.id ? -1 : 0;
 }
 
-/** Board order: loading, at gate, assigned, then dispatched. */
-export const OPEN_STATE_RANK: Record<string, number> = { loading: 0, at_gate: 1, assigned: 2, dispatched: 3 };
+/** Board order: awaiting approval (TON-57, the office's to-do), loading, arrived, assigned, then dispatched. */
+export const OPEN_STATE_RANK: Record<string, number> = { weighed: 0, loading: 1, at_gate: 2, assigned: 3, dispatched: 4 };
 
-/** Loading first; waiting trucks oldest first, dispatched ones newest first; ties by id. */
+/** Awaiting approval first; waiting trucks oldest first, dispatched ones newest first; ties by id. */
 export function boardOrder(
   x: Pick<TruckRec, 'id' | 'state' | 'assignedAt' | 'dispatchedAt'>,
   y: Pick<TruckRec, 'id' | 'state' | 'assignedAt' | 'dispatchedAt'>,
@@ -36,6 +37,17 @@ export function boardOrder(
     return x.assignedAt < y.assignedAt ? -1 : 1;
   }
   return x.id < y.id ? -1 : x.id > y.id ? 1 : 0;
+}
+
+/**
+ * TON-57: the active supervisors of the truck's plant, by name; `invited` = never signed in.
+ * Fresh objects (never state references).
+ */
+export function plantSupervisors(state: MockState, t: Pick<TruckRec, 'tenantId' | 'plantId'>): PlantSupervisor[] {
+  return state.users
+    .filter((u) => u.tenantId === t.tenantId && u.active && u.role === 'supervisor' && u.plantIds.includes(t.plantId))
+    .sort((a, b) => a.name.localeCompare(b.name) || (a.id < b.id ? -1 : 1))
+    .map((u) => ({ id: u.id, name: u.name, mobile: u.mobile, invited: u.lastSeenAt === null }));
 }
 
 // Serializers build fresh plain objects (never state references), so responses can't alias state.
@@ -93,6 +105,7 @@ export function toTruck(c: OrderCtx, t: TruckRec, opts: { withWeighments: boolea
     assignedBy: userRef(t.assignedBy),
     atGateAt: t.atGateAt,
     tareAt: t.tareAt,
+    weighedAt: t.weighedAt,
     dispatchedAt: t.dispatchedAt,
     cancelledAt: t.cancelledAt,
     cancelReason: t.cancelReason,
@@ -109,6 +122,7 @@ export function toTruck(c: OrderCtx, t: TruckRec, opts: { withWeighments: boolea
             clockSkew: w.clockSkewFlag,
           }))
       : [],
+    supervisors: opts.withWeighments ? plantSupervisors(c.state, t) : [],
     version: t.version,
   };
   if (order.brokerId !== null) {
@@ -120,6 +134,22 @@ export function toTruck(c: OrderCtx, t: TruckRec, opts: { withWeighments: boolea
 }
 
 /** The supervisor's phone copy of a truck: product names and kg only, never money (§6.2). */
+/** "TMT Fe500D · 12 mm · 12 m": the task has no length field, and two lines can share a product. */
+function lineLabel(state: MockState, orderLineId: string): string {
+  const line = state.orderLines.find((l) => l.id === orderLineId);
+  const product = line ? state.products.find((x) => x.id === line.productId) : undefined;
+  return line && product ? `${productDisplayName(product)} · ${formatLength(line.length)}` : '';
+}
+
+function subLines(state: MockState, subOrderId: string): Task['lines'] {
+  const math = orderMath(state);
+  return math.linesOf(subOrderId).map((l) => ({
+    orderLineId: l.id,
+    productName: lineLabel(state, l.id),
+    pendingKg: pending(math.lineQty(l)),
+  }));
+}
+
 export function toTask(state: MockState, t: TruckRec): Task {
   const { sub, order } = parentsOf(state, t);
   const partyName = (id: string | null) => (id ? (state.parties.find((p) => p.id === id)?.name ?? null) : null);
@@ -136,13 +166,9 @@ export function toTask(state: MockState, t: TruckRec): Task {
     tareKg: t.tareKg,
     tareAt: t.tareAt,
     tareDeviceId: t.tareDeviceId,
-    plan: t.plan.map((p) => {
-      const line = state.orderLines.find((l) => l.id === p.orderLineId);
-      const product = line ? state.products.find((x) => x.id === line.productId) : undefined;
-      // The task has no length field, and two lines can share a product (12 mm · 12 m and · 6 m).
-      const productName = line && product ? `${productDisplayName(product)} · ${formatLength(line.length)}` : '';
-      return { orderLineId: p.orderLineId, productName, plannedKg: p.plannedKg };
-    }),
+    plan: t.plan.map((p) => ({ orderLineId: p.orderLineId, productName: lineLabel(state, p.orderLineId), plannedKg: p.plannedKg })),
+    // TON-57: every line of the sub-order, for "Add product" on the phone.
+    lines: subLines(state, t.subOrderId),
     version: t.version,
     changedAt: t.updatedAt,
   };

@@ -5,6 +5,9 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
 import type { ReactElement } from 'react';
+import { Linking } from 'react-native';
+import type { ReactTestRendererJSON } from 'react-test-renderer';
+import { auditA11y } from './a11y/audit';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import {
   type Order,
@@ -69,7 +72,7 @@ const wrap = (ui: ReactElement, opts: { sync?: boolean } = {}) =>
 
 const press = (name: string | RegExp) => fireEvent.press(screen.getByRole('button', { name }));
 /** Write actions a plant head must never see. */
-const ACTIONS = /^(Assign(?!ed)|Cancel|Edit|Capture|Correct)/;
+const ACTIONS = /^(Assign(?!ed)|Cancel|Edit|Capture|Correct|Approve|Change)/;
 const noRupees = () => expect(screen.queryAllByText(/₹/)).toHaveLength(0);
 
 /** The demo order whose number ends in `tail`, as the signed-in person sees it. */
@@ -147,7 +150,7 @@ describe('Assign vehicle (canvas 07)', () => {
     view = await wrap(<TruckDetailScreen id={href.replace('/trucks/', '')} />);
     expect(await screen.findByRole('header', { name: 'CG 04 MK 2291' })).toBeOnTheScreen();
     expect(screen.getAllByText('Assigned').length).toBeGreaterThan(0);
-    expect(screen.getByLabelText('Progress: step 1 of 4, Assigned')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Progress: step 1 of 5, Assigned')).toBeOnTheScreen();
     expect(screen.queryByText('Gross weighed')).toBeNull();
     await view.unmount();
 
@@ -214,8 +217,9 @@ describe('Dispatch board (canvas 08)', () => {
     const mk = await screen.findByLabelText(/^CG 04 MK 2291/);
     expect(within(mk).getByText('Loading')).toBeOnTheScreen();
     expect(screen.getByLabelText(/^CG 07 BR 8810/)).toBeOnTheScreen();
-    expect(screen.getByRole('button', { name: 'Open, 4' })).toBeOnTheScreen();
-    await press('At gate, 1');
+    expect(screen.getByRole('button', { name: 'Open, 5' })).toBeOnTheScreen();
+    await press('Arrived, 1');
+    expect(screen.queryByText(/at gate/i)).toBeNull();
     await waitFor(() => expect(screen.queryByLabelText(/^CG 04 MK 2291/)).toBeNull());
     expect(screen.getByLabelText(/^CG 07 KL 3304/)).toBeOnTheScreen();
   });
@@ -292,7 +296,10 @@ describe('Owner weighs from the truck detail (Ruling 4)', () => {
         expect(keys).toContain(JSON.stringify(k));
     });
     const store = await openDeviceStore(ids.users.rajesh);
-    expect((await store.outbox()).map((r) => [r.truckId, r.type])).toEqual([[fresh.id, 'TARE']]);
+    expect((await store.outbox()).map((r) => [r.truckId, r.type])).toEqual([
+      [fresh.id, 'AT_GATE'], // TON-57: the arrival goes first, then the tare
+      [fresh.id, 'TARE'],
+    ]);
     await act(() => syncNow());
     const after = await api(`/v1/trucks/${fresh.id}`, { schema: truckSchema });
     expect(after).toMatchObject({ state: 'loading', tareKg: 12_100 });
@@ -336,8 +343,28 @@ describe('Owner weighs the step the server is at', () => {
     useDeviceStore.setState({ store });
 
     await wrap(<OwnerWeighScreen truckId={mk.id} />, { sync: false });
-    expect(await screen.findByText('Gross weight')).toBeOnTheScreen();
+    expect(await screen.findByRole('header', { name: 'Weigh products' })).toBeOnTheScreen();
     expect(screen.queryByText('Tare weight')).toBeNull();
+    useDeviceStore.setState({ store: null });
+  });
+
+  it('TON-57: the owner gets Add product from the order (the truck has no sub-order lines)', async () => {
+    const mk = await boardTruck('CG 04 MK 2291');
+    useDeviceStore.setState({ store: await openDeviceStore(ids.users.rajesh) });
+    await wrap(<OwnerWeighScreen truckId={mk.id} />, { sync: false });
+    await screen.findByRole('header', { name: 'Weigh products' });
+    await fireEvent.press(await screen.findByRole('button', { name: 'Add product' }));
+    expect(await screen.findByRole('button', { name: /^TMT Fe500D · 12 mm · 6 m, .* pending$/ })).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: /^TMT Fe500D · 12 mm · 12 m,/ })).toBeNull();
+    useDeviceStore.setState({ store: null });
+  });
+
+  it('a truck awaiting approval has nothing to weigh', async () => {
+    const lt = await boardTruck('CG 04 LT 6619');
+    useDeviceStore.setState({ store: await openDeviceStore(ids.users.rajesh) });
+    await wrap(<OwnerWeighScreen truckId={lt.id} />, { sync: false });
+    expect(await screen.findByText('Nothing to weigh')).toBeOnTheScreen();
+    expect(screen.getByText('Its weights are saved and waiting for approval.')).toBeOnTheScreen();
     useDeviceStore.setState({ store: null });
   });
 });
@@ -479,5 +506,151 @@ describe('Truck writes carry an Idempotency-Key, reused on retry', () => {
     expect(keys).toHaveLength(2);
     expect(keys[1]).not.toBe(keys[0]);
     expect((await api(`/v1/trucks/${mk.id}`, { schema: truckSchema })).lrNo).toBe('SGR/2611/0601');
+  });
+});
+
+describe('Approve dispatch (TON-57)', () => {
+  /** A Siltara truck on 0142-A whose weights are saved: 24.180 MT net, awaiting approval. */
+  async function weighedAtSiltara(): Promise<string> {
+    const o = await orderEnding('0142');
+    const sub = o.subOrders.find((x) => x.companyCode === 'AIP')!;
+    const line = sub.lines[0]!;
+    const { truckId } = await mock.controls.addTruck({
+      subOrderId: sub.id,
+      state: 'weighed',
+      vehicleNo: 'CG 04 ZZ 0420',
+      tareKg: 12_460,
+      plan: [{ orderLineId: line.id, plannedKg: 24_000 }],
+      allocations: [{ orderLineId: line.id, netKg: 24_180 }],
+    });
+    return truckId;
+  }
+
+  it('owner: To approve lists the weighed truck first; Approve from the card dispatches it with a slip', async () => {
+    await wrap(<DispatchScreen />);
+    expect(await screen.findByRole('button', { name: 'To approve, 1' })).toBeOnTheScreen();
+    const card = await screen.findByLabelText(/^CG 04 LT 6619, Awaiting approval/);
+    expect(within(card).getByText(/net 11.040 MT/)).toBeOnTheScreen();
+    // Never shown as dispatched before the approval.
+    expect(within(card).queryByText('Dispatched')).toBeNull();
+
+    const id = (await boardTruck('CG 04 LT 6619')).id;
+    await press('Approve dispatch, CG 04 LT 6619');
+    expect(await screen.findByText('Approve CG 04 LT 6619?')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Net 11.040 MT')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Tare 11.780 MT, gross 22.820 MT')).toBeOnTheScreen();
+    await press('Approve dispatch of CG 04 LT 6619');
+    expect(await screen.findByText(/^CG 04 LT 6619 dispatched · LS-KRM-/)).toBeOnTheScreen();
+
+    const after = await api(`/v1/trucks/${id}`, { schema: truckSchema });
+    expect(after.state).toBe('dispatched');
+    expect(after.loadingSlipNo).toMatch(/^LS-KRM-/);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'To approve, 0' })).toBeOnTheScreen());
+  });
+
+  it('city staff on the detail: a note, Change weights before approving, then Approve', async () => {
+    await signIn(ids.users.priya);
+    const lt = await boardTruck('CG 04 LT 6619');
+    await wrap(<TruckDetailScreen id={lt.id} />);
+    await screen.findByRole('header', { name: 'CG 04 LT 6619' });
+    expect(screen.getByText(/check the weights and approve the dispatch/)).toBeOnTheScreen();
+    expect(screen.getByText('Next · the office approves the dispatch')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: /^Capture/ })).toBeNull();
+
+    await press('Change weights');
+    expect(await screen.findByText('Change weights · CG 04 LT 6619')).toBeOnTheScreen();
+    expect(screen.getByText('Nothing is dispatched until you approve')).toBeOnTheScreen();
+    await fireEvent.press(screen.getByTestId('sheet-backdrop', { includeHiddenElements: true }));
+
+    await press('Approve dispatch');
+    expect(await screen.findByText('Approve CG 04 LT 6619?')).toBeOnTheScreen();
+    await press('Approve dispatch of CG 04 LT 6619');
+    expect(await screen.findByText(/^CG 04 LT 6619 dispatched · LS-KRM-/)).toBeOnTheScreen();
+    expect(await screen.findByText('Approved · dispatched')).toBeOnTheScreen();
+  });
+
+  it('Kiran (plant head) sees a Siltara truck awaiting approval, without any action', async () => {
+    const id = await weighedAtSiltara();
+    await signIn(ids.users.kiran);
+    await wrap(<TruckDetailScreen id={id} />);
+    await screen.findByRole('header', { name: 'CG 04 ZZ 0420' });
+    expect(screen.getAllByText('Awaiting approval').length).toBeGreaterThan(0);
+    expect(screen.getByText(/waiting for the office to approve/)).toBeOnTheScreen();
+    expect(screen.queryAllByRole('button', { name: ACTIONS })).toHaveLength(0);
+    noRupees();
+  });
+
+  it('a lost approval is retried with the same key and dispatches once', async () => {
+    const keys: (string | undefined)[] = [];
+    let lost = false;
+    setTransport({
+      async request(req) {
+        if (req.method === 'POST' && req.path.endsWith('/approve')) {
+          keys.push(req.headers['idempotency-key']);
+          if (!lost) {
+            lost = true;
+            throw new NetworkError('lost');
+          }
+        }
+        return mock.transport.request(req);
+      },
+    });
+    const lt = await boardTruck('CG 04 LT 6619');
+    await wrap(<TruckDetailScreen id={lt.id} />);
+    await screen.findByRole('header', { name: 'CG 04 LT 6619' });
+    await press('Approve dispatch');
+    const approve = () => press('Approve dispatch of CG 04 LT 6619');
+    await approve();
+    expect(await screen.findByText(/reach the server/)).toBeOnTheScreen();
+    await approve();
+    expect(await screen.findByText(/^CG 04 LT 6619 dispatched/)).toBeOnTheScreen();
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).toBe(keys[0]);
+  });
+});
+
+describe('Plant supervisors on the truck (TON-57 Ruling 11)', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('owner: Ravi at Siltara with Call and WhatsApp; the message names the truck and its stage', async () => {
+    const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+    const mk = await boardTruck('CG 04 MK 2291');
+    await wrap(<TruckDetailScreen id={mk.id} />);
+    await screen.findByRole('header', { name: 'CG 04 MK 2291' });
+    expect(screen.getByText('Supervisor at Siltara')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Ravi Verma, supervisor, +91 98261 00014')).toBeOnTheScreen();
+
+    await press('WhatsApp Ravi Verma');
+    expect(open).toHaveBeenLastCalledWith(
+      'https://wa.me/919826100014?text=CG%2004%20MK%202291%20%C2%B7%20SO-2611-0142-A%20%C2%B7%20Loading',
+    );
+    await press('Call Ravi Verma');
+    expect(open).toHaveBeenLastCalledWith('tel:+919826100014');
+    expect(auditA11y(screen.toJSON() as ReactTestRendererJSON)).toEqual([]);
+  });
+
+  it('a plant with no active supervisor says so, with no buttons', async () => {
+    await api(`/v1/users/${ids.users.ravi}/deactivate`, { method: 'POST' });
+    const mk = await boardTruck('CG 04 MK 2291');
+    await wrap(<TruckDetailScreen id={mk.id} />);
+    await screen.findByRole('header', { name: 'CG 04 MK 2291' });
+    expect(screen.getByText('No supervisor at Siltara yet')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: /^(Call|WhatsApp) Ravi/ })).toBeNull();
+  });
+
+  it('one who never signed in is marked; when WhatsApp cannot open, the phone says so', async () => {
+    await api('/v1/users', {
+      method: 'POST',
+      idempotent: true,
+      body: { name: 'Naveen Sahu', mobile: '9826100050', role: 'supervisor', plantIds: [ids.plants.siltara] },
+    });
+    jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('no app'));
+    const mk = await boardTruck('CG 04 MK 2291');
+    await wrap(<TruckDetailScreen id={mk.id} />);
+    await screen.findByRole('header', { name: 'CG 04 MK 2291' });
+    expect(screen.getByText('Supervisors at Siltara')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Naveen Sahu, supervisor, +91 98261 00050, not signed in yet')).toBeOnTheScreen();
+    await press('WhatsApp Naveen Sahu');
+    expect(await screen.findByText("Couldn't open WhatsApp")).toBeOnTheScreen();
   });
 });

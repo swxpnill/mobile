@@ -21,7 +21,7 @@ export function SplitStep({
   netKg,
   basis,
   saving,
-  saveLabel = 'Save gross · mark dispatched',
+  saveLabel = 'Save gross · send for approval',
   onSave,
 }: {
   plan: Task['plan'];

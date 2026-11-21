@@ -1,4 +1,4 @@
-import { type ErrorCode, NetworkError } from '@tonnage/shared';
+import { type ErrorCode, NetworkError, SYNC_REJECT_REASON } from '@tonnage/shared';
 import { ApiError } from '../api/client';
 
 /** User-facing copy for API failures (sign-in and admin screens). */
@@ -25,28 +25,7 @@ export const MSG = {
  * correction), in plain words. Undefined for codes that are not about weights.
  */
 export function weightCodeMessage(code: ErrorCode): string | undefined {
-  switch (code) {
-    case 'TRUCK_CANCELLED':
-      return 'Truck was cancelled before this weight reached the server';
-    case 'INVALID_STATE':
-      return 'The truck was not at this step when the weight arrived';
-    case 'ALLOC_MISMATCH':
-      return 'The split over the order lines does not add up to the net';
-    case 'TARE_CONFLICT':
-      return 'A different tare was already saved for this truck';
-    case 'INVALID_WEIGHT':
-      return 'The gross is not more than the tare';
-    case 'LINE_REMOVED':
-      return 'An order line on this truck was removed';
-    case 'TARE_REQUIRED':
-      return 'The gross arrived before any tare';
-    case 'ALREADY_DISPATCHED':
-      return 'The truck was already dispatched';
-    case 'PLANT_SCOPE':
-      return 'The sender no longer has access to this plant';
-    default:
-      return undefined;
-  }
+  return (SYNC_REJECT_REASON as Partial<Record<ErrorCode, string>>)[code];
 }
 
 export function messageFor(e: unknown): string {

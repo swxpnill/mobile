@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useReduceMotion } from '../a11y/useReduceMotion';
 import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSession } from '../auth/session';
@@ -30,14 +31,16 @@ export function Sheet({
   const insets = useSafeAreaInsets();
   // A Modal is its own native window: the lock screen cannot cover it, so it hides while locked.
   const locked = useSession((s) => s.status === 'locked');
+  const reduceMotion = useReduceMotion();
   const close = () => {
     if (!busy) onClose();
   };
   return (
     <Modal
+      testID="sheet-modal"
       visible={visible && !locked}
       transparent
-      animationType="slide"
+      animationType={reduceMotion ? 'fade' : 'slide'}
       statusBarTranslucent
       navigationBarTranslucent
       onRequestClose={close}
@@ -45,7 +48,8 @@ export function Sheet({
       {/* The sheet rides above the on-screen keyboard (Android is edge-to-edge, so nothing resizes by itself). */}
       <KeyboardAvoidingView behavior="padding" style={styles.root}>
         <Pressable
-          style={styles.backdrop}
+          testID="sheet-backdrop"
+          style={[styles.backdrop, { backgroundColor: t.scrim }]}
           onPress={close}
           accessibilityRole="button"
           accessibilityLabel="Close"
@@ -74,7 +78,7 @@ export function Sheet({
 
 const styles = StyleSheet.create({
   root: { flex: 1, justifyContent: 'flex-end' },
-  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.45)' },
+  backdrop: { ...StyleSheet.absoluteFill },
   sheet: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,

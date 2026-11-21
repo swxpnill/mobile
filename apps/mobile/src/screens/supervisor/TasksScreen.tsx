@@ -1,13 +1,12 @@
 import { formatMobile, toDisplayQty } from '@tonnage/shared';
-import * as Crypto from 'expo-crypto';
 import { useRouter } from 'expo-router';
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useDisplayBasis, useMe } from '../../api/hooks/me';
 import { type DisplayTask, doneRows, useDeviceSnapshot } from '../../offline/useDeviceData';
-import { recordCapture, syncNow, useDeviceStore } from '../../offline/useSync';
+import { syncNow } from '../../offline/useSync';
 import { useTheme } from '../../theme/ThemeProvider';
-import { MIN_TOUCH, type Tokens } from '../../theme/tokens';
+import { MIN_TOUCH, type Tokens, radius } from '../../theme/tokens';
 import {
   Avatar,
   Badge,
@@ -19,11 +18,10 @@ import {
   Screen,
   SectionLabel,
   Text,
-  showToast,
   weightUnit,
 } from '../../ui';
-import { SAVE_FAILED } from './CaptureScreen';
 import { SyncBanner } from './SyncBanner';
+import { useMarkArrived } from './useMarkArrived';
 import { usePlantTitle } from './usePlantTitle';
 
 /** Supervisor's My tasks (canvas 11): this plant's trucks, what to weigh next, sync state. */
@@ -103,6 +101,33 @@ export function TasksScreen() {
   );
 }
 
+/**
+ * The next step, shown but not yet available (TON-57: tare after arrival): a lock, its name and
+ * what unlocks it. A disabled control to a screen reader, so the order of the steps is clear.
+ */
+function LockedStep({ title, hint }: { title: string; hint: string }) {
+  const { t } = useTheme();
+  return (
+    <View
+      accessible
+      accessibilityRole="button"
+      accessibilityLabel={`${title}, ${hint.toLowerCase()}`}
+      accessibilityState={{ disabled: true }}
+      style={[styles.locked, { backgroundColor: t.bg, borderColor: t.bd }]}
+    >
+      <View style={[styles.lockIcon, { backgroundColor: t.ctl }]}>
+        <Icon name="lock" size={16} color={t.tx3} strokeWidth={2} />
+      </View>
+      <View style={styles.fill}>
+        <Text weight="semibold" color="tx3">
+          {title}
+        </Text>
+        <Text variant="caption">{hint}</Text>
+      </View>
+    </View>
+  );
+}
+
 function Count({ label, value, color }: { label: string; value: number; color: keyof Tokens }) {
   const { t } = useTheme();
   return (
@@ -131,9 +156,7 @@ const STATE_LOOK: Record<
 function TaskCard({ task, onWeigh }: { task: DisplayTask; onWeigh(): void }) {
   const { t } = useTheme();
   const basis = useDisplayBasis();
-  const store = useDeviceStore((s) => s.store);
-  const [busy, setBusy] = useState(false);
-  const saving = useRef(false);
+  const arrival = useMarkArrived();
   if (task.state !== 'assigned' && task.state !== 'at_gate' && task.state !== 'loading')
     return null;
   const look = STATE_LOOK[task.state];
@@ -144,33 +167,12 @@ function TaskCard({ task, onWeigh }: { task: DisplayTask; onWeigh(): void }) {
       task.tareKg === null
         ? { kind: 'wn', text: 'Loading' }
         : { kind: 'br', text: `Tare ${toDisplayQty(task.tareKg, basis)} ${weightUnit(basis)}` };
-  else if (task.state === 'at_gate') badge = { kind: 'vi', text: 'At gate' };
+  else if (task.state === 'at_gate') badge = { kind: 'vi', text: 'Arrived' };
   else badge = { kind: 'nu', text: 'Assigned' };
 
   const who = [task.transporterName, task.driverName, formatMobile(task.driverPhone)]
     .filter(Boolean)
     .join(' · ');
-
-  async function atGate() {
-    if (!store || saving.current) return;
-    saving.current = true;
-    setBusy(true);
-    try {
-      await recordCapture(store, {
-        eventId: Crypto.randomUUID(),
-        truckId: task.truckId,
-        type: 'AT_GATE',
-        payload: {},
-        capturedAtDevice: new Date().toISOString(),
-      });
-      showToast('Saved on this phone');
-    } catch {
-      showToast(SAVE_FAILED);
-    } finally {
-      saving.current = false;
-      setBusy(false);
-    }
-  }
 
   return (
     <View
@@ -212,16 +214,19 @@ function TaskCard({ task, onWeigh }: { task: DisplayTask; onWeigh(): void }) {
 
       {task.state === 'loading' ? (
         <Button onPress={onWeigh}>Capture gross weight</Button>
+      ) : task.state === 'assigned' ? (
+        // TON-57: the vehicle is marked arrived first; its tare waits until then.
+        <>
+          <Button variant="violet" loading={arrival.busy === task.truckId} onPress={() => void arrival.mark(task.truckId)}>
+            Vehicle arrived
+          </Button>
+          <LockedStep title="Capture tare weight" hint="Unlocks when the vehicle arrives" />
+        </>
       ) : (
         <Button variant="violet" onPress={onWeigh}>
           Capture tare weight
         </Button>
       )}
-      {task.state === 'assigned' ? (
-        <Button variant="secondary" loading={busy} onPress={() => void atGate()}>
-          At gate
-        </Button>
-      ) : null}
     </View>
   );
 }
@@ -239,7 +244,7 @@ const styles = StyleSheet.create({
   },
   counts: { flexDirection: 'row', gap: 8 },
   count: { flex: 1, padding: 12, borderRadius: 16, borderWidth: 1 },
-  countValue: { fontSize: 20, lineHeight: 26, marginTop: 2 },
+  countValue: { fontSize: 20, lineHeight: 26, marginTop: 2, textAlign: 'center' },
   card: { padding: 16, gap: 12, borderRadius: 16, borderWidth: 1 },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   tile: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
@@ -247,4 +252,15 @@ const styles = StyleSheet.create({
   plan: { padding: 12, borderRadius: 12, gap: 6 },
   planRow: { flexDirection: 'row', gap: 12 },
   planLine: { fontSize: 13, lineHeight: 18 },
+  locked: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: MIN_TOUCH + 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: radius.button,
+    borderWidth: 1,
+  },
+  lockIcon: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
 });

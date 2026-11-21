@@ -18,6 +18,9 @@ export interface Tokens {
   tx3: string;
   inv: string;
   invtx: string;
+  /** Soft white on the primary fill (canvas board 39 lead tile: icon well, caption). */
+  invsoft: string;
+  invtx2: string;
   br: string;
   brt: string;
   brs: string;
@@ -38,6 +41,16 @@ export interface Tokens {
   dgf: string;
   te: string;
   tes: string;
+  /** Tab bar surface (board 15: a shade below the page in Graphite). */
+  tabBar: string;
+  /** Dimmed backdrop behind sheets (board 39). */
+  scrim: string;
+  /** Shadow colour for raised controls (toast, segmented thumb, switch thumb). */
+  shadow: string;
+  /** Text and icons on the danger fill (`dgf`). */
+  onDanger: string;
+  /** Switch knob. */
+  thumb: string;
 }
 
 export const lightTokens: Tokens = {
@@ -52,6 +65,9 @@ export const lightTokens: Tokens = {
   tx3: '#626771',
   inv: '#2563EB',
   invtx: '#FFFFFF',
+  invsoft: 'rgba(255,255,255,.18)',
+  // was rgba(255,255,255,.8) (canvas board 39), raised for 4.5:1 on inv (F5 Ruling 13).
+  invtx2: 'rgba(255,255,255,.92)',
   br: '#2563EB',
   brt: '#1D4ED8',
   brs: 'rgba(37,99,235,.10)',
@@ -70,6 +86,11 @@ export const lightTokens: Tokens = {
   dgf: '#D21E2B',
   te: '#0E7490',
   tes: 'rgba(14,116,144,.10)',
+  tabBar: '#FFFFFF',
+  scrim: 'rgba(11,13,18,.42)',
+  shadow: '#0B0D12',
+  onDanger: '#FFFFFF',
+  thumb: '#FFFFFF',
 };
 
 export const darkTokens: Tokens = {
@@ -82,8 +103,12 @@ export const darkTokens: Tokens = {
   tx: '#F4F3EF',
   tx2: '#A3A3A9',
   tx3: '#85858D',
-  inv: '#4F86F7',
+  // was #4F86F7 (canvas Graphite), darkened in hue for 4.5:1 with white text (F5 Ruling 13).
+  inv: '#4473D4',
   invtx: '#FFFFFF',
+  invsoft: 'rgba(255,255,255,.18)',
+  // was rgba(255,255,255,.8): only full white reaches 4.5:1 on the dark inv (F5 Ruling 13).
+  invtx2: '#FFFFFF',
   br: '#4F86F7',
   brt: '#8AB0FF',
   brs: 'rgba(79,134,247,.16)',
@@ -102,6 +127,11 @@ export const darkTokens: Tokens = {
   dgf: '#C62828',
   te: '#3CC7D9',
   tes: 'rgba(60,199,217,.14)',
+  tabBar: '#0D0D10',
+  scrim: 'rgba(0,0,0,.6)',
+  shadow: '#000000',
+  onDanger: '#FFFFFF',
+  thumb: '#FFFFFF',
 };
 
 export type ColorScheme = 'light' | 'dark';
@@ -113,6 +143,16 @@ const UNIT_TAG_SLOTS: { bg: keyof Tokens; light: string; dark: string }[] = [
   { bg: 'oks', light: '#067A6A', dark: '#3CC7B4' },
   { bg: 'wns', light: '#8F5E12', dark: '#E5A93B' },
 ];
+
+/** Home's pending bar and legend, per unit slot (boards 02 light, 15 Graphite). */
+const UNIT_BAR: Record<ColorScheme, readonly string[]> = {
+  light: ['#2563EB', '#5B3CC4', '#089981', '#D18A12'],
+  dark: ['#4F86F7', '#9B85F5', '#26A69A', '#E5A93B'],
+};
+
+export function unitBarColor(slot: number, scheme: ColorScheme): string {
+  return UNIT_BAR[scheme][((slot % 4) + 4) % 4]!;
+}
 
 export function unitTagColors(slot: number, scheme: ColorScheme): { bg: string; fg: string } {
   const s = UNIT_TAG_SLOTS[((slot % 4) + 4) % 4]!;

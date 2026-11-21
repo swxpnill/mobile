@@ -35,14 +35,14 @@ export function SegmentedControl<T extends string>({
             accessibilityRole="radio"
             accessibilityLabel={o.label}
             accessibilityState={{ selected, checked: selected }}
-            // The compact segment is 30 high; the hit area is stretched to the 44 minimum.
-            hitSlop={full ? undefined : { top: 7, bottom: 7 }}
+            // Hit areas reach the 44 minimum: the compact segment is 30 high, the full one 38.
+            hitSlop={full ? { top: 3, bottom: 3 } : { top: 7, bottom: 7 }}
             onPress={() => {
               if (!selected) onChange(o.value);
             }}
             style={[
               full ? styles.full : styles.compact,
-              selected ? [styles.on, { backgroundColor: t.card }] : null,
+              selected ? [styles.on, { backgroundColor: t.card, shadowColor: t.shadow }] : null,
             ]}
           >
             <Text
@@ -79,7 +79,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   on: {
-    shadowColor: '#0B0D12',
     shadowOpacity: 0.08,
     shadowRadius: 2,
     shadowOffset: { width: 0, height: 1 },

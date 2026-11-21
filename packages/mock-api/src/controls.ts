@@ -2,15 +2,18 @@ import {
   NetworkError,
   ROLES,
   type ErrorCode,
+  type PushMessage,
   type Role,
   type TokenPair,
   type Transport,
   type TransportRequest,
   type TransportResponse,
 } from '@tonnage/shared';
+import { dropDevice } from './notifications.ts';
 import { type AddTruckInput, addTruck } from './trucks.ts';
 import { type Clock, toIso } from './clock.ts';
 import { errorBody } from './errors.ts';
+import type { PushBus } from './notifications.ts';
 import { issueTokens } from './sessions.ts';
 import type { Store } from './store.ts';
 
@@ -57,6 +60,11 @@ export interface MockControls {
   signInAs(userId: string, deviceId: string): Promise<TokenPair>;
   /** Insert a truck in any state (until F3 builds assignment and weighing). */
   addTruck(input: AddTruckInput): Promise<{ truckId: string }>;
+  /**
+   * Pushes the mock's worker delivers after each committed request (F5 Ruling 1), every device
+   * token included: the phone keeps only those addressed to its own token. Returns unsubscribe.
+   */
+  onPush(listener: (m: PushMessage) => void): () => void;
   /** Record counts, for demo screens and tests. */
   stats(): Promise<{ orders: number; trucks: number; parties: number; products: number }>;
 }
@@ -124,8 +132,9 @@ export function createControls(deps: {
   enqueue: Enqueue;
   store: Store;
   clock: Clock;
+  push?: PushBus;
 }): MockControls {
-  const { controls: cs, enqueue, store, clock } = deps;
+  const { controls: cs, enqueue, store, clock, push } = deps;
   return {
     reset: () =>
       enqueue(async () => {
@@ -134,6 +143,9 @@ export function createControls(deps: {
         cs.failNext = null;
         await store.reset();
       }),
+    onPush(listener) {
+      return push ? push.subscribe(listener) : () => undefined;
+    },
     setOffline(on) {
       cs.offline = on;
     },
@@ -175,6 +187,7 @@ export function createControls(deps: {
         const rec = store.state.refreshTokens[refreshToken];
         if (rec && rec.revokedAt === null) {
           rec.revokedAt = toIso(clock.now());
+          dropDevice(store.state, rec.userId, rec.deviceId);
           store.schedulePersist();
         }
       }),

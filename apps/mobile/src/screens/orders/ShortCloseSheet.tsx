@@ -22,8 +22,9 @@ import { MSG, messageFor } from '../messages';
 
 const TRUCK_STATE: Record<OpenTruck['state'], string> = {
   assigned: 'assigned',
-  at_gate: 'at the gate',
+  at_gate: 'arrived',
   loading: 'loading',
+  weighed: 'waiting for approval',
   dispatched: 'dispatched',
   cancelled: 'cancelled',
 };
@@ -97,7 +98,11 @@ export function ShortCloseSheet({ order, visible, onClose }: { order: Order; vis
             <Row key={x.id}>
               <View style={styles.fill}>
                 <Text weight="medium">{truckLine(x, basis)}</Text>
-                {x.tareKg !== null ? (
+                {x.state === 'weighed' ? (
+                  <Text variant="caption" color="wnt">
+                    Loaded and weighed, waiting for approval
+                  </Text>
+                ) : x.tareKg !== null ? (
                   <Text variant="caption" color="wnt">
                     May be loading now
                   </Text>

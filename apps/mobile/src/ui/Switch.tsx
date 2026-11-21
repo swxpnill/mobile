@@ -32,7 +32,7 @@ export function Switch({
         disabled ? styles.disabled : null,
       ]}
     >
-      <View style={styles.thumb} />
+      <View style={[styles.thumb, { backgroundColor: t.thumb, shadowColor: t.shadow }]} />
     </Pressable>
   );
 }
@@ -43,8 +43,6 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
     shadowOpacity: 0.2,
     shadowRadius: 1,
     shadowOffset: { width: 0, height: 1 },

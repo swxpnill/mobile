@@ -2,6 +2,7 @@ import {
   type DispatchBoard,
   type RecentVehicle,
   type Truck,
+  approveTruckBodySchema,
   assignTruckBodySchema,
   assignable,
   cancelTruckBodySchema,
@@ -14,8 +15,9 @@ import {
   nextTruckState,
   subOrderNumber,
 } from '@tonnage/shared';
+import { notifyTruckAssigned, notifyTruckChanged } from '../notifications.ts';
 import { toIso } from '../clock.ts';
-import { closeWithinTolerance, currentWeighment, rewriteEarning, undoToleranceClose } from '../dispatch.ts';
+import { approveDispatch, closeWithinTolerance, currentWeighment, rewriteEarning, undoToleranceClose } from '../dispatch.ts';
 import { ApiError, notFound, stale, validationError } from '../errors.ts';
 import { type OrderCtx, ctxFor } from '../order-views.ts';
 import { isOpenTruck } from '../orders-math.ts';
@@ -140,6 +142,7 @@ export const truckRoutes: RouteDef[] = [
         atGateAt: null,
         tareAt: null,
         tareDeviceId: null,
+        weighedAt: null,
         dispatchedAt: null,
         cancelledAt: null,
         cancelledBy: null,
@@ -155,6 +158,7 @@ export const truckRoutes: RouteDef[] = [
         action: 'truck.assigned',
         meta: { subOrderId: sub.id, truckId: rec.id, vehicleNo: rec.vehicleNo },
       });
+      notifyTruckAssigned(state, a, now, rec);
       return { status: 201, body: withWarnings(toTruck(ctxFor(ctx, a), rec, { withWeighments: true }), warnings) };
     },
   }),
@@ -175,6 +179,8 @@ export const truckRoutes: RouteDef[] = [
         .map(([k]) => k);
       if (t.state === 'cancelled') throw new ApiError(409, 'TRUCK_LOCKED');
       if (t.state === 'dispatched' && given.some((k) => k !== 'lrNo')) throw new ApiError(409, 'TRUCK_LOCKED');
+      // TON-57: weighed, awaiting approval: the load is on the truck; its plan is history now.
+      if (t.state === 'weighed' && body.plan !== undefined) throw new ApiError(409, 'TRUCK_LOCKED');
       const sub = state.subOrders.find((s) => s.id === t.subOrderId) as SubOrderRec;
 
       if (body.transporterId !== undefined) checkTransporter(state, a, body.transporterId);
@@ -198,6 +204,7 @@ export const truckRoutes: RouteDef[] = [
         action: 'truck.edited',
         meta: { subOrderId: t.subOrderId, truckId: t.id, vehicleNo: t.vehicleNo, fields: given },
       });
+      notifyTruckChanged(state, t);
       return { body: withWarnings(toTruck(ctxFor(ctx, a), t, { withWeighments: true }), warnings) };
     },
   }),
@@ -228,13 +235,32 @@ export const truckRoutes: RouteDef[] = [
         action: 'truck.cancelled',
         meta: { subOrderId: t.subOrderId, truckId: t.id, vehicleNo: t.vehicleNo, reason: body.reason },
       });
+      notifyTruckChanged(state, t);
       return { body: toTruck(ctxFor(ctx, a), t, { withWeighments: true }) };
     },
   }),
 
-  // Owner only, after dispatch (§5.2): new weights replace the old ones, which stay as superseded.
+  // TON-57: the office approves a weighed truck; the approval is the dispatch.
+  route('POST', '/v1/trucks/:id/approve', {
+    action: 'dispatch.approve',
+    idempotent: true,
+    transactional: true,
+    body: approveTruckBodySchema,
+    async handler(ctx) {
+      const a = authed(ctx);
+      const { body, state, now } = ctx;
+      const t = findTruck(ctxFor(ctx, a), ctx.params.id);
+      if (nextTruckState(t.state, 'approve') === null) throw new ApiError(409, 'NOT_AWAITING_APPROVAL');
+      if (body.version !== t.version) throw stale();
+      approveDispatch(state, a, now, t);
+      return { body: toTruck(ctxFor(ctx, a), t, { withWeighments: true }) };
+    },
+  }),
+
+  // Owner and city staff (TON-57), awaiting approval or after dispatch (§5.2): new weights replace
+  // the old ones, which stay as superseded. Money and the tolerance close only exist after dispatch.
   route('POST', '/v1/trucks/:id/correct-weight', {
-    action: 'weighment.correctAfterDispatch',
+    action: 'weighment.correct',
     idempotent: true,
     transactional: true,
     body: correctWeightBodySchema,
@@ -244,7 +270,10 @@ export const truckRoutes: RouteDef[] = [
       const c = ctxFor(ctx, a);
       const t = findTruck(c, ctx.params.id);
       if (body.version !== t.version) throw stale();
-      if (t.state !== 'dispatched' || t.tareKg === null || t.grossKg === null) throw new ApiError(409, 'TRUCK_LOCKED');
+      const weighed = t.state === 'weighed';
+      if ((!weighed && t.state !== 'dispatched') || t.tareKg === null || t.grossKg === null) {
+        throw new ApiError(409, 'TRUCK_LOCKED');
+      }
       const net = netKg(body.grossKg, body.tareKg);
       const lineIds = new Set(c.math.linesOf(t.subOrderId).map((l) => l.id));
       const check = checkAllocations(net, body.allocations, lineIds);
@@ -280,16 +309,18 @@ export const truckRoutes: RouteDef[] = [
       t.allocations = body.allocations.map((x) => ({ orderLineId: x.orderLineId, netKg: x.netKg }));
       t.version += 1;
       t.updatedAt = at;
-      rewriteEarning(state, t, at, a.user.id);
       logActivity(state, a, now, {
         entityType: 'order',
         entityId: t.orderId,
         action: 'truck.weight_corrected',
-        meta: { subOrderId: t.subOrderId, truckId: t.id, vehicleNo: t.vehicleNo, oldNetKg, newNetKg: net, reason: body.reason },
+        meta: { subOrderId: t.subOrderId, truckId: t.id, vehicleNo: t.vehicleNo, oldNetKg, newNetKg: net, reason: body.reason, beforeApproval: weighed },
       });
-      // Tolerance again from scratch: undone, then closed only if still within it with nothing open.
-      undoToleranceClose(state, t, at);
-      closeWithinTolerance(state, { user: a, deviceId: 'server', now, offsetMs: 0 }, t, at);
+      if (!weighed) {
+        rewriteEarning(state, t, at, a.user.id);
+        // Tolerance again from scratch: undone, then closed only if still within it with nothing open.
+        undoToleranceClose(state, t, at);
+        closeWithinTolerance(state, { user: a, deviceId: 'server', now, offsetMs: 0 }, t, at);
+      }
       return { body: toTruck(ctxFor(ctx, a), t, { withWeighments: true }) };
     },
   }),
@@ -334,7 +365,7 @@ export const truckRoutes: RouteDef[] = [
       const a = authed(ctx);
       const { state, now, query } = ctx;
       const c = ctxFor(ctx, a);
-      const counts = { assigned: 0, at_gate: 0, loading: 0, dispatched_today: 0 };
+      const counts = { assigned: 0, at_gate: 0, loading: 0, weighed: 0, dispatched_today: 0 };
       if (query.companyId !== undefined && !c.visibleCompanyIds.has(query.companyId)) {
         return { body: { counts, items: [] } satisfies DispatchBoard };
       }
@@ -350,7 +381,9 @@ export const truckRoutes: RouteDef[] = [
         t.state === 'dispatched' && t.dispatchedAt !== null && sameIstDay(t.dispatchedAt, now);
       for (const t of inScope) {
         if (isToday(t)) counts.dispatched_today += 1;
-        else if (t.state === 'assigned' || t.state === 'at_gate' || t.state === 'loading') counts[t.state] += 1;
+        else if (t.state === 'assigned' || t.state === 'at_gate' || t.state === 'loading' || t.state === 'weighed') {
+          counts[t.state] += 1;
+        }
       }
 
       const needle = query.q === undefined ? '' : query.q.trim().toLowerCase();
@@ -379,7 +412,8 @@ export const truckRoutes: RouteDef[] = [
         .map((t) => {
           const full = toTruck(c, t, { withWeighments: false }) as Partial<Truck>;
           delete full.weighments;
-          return full as Omit<Truck, 'weighments'>;
+          delete full.supervisors;
+          return full as Omit<Truck, 'weighments' | 'supervisors'>;
         });
       return { body: { counts, items } satisfies DispatchBoard };
     },

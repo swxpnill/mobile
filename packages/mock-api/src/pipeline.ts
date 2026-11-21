@@ -10,6 +10,7 @@ import type { z } from 'zod';
 import { DAY, type Clock, fromIso, toIso } from './clock.ts';
 import { ApiError, issueDetails, notFound, unauthenticated, validationError } from './errors.ts';
 import type { RouteDef, Router } from './router.ts';
+import { type PushBus, drainOutbox, runDailyDigest } from './notifications.ts';
 import { authenticate } from './sessions.ts';
 import type { MockState, Store, UserRec } from './store.ts';
 
@@ -87,8 +88,8 @@ export function runEventTransaction<T>(state: MockState, fn: () => T): T {
  * → handler (scoped) → money redaction → persist. Unauthenticated callers never see schema errors.
  * Controls (offline/latency/failNext) wrap this in `controls.ts`.
  */
-export function createPipeline(deps: { router: Router; store: Store; clock: Clock }) {
-  const { router, store, clock } = deps;
+export function createPipeline(deps: { router: Router; store: Store; clock: Clock; push?: PushBus }) {
+  const { router, store, clock, push } = deps;
 
   async function run(req: TransportRequest): Promise<TransportResponse> {
     const now = clock.now();
@@ -105,6 +106,8 @@ export function createPipeline(deps: { router: Router; store: Store; clock: Cloc
       if (!user) throw unauthenticated();
       if (!r.action || !can(user.role, r.action)) throw new ApiError(403, 'FORBIDDEN');
       scope = plantScope(user);
+      // B4 runs the aged-orders digest at 09:00 IST; the mock on the first request after it.
+      if (runDailyDigest(state, user.tenantId, now)) store.schedulePersist();
     }
 
     const query = parseWith(r.query, match.query);
@@ -140,6 +143,8 @@ export function createPipeline(deps: { router: Router; store: Store; clock: Cloc
       // Handlers may change state even when refusing (OTP failures, refresh-reuse revocation).
       if (req.method !== 'GET') store.schedulePersist();
     }
+    // Committed: hand the outbox to the push worker (§5.7, never before the change is saved).
+    push?.publish(drainOutbox(state));
     const status = result.status ?? 200;
     const plain = wire(result.body);
     if (idemSlot && is2xx(status)) {

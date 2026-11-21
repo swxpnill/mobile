@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   type Order,
+  type Truck,
   type SyncEvent,
   type TransportResponse,
   doneTodaySchema,
@@ -74,6 +75,37 @@ export function sync(
 
 export const synced = async (res: Promise<TransportResponse>) => expectOk(await res, syncResponseSchema).results;
 
+/** A phone that only marks arrivals, so tests' own phones keep their device and sequence. */
+const ARRIVAL_DEVICE = '019a4c00-00ff-7000-8000-0000000000ac';
+
+/**
+ * TON-57: a truck is marked arrived (`AT_GATE`) before its tare. Tests that weigh a truck call
+ * this first; the owner can weigh at every plant, so one call fits any truck.
+ */
+export async function arrive(t: ContractTarget, ...truckIds: string[]): Promise<void> {
+  const owner = await tokenFor(t, PEOPLE.rajesh);
+  const events = truckIds.map((id) => phone(id, () => t.clock.now()).atGate());
+  const results = await synced(sync(t, owner, events, { deviceId: ARRIVAL_DEVICE }));
+  expect(results.every((r) => r.status === 'accepted')).toBe(true);
+}
+
+/** `POST /v1/trucks/:id/approve` at the truck's current version unless one is given. */
+export async function approveCall(t: ContractTarget, token: string, truck: Pick<Truck, 'id' | 'version'>, key: string | null = newKey()) {
+  return call(t, 'POST', `/v1/trucks/${truck.id}/approve`, {
+    token,
+    ...(key === null ? {} : { idempotencyKey: key }),
+    body: { version: truck.version },
+  });
+}
+
+/** Approves the weighed truck as the owner (or `token`) and returns it dispatched. */
+export async function approve(t: ContractTarget, truckId: string, token?: string): Promise<Truck> {
+  const who = token ?? (await tokenFor(t, PEOPLE.rajesh));
+  const owner = await tokenFor(t, PEOPLE.rajesh);
+  const now = await getTruck(t, owner, truckId);
+  return expectOk(await approveCall(t, who, now), truckSchema);
+}
+
 const assignBody = (lineId: string, kg: number, vehicleNo = 'CG 04 MK 2291') => ({
   vehicleNo,
   transporterId: null,
@@ -123,24 +155,28 @@ export function register(factory: TargetFactory): void {
     });
 
     describe('sync', () => {
-      it('Ravi weighs the canvas truck: three accepted, a slip, +24,180 kg dispatched, ₹10,881 earned', async () => {
+      it('Ravi weighs the canvas truck and the office approves: a slip, +24,180 kg dispatched, ₹10,881 earned', async () => {
         const t = target();
         const { owner, order, aLine, truck } = await canvasWithTruck(t);
         const ravi = await tokenFor(t, PEOPLE.ravi);
         const p = phone(truck.id, () => t.clock.now());
+        await arrive(t, truck.id);
         const results = await synced(
           sync(t, ravi, [p.atGate(), p.tare(12_460), p.gross(36_640, [{ orderLineId: aLine.id, netKg: 24_180 }])]),
         );
         expect(results.map((r) => r.status)).toEqual(['accepted', 'accepted', 'accepted']);
         const last = results[2]!;
         expect(last.status === 'accepted' && last.task).toBeNull();
-        expect(last.status === 'accepted' ? last.loadingSlipNo : undefined).toMatch(/^LS-AIP-\d{4}-\d{4}$/);
+        // TON-57: the slip comes with the office's approval, not with the weights.
+        expect(last).not.toHaveProperty('loadingSlipNo');
         expect(results[1]).toMatchObject({ status: 'accepted', task: { state: 'loading', tareKg: 12_460, tareDeviceId: DEVICE_A } });
 
+        const approved = await approve(t, truck.id);
+        expect(approved.loadingSlipNo).toMatch(/^LS-AIP-\d{4}-\d{4}$/);
         expect(lineIn(await getOrder(t, owner, order.id), aLine.id).dispatchedKg).toBe(24_180);
         const detail = await getTruck(t, owner, truck.id);
         expect(detail).toMatchObject({ state: 'dispatched', tareKg: 12_460, grossKg: 36_640, netKg: 24_180, earningRupees: 10_881 });
-        expect(detail.loadingSlipNo).toBe(last.status === 'accepted' ? last.loadingSlipNo : null);
+        expect(detail.loadingSlipNo).toBe(approved.loadingSlipNo);
       });
 
       it('the same outbox pushed twice: every event duplicate; one weighment per kind, one slip, one earning', async () => {
@@ -148,8 +184,10 @@ export function register(factory: TargetFactory): void {
         const { owner, order, aLine, truck } = await canvasWithTruck(t);
         const ravi = await tokenFor(t, PEOPLE.ravi);
         const p = phone(truck.id, () => t.clock.now());
+        await arrive(t, truck.id);
         const events = [p.atGate(), p.tare(12_460), p.gross(36_640, [{ orderLineId: aLine.id, netKg: 24_180 }])];
         await synced(sync(t, ravi, events));
+        await approve(t, truck.id);
         const before = await getTruck(t, owner, truck.id);
 
         const again = await synced(sync(t, ravi, events));
@@ -181,6 +219,7 @@ export function register(factory: TargetFactory): void {
         const { owner, truck } = await canvasWithTruck(t);
         const ravi = await tokenFor(t, PEOPLE.ravi);
         const p = phone(truck.id, () => t.clock.now());
+        await arrive(t, truck.id);
         await synced(sync(t, ravi, [p.tare(12_460)]));
 
         const [conflict] = await synced(sync(t, ravi, [p.tare(12_500)], { deviceId: DEVICE_B }));
@@ -202,6 +241,7 @@ export function register(factory: TargetFactory): void {
         const { owner, aLine, truck } = await canvasWithTruck(t);
         const ravi = await tokenFor(t, PEOPLE.ravi);
         const p = phone(truck.id, () => t.clock.now());
+        await arrive(t, truck.id);
         const results = await synced(
           sync(t, ravi, [p.tare(12_460), p.gross(36_640, [{ orderLineId: aLine.id, netKg: 24_179 }])]),
         );
@@ -215,6 +255,7 @@ export function register(factory: TargetFactory): void {
         const { owner, order, a, aLine, truck } = await canvasWithTruck(t);
         const ravi = await tokenFor(t, PEOPLE.ravi);
         const p = phone(truck.id, () => t.clock.now());
+        await arrive(t, truck.id);
         await synced(sync(t, ravi, [p.tare(12_460)]));
 
         const removedLine = a.lines[1]!;
@@ -239,12 +280,14 @@ export function register(factory: TargetFactory): void {
         const { owner, aLine, truck } = await canvasWithTruck(t);
         const ravi = await tokenFor(t, PEOPLE.ravi);
         const p = phone(truck.id, () => t.clock.now());
+        await arrive(t, truck.id);
         const events = [p.tare(12_460), p.gross(36_640, [{ orderLineId: aLine.id, netKg: 24_180 }])];
         expectOk(
           await call(t, 'POST', `/v1/trucks/${truck.id}/cancel`, {
             idempotencyKey: newKey(),
             token: owner,
-            body: { reason: 'Vehicle did not arrive', note: '', version: truck.version },
+            // The arrival moved the version: cancel the truck as the owner sees it now.
+            body: { reason: 'Vehicle did not arrive', note: '', version: (await getTruck(t, owner, truck.id)).version },
           }),
           truckSchema,
         );
@@ -272,6 +315,7 @@ export function register(factory: TargetFactory): void {
         const { owner, truck } = await canvasWithTruck(t);
         const ravi = await tokenFor(t, PEOPLE.ravi);
         // Another phone's tare wins first.
+        await arrive(t, truck.id);
         await synced(sync(t, ravi, [phone(truck.id, () => t.clock.now()).tare(12_000)]));
         const mine = [phone(truck.id, () => t.clock.now()).tare(12_460)];
         const first = await synced(sync(t, ravi, mine, { deviceId: DEVICE_B }));
@@ -294,6 +338,7 @@ export function register(factory: TargetFactory): void {
         const other = await assign(t, owner, a.id, aLine.id, 1_000, 'CG 04 AA 1111');
         const ravi = await tokenFor(t, PEOPLE.ravi);
         const p = phone(truck.id, () => t.clock.now());
+        await arrive(t, truck.id);
         await synced(sync(t, ravi, [p.tare(12_460), p.gross(36_640, [{ orderLineId: aLine.id, netKg: 24_180 }])]));
         expectOk(
           await call(t, 'POST', `/v1/trucks/${other.id}/cancel`, { token: owner, idempotencyKey: newKey(), body: { reason: 'Other', note: '', version: other.version } }),
@@ -317,6 +362,7 @@ export function register(factory: TargetFactory): void {
         const ravi = await tokenFor(t, PEOPLE.ravi);
         const p = phone(truck.id, () => t.clock.now());
         const q = phone(other.id, () => t.clock.now());
+        await arrive(t, truck.id, other.id);
         const results = await synced(
           sync(t, ravi, [p.tare(12_460), q.tare(11_000), p.gross(36_640, [{ orderLineId: aLine.id, netKg: 24_179 }]), p.tare(12_470), q.atGate()]),
         );
@@ -335,6 +381,7 @@ export function register(factory: TargetFactory): void {
         const ravi = await tokenFor(t, PEOPLE.ravi);
         const behind = 10 * MINUTE;
         const p = phone(truck.id, () => t.clock.now() - behind - 2 * MINUTE);
+        await arrive(t, truck.id);
         await synced(sync(t, ravi, [p.tare(12_460)], { deviceTime: t.clock.now() - behind }));
         const [w] = (await getTruck(t, owner, truck.id)).weighments;
         expect(w).toMatchObject({ kind: 'tare', clockSkew: true, capturedAt: new Date(t.clock.now() - 2 * MINUTE).toISOString() });
@@ -363,6 +410,7 @@ export function register(factory: TargetFactory): void {
         const sanjay = await tokenFor(t, PEOPLE.sanjay);
         const p = phone(truck.id, () => t.clock.now());
 
+        await arrive(t, truck.id);
         const [r] = await synced(sync(t, sanjay, [p.tare(12_460)], { deviceId: DEVICE_B }));
         expect(r).toMatchObject({ status: 'rejected', code: 'PLANT_SCOPE' });
         const sanjayTasks = expectOk(await call(t, 'GET', '/v1/supervisor/tasks', { token: sanjay }), tasksPageSchema);
@@ -423,6 +471,7 @@ export function register(factory: TargetFactory): void {
         expect((await taskOf()).tareAt).toBeNull();
 
         const p = phone(truck.id, () => t.clock.now());
+        await arrive(t, truck.id);
         await synced(sync(t, ravi, [p.tare(12_460)]));
         const liveTare = () =>
           getTruck(t, owner, truck.id).then((d) => d.weighments.find((w) => w.kind === 'tare' && !w.superseded)!);
@@ -489,7 +538,9 @@ export function register(factory: TargetFactory): void {
             truckSchema,
           );
         const ravi = await tokenFor(t, PEOPLE.ravi);
+        await arrive(t, truck.id);
         const mine = phone(truck.id, () => t.clock.now()).tare(12_460);
+        await arrive(t, other.id);
         const theirs = phone(other.id, () => t.clock.now()).tare(11_000);
         expect((await synced(sync(t, ravi, [mine])))[0]).toMatchObject({ status: 'rejected' });
         expect((await synced(sync(t, owner, [theirs], { deviceId: DEVICE_B })))[0]).toMatchObject({ status: 'rejected' });
@@ -556,6 +607,7 @@ export function register(factory: TargetFactory): void {
           truckSchema,
         );
         const ravi = await tokenFor(t, PEOPLE.ravi);
+        await arrive(t, truck.id);
         const tare = phone(truck.id, () => t.clock.now()).tare(12_460);
         expect((await synced(sync(t, ravi, [tare])))[0]).toMatchObject({ status: 'rejected', code: 'TRUCK_CANCELLED' });
         const first = expectOk(await call(t, 'GET', '/v1/supervisor/tasks', { token: ravi }), tasksPageSchema);
@@ -587,7 +639,9 @@ export function register(factory: TargetFactory): void {
             truckSchema,
           );
         const ravi = await tokenFor(t, PEOPLE.ravi);
+        await arrive(t, truck.id);
         const old = phone(truck.id, () => t.clock.now()).tare(12_460);
+        await arrive(t, other.id);
         const recent = phone(other.id, () => t.clock.now()).tare(11_000);
         await synced(sync(t, ravi, [old, recent]));
         const rows = expectOk(await call(t, 'GET', '/v1/weighment-rejections', { token: owner }), z.array(rejectionSchema));
@@ -645,8 +699,10 @@ export function register(factory: TargetFactory): void {
         const p2 = phone(two.id, () => t.clock.now());
         const statusOf = async () => (await getOrder(t, owner, order.id)).subOrders[0]!;
 
+        await arrive(t, two.id, one.id);
         const r = await synced(sync(t, ravi, [p2.tare(11_000), p1.tare(12_000), p1.gross(35_400, [{ orderLineId: line.id, netKg: 23_400 }])]));
         expect(r.map((x) => x.status)).toEqual(['accepted', 'accepted', 'accepted']);
+        await approve(t, one.id);
         expect(await statusOf()).toMatchObject({ status: 'partly_dispatched', closeKind: null });
 
         const loading = await getTruck(t, owner, two.id);
@@ -658,8 +714,12 @@ export function register(factory: TargetFactory): void {
 
         const three = await assign(t, owner, sub.id, line.id, 600, 'CG 04 AA 0003');
         const p3 = phone(three.id, () => t.clock.now());
+        await arrive(t, three.id);
         const r3 = await synced(sync(t, ravi, [p3.tare(12_000), p3.gross(12_200, [{ orderLineId: line.id, netKg: 200 }])]));
         expect(r3.map((x) => x.status)).toEqual(['accepted', 'accepted']);
+        // Weighed is still open: the sub-order closes within tolerance when the office approves.
+        expect(await statusOf()).toMatchObject({ status: 'partly_dispatched', closeKind: null });
+        await approve(t, three.id);
         expect(await statusOf()).toMatchObject({ status: 'completed', closeKind: 'tolerance' });
       });
     });
@@ -675,6 +735,7 @@ export function register(factory: TargetFactory): void {
         const { aLine, truck } = await canvasWithTruck(t);
         let phoneNow = at2340 + 5 * MINUTE;
         const p = phone(truck.id, () => phoneNow);
+        await arrive(t, truck.id);
         const events = [p.tare(12_460)];
         phoneNow = at2340 + 10 * MINUTE; // 23:50 IST
         events.push(p.gross(36_640, [{ orderLineId: aLine.id, netKg: 24_180 }]));
@@ -692,10 +753,87 @@ export function register(factory: TargetFactory): void {
         expect(item).toMatchObject({
           vehicleNo: 'CG 04 MK 2291',
           netKg: 24_180,
-          dispatchedAt: new Date(at2340 + 10 * MINUTE).toISOString(),
+          status: 'awaiting_approval',
+          weighedAt: new Date(at2340 + 10 * MINUTE).toISOString(),
+          loadingSlipNo: null,
+          dispatchedAt: null,
         });
-        expect(item!.loadingSlipNo).toMatch(/^LS-AIP-\d{4}-\d{4}$/);
         expect(sameDay.totalNetKg).toBe(sameDay.items.reduce((n, x) => n + x.netKg, 0));
+      });
+    });
+
+    describe('TON-57: arrival before tare, product lines on the task', () => {
+      it('a tare before the truck is marked arrived is refused ARRIVAL_REQUIRED; arrival then tare is fine', async () => {
+        const t = target();
+        const { owner, truck } = await canvasWithTruck(t);
+        const ravi = await tokenFor(t, PEOPLE.ravi);
+        const ph = phone(truck.id, () => t.clock.now());
+        const [early] = await synced(sync(t, ravi, [ph.tare(12_000)]));
+        expect(early).toMatchObject({ status: 'rejected', code: 'ARRIVAL_REQUIRED' });
+        expect((await getTruck(t, owner, truck.id)).state).toBe('assigned');
+
+        const ph2 = phone(truck.id, () => t.clock.now());
+        const results = await synced(sync(t, ravi, [ph2.atGate(), ph2.tare(12_000)], { deviceId: DEVICE_B }));
+        expect(results.map((r) => r.status)).toEqual(['accepted', 'accepted']);
+        expect((await getTruck(t, owner, truck.id)).state).toBe('loading');
+      });
+
+      it('restoring a refused early tare marks the truck arrived, then applies the tare', async () => {
+        const t = target();
+        const { owner, truck } = await canvasWithTruck(t);
+        const ravi = await tokenFor(t, PEOPLE.ravi);
+        await synced(sync(t, ravi, [phone(truck.id, () => t.clock.now()).tare(12_000)]));
+        const [rej] = expectOk(await call(t, 'GET', '/v1/weighment-rejections', { token: owner }), z.array(rejectionSchema));
+        expect(rej).toMatchObject({ code: 'ARRIVAL_REQUIRED' });
+        const res = await call(t, 'POST', `/v1/weighment-rejections/${rej!.id}/restore`, { token: owner, idempotencyKey: newKey() });
+        expect(res.status).toBe(200);
+        const after = await getTruck(t, owner, truck.id);
+        expect(after.state).toBe('loading');
+        expect(after.tareKg).toBe(12_000);
+        expect(after.atGateAt).not.toBeNull();
+      });
+
+      it('tasks carry every line of the sub-order with what is pending', async () => {
+        const t = target();
+        const { order, a, truck } = await canvasWithTruck(t);
+        const ravi = await tokenFor(t, PEOPLE.ravi);
+        const task = expectOk(await call(t, 'GET', '/v1/supervisor/tasks', { token: ravi }), tasksPageSchema).items.find((x) => x.truckId === truck.id)!;
+        const sub = order.subOrders.find((s) => s.id === a.id)!;
+        expect(task.lines.map((l) => l.orderLineId).sort()).toEqual(sub.lines.map((l) => l.id).sort());
+        for (const l of task.lines) expect(l.pendingKg).toBe(sub.lines.find((x) => x.id === l.orderLineId)!.pendingKg);
+        expect(task.lines.every((l) => l.productName.length > 0)).toBe(true);
+      });
+
+      it('a partial load, once approved, dispatches the truck and leaves the rest pending (no tolerance close)', async () => {
+        const t = target();
+        const { owner, order, aLine, truck } = await canvasWithTruck(t);
+        const ravi = await tokenFor(t, PEOPLE.ravi);
+        const ph = phone(truck.id, () => t.clock.now());
+        await arrive(t, truck.id);
+        const results = await synced(sync(t, ravi, [ph.atGate(), ph.tare(12_000), ph.gross(22_000, [{ orderLineId: aLine.id, netKg: 10_000 }])]));
+        expect(results.every((r) => r.status === 'accepted')).toBe(true);
+        expect((await getTruck(t, owner, truck.id)).state).toBe('weighed');
+        await approve(t, truck.id);
+        expect((await getTruck(t, owner, truck.id)).state).toBe('dispatched');
+        const after = await getOrder(t, owner, order.id);
+        expect(lineIn(after, aLine.id).pendingKg).toBe(aLine.orderedKg - 10_000);
+        expect(after.subOrders.find((s) => s.lines.some((l) => l.id === aLine.id))!.status).toBe('partly_dispatched');
+      });
+
+      it('a product weighed that was not on the truck plan, from the same sub-order, is accepted', async () => {
+        const t = target();
+        const { owner, order, a, aLine, truck } = await canvasWithTruck(t);
+        const other = order.subOrders.find((s) => s.id === a.id)!.lines.find((l) => l.id !== aLine.id)!;
+        const ravi = await tokenFor(t, PEOPLE.ravi);
+        const ph = phone(truck.id, () => t.clock.now());
+        await arrive(t, truck.id);
+        const results = await synced(
+          sync(t, ravi, [ph.atGate(), ph.tare(12_000), ph.gross(12_000 + 20_000 + 5_000, [{ orderLineId: aLine.id, netKg: 20_000 }, { orderLineId: other.id, netKg: 5_000 }])]),
+        );
+        expect(results.every((r) => r.status === 'accepted')).toBe(true);
+        await approve(t, truck.id);
+        const after = await getOrder(t, owner, order.id);
+        expect(lineIn(after, other.id).dispatchedKg).toBe(5_000);
       });
     });
   });
