@@ -4,7 +4,7 @@ import { withTenant, type Db, type Tx } from '../db/client.ts';
 import { devices, otpChallenges, users } from '../db/schema/index.ts';
 import type { Env } from '../env.ts';
 import { AppError } from '../http/errors.ts';
-import { hashesEqual, sha256Hex } from './crypto.ts';
+import { createOtpHasher } from './crypto.ts';
 import { newOtpCode, type OtpProvider } from './otp-provider.ts';
 import type { Tokens } from './tokens.ts';
 
@@ -78,11 +78,12 @@ async function activeAccounts(tx: Tx, mobile: string): Promise<LookupRow[]> {
 
 export function createOtpService(deps: {
   db: Db;
-  env: Pick<Env, 'OTP_PROVIDER' | 'DEV_OTP_CODE'>;
+  env: Pick<Env, 'OTP_PROVIDER' | 'DEV_OTP_CODE' | 'JWT_SECRET'>;
   otp: OtpProvider;
   tokens: Tokens;
 }): OtpService {
   const { db, otp, tokens } = deps;
+  const hasher = createOtpHasher(deps.env.JWT_SECRET);
 
   async function requestCode(mobile: string, now: number) {
     const outcome = await db.transaction(async (tx): Promise<Refusal | { code: string; send: boolean }> => {
@@ -101,7 +102,7 @@ export function createOtpService(deps: {
       const code = newOtpCode(deps.env);
       await tx
         .update(otpChallenges)
-        .set({ codeHash: sha256Hex(code), issuedAt: at, consumed: false, updatedAt: at })
+        .set({ codeHash: hasher.hashCode(mobile, code), issuedAt: at, consumed: false, updatedAt: at })
         .where(eq(otpChallenges.mobile, mobile));
       return { code, send: (await activeAccounts(tx, mobile)).length > 0 };
     });
@@ -121,7 +122,7 @@ export function createOtpService(deps: {
       if (now - rec.issuedAt.getTime() >= OTP_TTL_MS) return new Refusal(401, 'OTP_EXPIRED');
 
       const at = new Date(now);
-      if (!hashesEqual(rec.codeHash, sha256Hex(input.code))) {
+      if (!hasher.codeMatches(rec.codeHash, input.mobile, input.code)) {
         const failures = rec.failures + 1;
         const lockedUntil = failures >= MAX_FAILURES ? new Date(now + LOCK_MS) : null;
         await tx

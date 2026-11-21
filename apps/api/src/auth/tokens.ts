@@ -39,7 +39,12 @@ export interface Tokens {
    * revokes every refresh token of the user (committed) and is refused. Throws 401 UNAUTHENTICATED.
    */
   rotateRefresh(db: Db, token: string, deviceId: string, now: number): Promise<TokenPair>;
-  /** Revokes every live refresh token of the user and drops any sealed successor. */
+  /**
+   * Revokes every live refresh token of the user and drops any sealed successor. The caller must
+   * already hold the user's row lock (`select … from users … for no key update`, in a tenant
+   * transaction, before any refresh-token row lock): that lock is what stops a rotation in flight
+   * from slipping a new token past this statement. `rotateRefresh` takes it; so must deactivate.
+   */
   revokeAllForUser(tx: Tx, userId: string, now: number): Promise<void>;
   /** Revokes this refresh token and clears its device's push token; an unknown token is a no-op. */
   signOut(db: Db, token: string, now: number): Promise<void>;
@@ -118,10 +123,27 @@ export function createTokens(secret: string): Tokens {
 
   const rotateRefresh: Tokens['rotateRefresh'] = async (db, token, deviceId, now) => {
     const hash = sha256Hex(token);
+    // Unlocked: a token row's user and tenant never change, and the row is re-read under lock below.
+    const [owner] = await db
+      .select({ userId: refreshTokens.userId, tenantId: refreshTokens.tenantId })
+      .from(refreshTokens)
+      .where(eq(refreshTokens.tokenHash, hash));
+    if (!owner) throw refused();
+
     // A refusal returns (so its writes commit) and is thrown only after the commit (Ruling 5).
-    const pair = await db.transaction(async (tx): Promise<TokenPair | null> => {
-      // The row lock serialises concurrent refreshes of one token: the second waits, then sees the
-      // rotation and takes the grace path (Review Focus 1).
+    const pair = await withTenant(db, owner.tenantId, async (tx): Promise<TokenPair | null> => {
+      // Lock order: the user row, then the token row (never the reverse, or two calls deadlock).
+      // The user lock serialises every rotation and revoke-all of this person, so a revoke-all can
+      // never miss a successor another device is inserting at that moment.
+      const [user] = await tx
+        .select({ active: users.active })
+        .from(users)
+        .where(eq(users.id, owner.userId))
+        .for('no key update');
+      if (!user?.active) return null;
+
+      // The token row lock serialises concurrent refreshes of one token: the second waits, then sees
+      // the rotation and takes the grace path (Review Focus 1).
       const [rec] = await tx
         .select()
         .from(refreshTokens)
@@ -130,40 +152,33 @@ export function createTokens(secret: string): Tokens {
       if (!rec || !hashesEqual(rec.tokenHash, hash) || rec.deviceId !== deviceId) return null;
       if (now >= rec.expiresAt.getTime()) return null;
 
-      return withTenant(tx, rec.tenantId, async (ttx) => {
-        const [user] = await ttx
-          .select({ active: users.active })
-          .from(users)
-          .where(eq(users.id, rec.userId));
-        if (!user?.active) return null;
-
-        if (rec.rotatedAt !== null) {
-          if (now - rec.rotatedAt.getTime() < REFRESH_GRACE_MS && rec.successorEnc !== null) {
-            const successor = box.openSuccessor(rec.successorEnc);
-            const [live] = await ttx
-              .select({ id: refreshTokens.id })
-              .from(refreshTokens)
-              .where(
-                and(
-                  eq(refreshTokens.tokenHash, sha256Hex(successor.refreshToken)),
-                  isNull(refreshTokens.revokedAt),
-                ),
-              );
-            if (live) return successor; // an identical retry within the grace window
-          }
-          // Reuse after the grace window: treat as theft. Also clears this row's sealed successor.
-          await revokeAllForUser(ttx, rec.userId, now);
-          return null;
+      if (rec.rotatedAt !== null) {
+        if (now - rec.rotatedAt.getTime() < REFRESH_GRACE_MS && rec.successorEnc !== null) {
+          const successor = box.openSuccessor(rec.successorEnc);
+          const [live] = await tx
+            .select({ id: refreshTokens.id })
+            .from(refreshTokens)
+            .where(
+              and(
+                eq(refreshTokens.tokenHash, sha256Hex(successor.refreshToken)),
+                isNull(refreshTokens.revokedAt),
+              ),
+            );
+          if (live) return successor; // an identical retry within the grace window
         }
-        if (rec.revokedAt !== null) return null;
+        // Reuse after the grace window: treat as theft. Relies on the user lock taken above; also
+        // clears this row's sealed successor.
+        await revokeAllForUser(tx, rec.userId, now);
+        return null;
+      }
+      if (rec.revokedAt !== null) return null;
 
-        const next = await issuePair(ttx, { id: rec.userId, tenantId: rec.tenantId }, deviceId, now);
-        await ttx
-          .update(refreshTokens)
-          .set({ rotatedAt: new Date(now), successorEnc: box.sealSuccessor(next), updatedAt: new Date(now) })
-          .where(eq(refreshTokens.id, rec.id));
-        return next;
-      });
+      const next = await issuePair(tx, { id: rec.userId, tenantId: rec.tenantId }, deviceId, now);
+      await tx
+        .update(refreshTokens)
+        .set({ rotatedAt: new Date(now), successorEnc: box.sealSuccessor(next), updatedAt: new Date(now) })
+        .where(eq(refreshTokens.id, rec.id));
+      return next;
     });
     if (pair === null) throw refused();
     return pair;

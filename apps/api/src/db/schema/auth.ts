@@ -17,7 +17,7 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () =>
 /** No RLS: one row per mobile, read before the tenant is known (the mock's `OtpRec`). */
 export const otpChallenges = pgTable('otp_challenges', {
   mobile: text('mobile').primaryKey(),
-  /** SHA-256 of the code, hex. Never the code itself. */
+  /** HMAC-SHA256 of `mobile:code` (key derived from JWT_SECRET), hex. Never the code itself. */
   codeHash: text('code_hash'),
   issuedAt: tstz('issued_at'),
   consumed: boolean('consumed').notNull().default(false),

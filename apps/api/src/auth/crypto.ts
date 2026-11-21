@@ -1,16 +1,47 @@
-import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes, timingSafeEqual } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createHmac,
+  hkdfSync,
+  randomBytes,
+  timingSafeEqual,
+} from 'node:crypto';
 import { tokenPairSchema, type TokenPair } from '@tonnage/shared';
 
-/** SHA-256 of a secret (OTP code or refresh token), hex. Only hashes are stored. */
+/** SHA-256 of a refresh token, hex. Only hashes are stored. */
 export function sha256Hex(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
-/** Constant-time comparison of two hex SHA-256 digests. */
+/** Constant-time comparison of two hex SHA-256 / HMAC-SHA256 digests. */
 export function hashesEqual(a: string, b: string): boolean {
   const x = Buffer.from(a, 'hex');
   const y = Buffer.from(b, 'hex');
   return x.length === 32 && y.length === 32 && timingSafeEqual(x, y);
+}
+
+/** A 32-byte key for one purpose, derived from JWT_SECRET (so no key is the JWT signing key). */
+function deriveKey(secret: string, info: string): Buffer {
+  return Buffer.from(hkdfSync('sha256', secret, Buffer.alloc(0), info, 32));
+}
+
+export interface OtpHasher {
+  /** HMAC-SHA256 over `mobile:code`, hex: a leaked row cannot be brute-forced without the key. */
+  hashCode(mobile: string, code: string): string;
+  /** Constant-time check of a code against the stored hash. */
+  codeMatches(storedHash: string, mobile: string, code: string): boolean;
+}
+
+/** Key = HKDF-SHA256(JWT_SECRET, info `otp-code`), separate from the successor key. */
+export function createOtpHasher(secret: string): OtpHasher {
+  const key = deriveKey(secret, 'otp-code');
+  const hashCode = (mobile: string, code: string) =>
+    createHmac('sha256', key).update(`${mobile}:${code}`, 'utf8').digest('hex');
+  return {
+    hashCode,
+    codeMatches: (storedHash, mobile, code) => hashesEqual(storedHash, hashCode(mobile, code)),
+  };
 }
 
 const IV_BYTES = 12;
@@ -28,7 +59,7 @@ export interface SuccessorBox {
  * Key = HKDF-SHA256(JWT_SECRET, info `refresh-successor`), so it is never the JWT signing key.
  */
 export function createSuccessorBox(secret: string): SuccessorBox {
-  const key = Buffer.from(hkdfSync('sha256', secret, Buffer.alloc(0), 'refresh-successor', 32));
+  const key = deriveKey(secret, 'refresh-successor');
   return {
     sealSuccessor(pair) {
       const iv = randomBytes(IV_BYTES);

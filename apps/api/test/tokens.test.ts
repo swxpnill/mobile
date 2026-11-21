@@ -1,7 +1,7 @@
 import { SignJWT } from 'jose';
 import { describe, expect, it } from 'vitest';
 import { ACCESS_TTL_MS, createTokens } from '../src/auth/tokens.ts';
-import { createSuccessorBox } from '../src/auth/crypto.ts';
+import { createOtpHasher, createSuccessorBox } from '../src/auth/crypto.ts';
 import { TEST_NOW } from './helpers.ts';
 
 const SECRET = 'test-secret-test-secret-test-secret-0123';
@@ -92,5 +92,18 @@ describe('sealed successor pair', () => {
     const flipped = Buffer.from(a);
     flipped[flipped.length - 1] = (flipped[flipped.length - 1] ?? 0) ^ 1;
     expect(() => box.openSuccessor(flipped)).toThrow();
+  });
+});
+
+describe('OTP code hash', () => {
+  it('is an HMAC bound to the number and the key, checked in constant time', () => {
+    const hasher = createOtpHasher(SECRET);
+    const h = hasher.hashCode('+919826100012', '123456');
+    expect(h).toMatch(/^[0-9a-f]{64}$/);
+    expect(hasher.codeMatches(h, '+919826100012', '123456')).toBe(true);
+    expect(hasher.codeMatches(h, '+919826100012', '123457')).toBe(false);
+    expect(hasher.codeMatches(h, '+919826100013', '123456')).toBe(false);
+    expect(createOtpHasher('another-secret-another-secret-another-1').hashCode('+919826100012', '123456')).not.toBe(h);
+    expect(hasher.codeMatches('not-hex', '+919826100012', '123456')).toBe(false);
   });
 });

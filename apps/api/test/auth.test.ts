@@ -1,6 +1,7 @@
 import { createFakeClock } from '@tonnage/mock-api';
 import { ERROR_MESSAGES, tokenPairSchema, type TokenPair } from '@tonnage/shared';
 import { eq } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
 import { Writable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { OtpProvider } from '../src/auth/otp-provider.ts';
@@ -74,6 +75,11 @@ describe('auth: database behaviour', () => {
       expect(sealed.includes(Buffer.from(secret))).toBe(false);
     }
     expect(otpRows[0]?.codeHash).toMatch(/^[0-9a-f]{64}$/);
+    // Keyed (HMAC), so a leaked row cannot be checked against the million possible codes.
+    const sha = (v: string) => createHash('sha256').update(v).digest('hex');
+    expect(otpRows[0]?.codeHash).not.toBe('123456');
+    expect(otpRows[0]?.codeHash).not.toBe(sha('123456'));
+    expect(otpRows[0]?.codeHash).not.toBe(sha(`${RAJESH}:123456`));
     for (const r of tokenRows) expect(r.tokenHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
