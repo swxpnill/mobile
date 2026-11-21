@@ -2,6 +2,7 @@ import { idSchema, type PlantScope } from '@tonnage/shared';
 import { and, eq, inArray, type SQL } from 'drizzle-orm';
 import type { Tx } from '../db/client.ts';
 import { companies, plants } from '../db/schema/index.ts';
+import { pgError } from '../db/pg-error.ts';
 import { AppError } from '../http/errors.ts';
 
 type CompanyRow = typeof companies.$inferSelect;
@@ -13,7 +14,7 @@ function plantFilter(scope: PlantScope): SQL | undefined {
 }
 
 /** Ids that are not uuids can never match a row; asking Postgres would be an error, not a 404. */
-const isId = (id: string | undefined): id is string => idSchema.safeParse(id).success;
+export const isId = (id: string | undefined): id is string => idSchema.safeParse(id).success;
 
 /** Plants visible to the caller, optionally of one company. */
 export async function visiblePlants(tx: Tx, scope: PlantScope, companyId?: string): Promise<PlantRow[]> {
@@ -60,19 +61,6 @@ export async function assertCompanyDeactivatable(tx: Tx, companyId: string): Pro
   void tx;
   void companyId;
   // Intentionally empty until B2.
-}
-
-/** Drizzle wraps driver errors; the Postgres error is the `cause` (or the error itself). */
-function pgError(e: unknown): { code?: string; constraint?: string } | null {
-  let cur: unknown = e;
-  for (let i = 0; i < 4 && cur !== null && typeof cur === 'object'; i++) {
-    const c = cur as { code?: unknown; constraint?: unknown; cause?: unknown };
-    if (typeof c.code === 'string' && typeof c.constraint === 'string') {
-      return { code: c.code, constraint: c.constraint };
-    }
-    cur = c.cause;
-  }
-  return null;
 }
 
 /**
