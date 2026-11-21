@@ -1,14 +1,20 @@
 import { metaSchema } from '@tonnage/shared';
-import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import type { Clock } from '../clock.ts';
+import type { FastifyPluginAsync } from 'fastify';
 import type { Env } from '../env.ts';
+import { defineRoute } from '../http/route.ts';
 
 /** `GET /v1/meta` (public): the minimum supported app version and the server's clock. */
-export const metaRoutes = (deps: { env: Env; clock: Clock }): FastifyPluginAsyncZod => {
+export const metaRoutes = (deps: { env: Env }): FastifyPluginAsync => {
   return async (app) => {
-    app.get('/meta', { schema: { response: { 200: metaSchema } } }, async () => ({
-      minSupportedVersion: deps.env.MIN_SUPPORTED_APP_VERSION,
-      serverTime: new Date(deps.clock.now()).toISOString(),
-    }));
+    defineRoute(app, 'GET', '/meta', {
+      public: true,
+      response: { 200: metaSchema },
+      handler: async ({ now }) => ({
+        body: {
+          minSupportedVersion: deps.env.MIN_SUPPORTED_APP_VERSION,
+          serverTime: new Date(now).toISOString(),
+        },
+      }),
+    });
   };
 };

@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { LogController, type FastifyInstance } from 'fastify';
 import { serializerCompiler } from 'fastify-type-provider-zod';
 import type { DestinationStream } from 'pino';
 import { v7 as uuidv7 } from 'uuid';
@@ -9,6 +9,7 @@ import type { Clock } from './clock.ts';
 import type { Db } from './db/client.ts';
 import type { Env } from './env.ts';
 import { registerErrorHandling, zodValidatorCompiler } from './http/errors.ts';
+import { registerPipeline } from './http/route.ts';
 import { authRoutes } from './routes/auth.ts';
 import { metaRoutes } from './routes/meta.ts';
 
@@ -40,6 +41,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     },
     requestIdHeader: 'x-request-id',
     genReqId: () => uuidv7(),
+    // One completion line per request comes from the onResponse hook below instead.
+    logController: new LogController({ disableRequestLogging: true }),
   });
   app.setValidatorCompiler(zodValidatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
@@ -48,8 +51,23 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.addHook('onSend', async (request, reply) => {
     reply.header('x-request-id', request.id);
   });
+  // Never headers or bodies: only who, which route, the outcome and how long it took.
+  app.addHook('onResponse', async (request, reply) => {
+    const routeUrl = request.routeOptions.url;
+    request.log.info(
+      {
+        tenantId: request.auth?.claims.tenantId ?? null,
+        userId: request.auth?.claims.userId ?? null,
+        route: routeUrl === undefined ? null : `${request.method} ${routeUrl}`,
+        status: reply.statusCode,
+        ms: Math.round(reply.elapsedTime),
+      },
+      'request completed',
+    );
+  });
 
   const tokens = createTokens(env.JWT_SECRET);
+  registerPipeline(app, { db: deps.db, clock: deps.clock, tokens });
   const otp = createOtpService({
     db: deps.db,
     env,
@@ -57,8 +75,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     tokens,
   });
 
-  await app.register(metaRoutes({ env, clock: deps.clock }), { prefix: '/v1' });
-  await app.register(authRoutes({ env, db: deps.db, clock: deps.clock, otp, tokens }), {
+  await app.register(metaRoutes({ env }), { prefix: '/v1' });
+  await app.register(authRoutes({ env, otp, tokens }), {
     prefix: '/v1/auth',
   });
   return app;

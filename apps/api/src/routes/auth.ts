@@ -7,31 +7,25 @@ import {
   tokenPairSchema,
   verifyCodeBodySchema,
 } from '@tonnage/shared';
-import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
+import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import type { OtpService } from '../auth/otp.service.ts';
 import type { Tokens } from '../auth/tokens.ts';
-import type { Clock } from '../clock.ts';
-import type { Db } from '../db/client.ts';
 import type { Env } from '../env.ts';
 import { AppError } from '../http/errors.ts';
+import { defineRoute } from '../http/route.ts';
 
 export interface AuthRouteDeps {
   env: Pick<Env, 'RATE_LIMIT'>;
-  db: Db;
-  clock: Clock;
   otp: OtpService;
   tokens: Tokens;
 }
 
-/** Public: the pipeline (Task 4) skips bearer auth for these. */
-const PUBLIC = { public: true } as const;
-
 /**
- * `POST /v1/auth/{request-code,verify,refresh,sign-out}`. Not wrapped in a request transaction: the
- * services commit refusals before throwing (Ruling 5).
+ * `POST /v1/auth/{request-code,verify,refresh,sign-out}`. Public, so not wrapped in a request
+ * transaction: the services commit refusals before throwing (Ruling 5).
  */
-export const authRoutes = (deps: AuthRouteDeps): FastifyPluginAsyncZod => {
+export const authRoutes = (deps: AuthRouteDeps): FastifyPluginAsync => {
   return async (app) => {
     if (deps.env.RATE_LIMIT === 'on') {
       // Registered inside this plugin, so only `/v1/auth/*` is limited.
@@ -42,32 +36,37 @@ export const authRoutes = (deps: AuthRouteDeps): FastifyPluginAsyncZod => {
       });
     }
 
-    app.post(
-      '/request-code',
-      { config: PUBLIC, schema: { body: requestCodeBodySchema, response: { 200: requestCodeResponseSchema } } },
-      async (req) => deps.otp.requestCode(req.body.mobile, deps.clock.now()),
-    );
+    defineRoute(app, 'POST', '/request-code', {
+      public: true,
+      body: requestCodeBodySchema,
+      response: { 200: requestCodeResponseSchema },
+      handler: async ({ body, now }) => ({ body: await deps.otp.requestCode(body.mobile, now) }),
+    });
 
-    app.post(
-      '/verify',
-      { config: PUBLIC, schema: { body: verifyCodeBodySchema, response: { 200: tokenPairSchema } } },
-      async (req) => deps.otp.verify(req.body, deps.clock.now()),
-    );
+    defineRoute(app, 'POST', '/verify', {
+      public: true,
+      body: verifyCodeBodySchema,
+      response: { 200: tokenPairSchema },
+      handler: async ({ body, now }) => ({ body: await deps.otp.verify(body, now) }),
+    });
 
-    app.post(
-      '/refresh',
-      { config: PUBLIC, schema: { body: refreshBodySchema, response: { 200: tokenPairSchema } } },
-      async (req) =>
-        deps.tokens.rotateRefresh(deps.db, req.body.refreshToken, req.body.deviceId, deps.clock.now()),
-    );
+    defineRoute(app, 'POST', '/refresh', {
+      public: true,
+      body: refreshBodySchema,
+      response: { 200: tokenPairSchema },
+      handler: async ({ db, body, now }) => ({
+        body: await deps.tokens.rotateRefresh(db, body.refreshToken, body.deviceId, now),
+      }),
+    });
 
-    app.post(
-      '/sign-out',
-      { config: PUBLIC, schema: { body: signOutBodySchema, response: { 204: z.null() } } },
-      async (req, reply) => {
-        await deps.tokens.signOut(deps.db, req.body.refreshToken, deps.clock.now());
-        return reply.code(204).send(null);
+    defineRoute(app, 'POST', '/sign-out', {
+      public: true,
+      body: signOutBodySchema,
+      response: { 204: z.null() },
+      handler: async ({ db, body, now }) => {
+        await deps.tokens.signOut(db, body.refreshToken, now);
+        return { status: 204 };
       },
-    );
+    });
   };
 };
