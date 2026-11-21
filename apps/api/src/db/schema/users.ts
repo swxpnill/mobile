@@ -69,11 +69,11 @@ export const userPlants = pgTable(
   ],
 );
 
-/** One row per phone; `id` is the app's deviceId. */
+/** One row per phone per tenant; `id` is the app's deviceId, so the same phone can sign into two tenants. */
 export const devices = pgTable(
   'devices',
   {
-    id: uuid('id').primaryKey(),
+    id: uuid('id').notNull(),
     tenantId: tenantId().references(() => tenants.id),
     userId: uuid('user_id').notNull(),
     pushToken: text('push_token'),
@@ -82,6 +82,7 @@ export const devices = pgTable(
     ...timestamps,
   },
   (t) => [
+    primaryKey({ name: 'devices_pkey', columns: [t.tenantId, t.id] }),
     index('devices_user_idx').on(t.userId),
     foreignKey({
       name: 'devices_user_fk',

@@ -1,5 +1,5 @@
 {
-  "id": "050466c3-acd4-4c6d-90f4-b2cbe5d0b795",
+  "id": "95c5d73e-915a-4b4d-a112-0d9aecf44b1f",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -267,7 +267,7 @@
         "id": {
           "name": "id",
           "type": "uuid",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true
         },
         "tenant_id": {
@@ -360,7 +360,15 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "devices_pkey": {
+          "name": "devices_pkey",
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},

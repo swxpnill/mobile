@@ -1,7 +1,7 @@
 import { asc, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from 'vitest';
 import { createDb, withTenant, type Db } from '../src/db/client.ts';
-import { companies, plants } from '../src/db/schema/index.ts';
+import { companies, devices, plants } from '../src/db/schema/index.ts';
 import {
   buildTestApp,
   closeTestApps,
@@ -117,6 +117,40 @@ describe('row-level security as tonnage_app', () => {
     ]);
     // The function is the only way across tenants: a direct read still sees nothing.
     expect(await db.execute(sql`select * from users`)).toMatchObject({ rows: [] });
+  });
+
+  it('the same phone (deviceId) can be registered in two tenants', async () => {
+    const userA = await ownerInsertUser(t.ownerDb, tenantA, {
+      mobile: '9826100012',
+      name: 'Rajesh',
+    });
+    const userB = await ownerInsertUser(t.ownerDb, tenantB, {
+      mobile: '9826100012',
+      name: 'Rajesh B',
+    });
+    const deviceId = '019a4b1e-0000-7000-8000-0000000000e1';
+    const now = new Date('2026-11-03T04:30:00Z');
+    const register = (tenantId: string, userId: string) =>
+      withTenant(db, tenantId, (tx) =>
+        tx
+          .insert(devices)
+          .values({
+            id: deviceId,
+            tenantId,
+            userId,
+            lastSeenAt: now,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: [devices.tenantId, devices.id],
+            set: { userId, lastSeenAt: now, updatedAt: now },
+          }),
+      );
+    await register(tenantA, userA);
+    await register(tenantB, userB);
+    const rows = await t.ownerDb.select({ tenantId: devices.tenantId }).from(devices);
+    expect(rows.map((r) => r.tenantId).sort()).toEqual([tenantA, tenantB].sort());
   });
 
   it('tonnage_app cannot turn RLS off', async () => {

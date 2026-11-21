@@ -35,14 +35,15 @@ CREATE TABLE "tenants" (
 );
 --> statement-breakpoint
 CREATE TABLE "devices" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid NOT NULL,
 	"tenant_id" uuid NOT NULL,
 	"user_id" uuid NOT NULL,
 	"push_token" text,
 	"app_version" text,
 	"last_seen_at" timestamp with time zone NOT NULL,
 	"created_at" timestamp with time zone NOT NULL,
-	"updated_at" timestamp with time zone NOT NULL
+	"updated_at" timestamp with time zone NOT NULL,
+	CONSTRAINT "devices_pkey" PRIMARY KEY("tenant_id","id")
 );
 --> statement-breakpoint
 CREATE TABLE "user_plants" (
