@@ -62,7 +62,7 @@ describe('error contract', () => {
         cb();
       },
     });
-    const db = createDb(inject('appDatabaseUrl'));
+    const { db, close } = createDb(inject('appDatabaseUrl'));
     const app = await buildApp({
       env: testEnv({ LOG_LEVEL: 'info' }),
       db,
@@ -85,7 +85,7 @@ describe('error contract', () => {
     expect(errorLog.reqId).toBe('req-77');
     expect(errorLog.err.message).toBe('secret internals');
     await app.close();
-    await db.$client.end();
+    await close();
   });
 
   it('answers an unknown route with 404 NOT_FOUND', async () => {
@@ -115,7 +115,7 @@ describe('error contract', () => {
         cb();
       },
     });
-    const db = createDb(inject('appDatabaseUrl'));
+    const { db, close } = createDb(inject('appDatabaseUrl'));
     const app = await buildApp({ env: testEnv({ LOG_LEVEL: 'info' }), db, clock: createFakeClock(0), logStream: stream });
     app.post('/v1/_t/log', async (req) => {
       req.log.info({ body: req.body, headers: req.headers }, 'received');
@@ -133,6 +133,6 @@ describe('error contract', () => {
     expect(all).not.toContain('654321');
     expect(all).not.toContain('REFRESH-SECRET');
     await app.close();
-    await db.$client.end();
+    await close();
   });
 });

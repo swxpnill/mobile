@@ -14,15 +14,11 @@ await admin.connect();
 try {
   const exists = await admin.query('select 1 from pg_database where datname = $1', [DEV_DB]);
   if (exists.rowCount === 0) await admin.query(`create database ${DEV_DB}`);
-  const role = await admin.query('select 1 from pg_roles where rolname = $1', [APP_ROLE.user]);
-  if (role.rowCount === 0) {
-    await admin.query(`create role ${APP_ROLE.user} login password '${APP_ROLE.password}'`);
-  }
 } finally {
   await admin.end();
 }
 
-console.log('Embedded PostgreSQL is running. Put these in apps/api/.env:');
+console.log('Embedded PostgreSQL is running. Put these in apps/api/.env, then run db:migrate:');
 console.log(`DATABASE_URL=${withDatabase(cluster.adminUrl, DEV_DB, APP_ROLE)}`);
 console.log(`MIGRATION_DATABASE_URL=${withDatabase(cluster.adminUrl, DEV_DB)}`);
 

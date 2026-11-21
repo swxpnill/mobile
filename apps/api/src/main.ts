@@ -7,14 +7,14 @@ import { buildApp } from './server.ts';
 if (existsSync('.env')) process.loadEnvFile('.env');
 
 const env = loadEnv(process.env);
-const db = createDb(env.DATABASE_URL);
+const { db, close: closeDb } = createDb(env.DATABASE_URL);
 const app = await buildApp({ env, db, clock: systemClock });
 
 async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, 'shutting down');
   try {
     await app.close();
-    await db.$client.end();
+    await closeDb();
     process.exit(0);
   } catch (err) {
     app.log.error({ err }, 'shutdown failed');

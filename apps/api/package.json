@@ -9,8 +9,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:dev": "tsx src/scripts/dev-db.ts",
-    "db:migrate": "echo \"db:migrate arrives with the schema (Task 2)\"",
-    "db:generate": "echo \"db:generate arrives with the schema (Task 2)\"",
+    "db:migrate": "tsx src/scripts/migrate.ts",
+    "db:generate": "drizzle-kit generate",
     "seed": "echo \"seed arrives with the schema (Task 2)\""
   },
   "dependencies": {
@@ -25,6 +25,7 @@
   "devDependencies": {
     "@tonnage/mock-api": "workspace:*",
     "@types/pg": "^8",
+    "drizzle-kit": "^0.31.11",
     "embedded-postgres": "16.16.0-beta.19",
     "tsx": "^4.23.15",
     "vitest": "^5.1.0"

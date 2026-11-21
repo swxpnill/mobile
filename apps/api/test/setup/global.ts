@@ -2,6 +2,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import type { TestProject } from 'vitest/node';
+import { migrate } from '../../src/db/migrate.ts';
 import { startEmbedded, withDatabase, type EmbeddedCluster } from '../../src/scripts/embedded.ts';
 
 const TEST_DB = 'tonnage_test';
@@ -18,7 +19,7 @@ declare module 'vitest' {
 
 /**
  * Starts a local PostgreSQL (or uses `TEST_DATABASE_ADMIN_URL` in CI), recreates the test database
- * and the runtime role. From Task 2 on it also migrates.
+ * and migrates it (which also creates or updates the runtime role `tonnage_app`).
  */
 export default async function setup(project: TestProject): Promise<() => Promise<void>> {
   let cluster: EmbeddedCluster | undefined;
@@ -34,16 +35,16 @@ export default async function setup(project: TestProject): Promise<() => Promise
   try {
     await admin.query(`drop database if exists ${TEST_DB} with (force)`);
     await admin.query(`create database ${TEST_DB}`);
-    const role = await admin.query('select 1 from pg_roles where rolname = $1', [APP_ROLE.user]);
-    if (role.rowCount === 0) {
-      await admin.query(`create role ${APP_ROLE.user} login password '${APP_ROLE.password}'`);
-    }
   } finally {
     await admin.end();
   }
 
-  project.provide('ownerDatabaseUrl', withDatabase(adminUrl, TEST_DB));
-  project.provide('appDatabaseUrl', withDatabase(adminUrl, TEST_DB, APP_ROLE));
+  const ownerDatabaseUrl = withDatabase(adminUrl, TEST_DB);
+  const appDatabaseUrl = withDatabase(adminUrl, TEST_DB, APP_ROLE);
+  await migrate(ownerDatabaseUrl, appDatabaseUrl);
+
+  project.provide('ownerDatabaseUrl', ownerDatabaseUrl);
+  project.provide('appDatabaseUrl', appDatabaseUrl);
 
   return async () => {
     await cluster?.stop();
