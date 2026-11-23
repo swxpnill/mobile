@@ -68,7 +68,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   ALREADY_REVERSED: 'This payment was already reversed',
   ALREADY_WEIGHED: 'This vehicle is already weighed and waiting for approval',
   NOT_AWAITING_APPROVAL: 'This vehicle is not waiting for approval',
-  RATE_LIMITED: 'Too many attempts. Try again in a minute.',
+  RATE_LIMITED: 'Too many attempts. Try again in a minute',
 };
 
 export interface ApiErrorBody {

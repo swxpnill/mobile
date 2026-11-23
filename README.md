@@ -43,12 +43,22 @@ pnpm db:seed       # the sample world (Agrawal Group: 4 companies, 4 plants, 8 p
 pnpm dev:api       # http://localhost:3000
 ```
 
-Check it from a third terminal (Git Bash; the OTP code is always `123456` in dev, and `deviceId` is any UUID v7):
+If `db:migrate` reports that a relation already exists, `apps/api/.pgdata` is left over from an older schema: stop `dev:db`, delete that folder and start again.
+
+Check it from a third terminal (the OTP code is always `123456` in dev, and `deviceId` is any UUID v7). Git Bash:
 
 ```sh
 curl -X POST localhost:3000/v1/auth/request-code -H "content-type: application/json" -d '{"mobile":"9826100012"}'
 curl -X POST localhost:3000/v1/auth/verify -H "content-type: application/json"   -d '{"mobile":"9826100012","code":"123456","deviceId":"<a uuid v7>"}'
 curl localhost:3000/v1/me -H "authorization: Bearer <accessToken from verify>"
+```
+
+PowerShell:
+
+```powershell
+Invoke-RestMethod -Method Post http://localhost:3000/v1/auth/request-code -ContentType application/json -Body '{"mobile":"9826100012"}'
+$pair = Invoke-RestMethod -Method Post http://localhost:3000/v1/auth/verify -ContentType application/json -Body '{"mobile":"9826100012","code":"123456","deviceId":"<a uuid v7>"}'
+Invoke-RestMethod http://localhost:3000/v1/me -Headers @{ authorization = "Bearer $($pair.accessToken)" }
 ```
 
 ## Running the app on your phone (Expo Go)
