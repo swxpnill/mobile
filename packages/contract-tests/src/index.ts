@@ -40,7 +40,25 @@ export const CONTRACT_SUITES: readonly ((factory: TargetFactory) => void)[] = [
   notifications,
 ];
 
+/** The M1 suites (B1): sign-in, the request pipeline, companies and plants, users, /me, settings. */
+export const M1_SUITES: readonly ((factory: TargetFactory) => void)[] = [
+  auth,
+  pipeline,
+  org,
+  users,
+  me,
+  settings,
+];
+
+/** Declares the given suites against the target the factory builds. */
+export function registerSuites(
+  suites: readonly ((factory: TargetFactory) => void)[],
+  factory: TargetFactory,
+): void {
+  for (const register of suites) register(factory);
+}
+
 /** Declares every contract suite against the target the factory builds. */
 export function registerAll(factory: TargetFactory): void {
-  for (const register of CONTRACT_SUITES) register(factory);
+  registerSuites(CONTRACT_SUITES, factory);
 }
