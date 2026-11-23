@@ -14,11 +14,28 @@ export interface DbHandle {
   close(): Promise<void>;
 }
 
-export function createDb(connectionString: string, opts: { max?: number } = {}): DbHandle {
+/** Where pool-level errors go: a pino logger (the API passes its own) fits this shape. */
+export interface PoolErrorLog {
+  error(obj: { err: Error }, msg: string): void;
+}
+
+const consoleLog: PoolErrorLog = {
+  error: (obj, msg) => console.error(msg, obj.err),
+};
+
+export function createDb(
+  connectionString: string,
+  opts: { max?: number; log?: PoolErrorLog } = {},
+): DbHandle {
   const pool = new pg.Pool({
     connectionString,
     ...(opts.max !== undefined ? { max: opts.max } : {}),
   });
+  // The server ending an idle client (restart, failover, a pooler recycling it) is emitted on the
+  // pool; without a listener Node treats it as uncaught and the process dies. The pool has already
+  // dropped that client, so the next query opens a fresh one: log it and carry on.
+  const log = opts.log ?? consoleLog;
+  pool.on('error', (err) => log.error({ err }, 'database pool error'));
   const db = drizzle({ client: pool, schema });
   return { db, close: () => pool.end() };
 }

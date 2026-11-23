@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import type { FastifyBaseLogger } from 'fastify';
 import { systemClock } from './clock.ts';
 import { createDb } from './db/client.ts';
 import { loadEnv } from './env.ts';
@@ -7,8 +8,15 @@ import { buildApp } from './server.ts';
 if (existsSync('.env')) process.loadEnvFile('.env');
 
 const env = loadEnv(process.env);
-const { db, close: closeDb } = createDb(env.DATABASE_URL);
+// The pool exists before the app (and its logger) does; route its errors to the app's log once it is up.
+const sink: { log?: FastifyBaseLogger } = {};
+const { db, close: closeDb } = createDb(env.DATABASE_URL, {
+  log: {
+    error: (obj, msg) => (sink.log ? sink.log.error(obj, msg) : console.error(msg, obj.err)),
+  },
+});
 const app = await buildApp({ env, db, clock: systemClock });
+sink.log = app.log;
 
 async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, 'shutting down');
