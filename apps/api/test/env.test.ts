@@ -6,6 +6,7 @@ const base = {
   MIGRATION_DATABASE_URL: 'postgres://postgres:x@127.0.0.1:5432/tonnage',
   JWT_SECRET: 'a-secret-that-is-at-least-thirty-two-chars',
   OTP_PROVIDER: 'dev',
+  NODE_ENV: 'development',
 };
 
 describe('loadEnv', () => {
@@ -13,6 +14,15 @@ describe('loadEnv', () => {
     expect(() => loadEnv({ ...base, NODE_ENV: 'production', OTP_PROVIDER: 'dev' })).toThrow(
       'Dev OTP provider is not allowed in production',
     );
+  });
+
+  it('refuses a missing NODE_ENV, so a production deploy never falls back to development', () => {
+    expect(() => loadEnv({ ...base, NODE_ENV: undefined })).toThrow(/NODE_ENV/);
+  });
+
+  it('allows the dev OTP provider in development and test', () => {
+    expect(loadEnv({ ...base, NODE_ENV: 'development' }).OTP_PROVIDER).toBe('dev');
+    expect(loadEnv({ ...base, NODE_ENV: 'test' }).OTP_PROVIDER).toBe('dev');
   });
 
   it('refuses a short JWT secret', () => {

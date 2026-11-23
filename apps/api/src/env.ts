@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  /** Required, no default: a deploy that forgets it must not boot as development (dev OTP). */
+  NODE_ENV: z.enum(['development', 'test', 'production']),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   /** Runtime connection, as the `tonnage_app` role (never an owner, never BYPASSRLS). */
   DATABASE_URL: z.string().min(1),
@@ -25,7 +26,9 @@ export function loadEnv(raw: NodeJS.ProcessEnv): Env {
     throw new Error(`Invalid environment: ${lines.join('; ')}`);
   }
   const env = parsed.data;
-  if (env.NODE_ENV === 'production' && env.OTP_PROVIDER === 'dev') {
+  // Allow-list, not deny-list: the fixed-code provider only where NODE_ENV says so explicitly.
+  const devOtpAllowed = env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
+  if (env.OTP_PROVIDER === 'dev' && !devOtpAllowed) {
     throw new Error('Dev OTP provider is not allowed in production');
   }
   return env;
