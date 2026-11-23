@@ -170,6 +170,52 @@ export function register(factory: TargetFactory): void {
       expect((await getOrder(t, owner, order.id)).vehicleRequests).toEqual([]);
     });
 
+    it('vehicle request: a truck assigned after it and then cancelled (the vehicle never came) leaves it open', async () => {
+      const t = target();
+      const { owner, order, a } = await canvas(t);
+      const line = a.lines[0]!;
+      expectOk(await post(t, owner, order.id, body([{ orderLineId: line.id, kg: 19_000 }])), created, 201);
+      t.clock.advance(MINUTE);
+      const truck = await assign(t, owner, a.id, line.id, 5_000, 'CG 04 CC 3333');
+      expect((await getOrder(t, owner, order.id)).vehicleRequests).toEqual([]);
+      const cancelled = await call(t, 'POST', `/v1/trucks/${truck.id}/cancel`, {
+        token: owner,
+        idempotencyKey: newKey(),
+        body: { reason: 'Other', note: '', version: truck.version },
+      });
+      expect(cancelled.status).toBe(200);
+      expect((await getOrder(t, owner, order.id)).vehicleRequests).toHaveLength(1);
+    });
+
+    it('vehicle request: a truck assigned at exactly its request time leaves it open', async () => {
+      const t = target();
+      const { owner, order, a } = await canvas(t);
+      const line = a.lines[0]!;
+      expectOk(await post(t, owner, order.id, body([{ orderLineId: line.id, kg: 19_000 }])), created, 201);
+      await assign(t, owner, a.id, line.id, 5_000, 'CG 04 DD 4444');
+      expect((await getOrder(t, owner, order.id)).vehicleRequests).toHaveLength(1);
+    });
+
+    it('vehicle request: a plant head sees only the lines on their sub-orders, and their total', async () => {
+      const t = target();
+      const { owner, order, a, b } = await canvas(t);
+      expectOk(
+        await post(t, owner, order.id, body([
+          { orderLineId: a.lines[0]!.id, kg: 4_000 },
+          { orderLineId: b.lines[0]!.id, kg: 6_000 },
+        ])),
+        created,
+        201,
+      );
+      const kiran = await tokenFor(t, PEOPLE.kiran);
+      const seen = await getOrder(t, kiran, order.id);
+      expect(seen.vehicleRequests).toHaveLength(1);
+      expect(seen.vehicleRequests[0]).toMatchObject({
+        lines: [{ orderLineId: a.lines[0]!.id, subOrderId: a.id, kg: 4_000 }],
+        totalKg: 4_000,
+      });
+    });
+
     it('vehicle request: short close clears it; with lines on two sub-orders it stays open until both are closed', async () => {
       const t = target();
       const { owner, order, a, b } = await canvas(t);
