@@ -11,7 +11,7 @@
     "db:dev": "tsx src/scripts/dev-db.ts",
     "db:migrate": "tsx src/scripts/migrate.ts",
     "db:generate": "drizzle-kit generate",
-    "seed": "echo \"seed arrives with the schema (Task 2)\""
+    "db:seed": "tsx src/scripts/seed.ts"
   },
   "dependencies": {
     "@fastify/rate-limit": "^11.3.0",

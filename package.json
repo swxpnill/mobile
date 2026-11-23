@@ -4,6 +4,10 @@
   "version": "0.0.0",
   "packageManager": "pnpm@10.34.9",
   "scripts": {
+    "dev:db": "pnpm --filter @tonnage/api run db:dev",
+    "dev:api": "pnpm --filter @tonnage/api run dev",
+    "db:migrate": "pnpm --filter @tonnage/api run db:migrate",
+    "db:seed": "pnpm --filter @tonnage/api run db:seed",
     "lint": "pnpm -r --if-present run lint",
     "typecheck": "pnpm -r --if-present run typecheck",
     "test": "pnpm -r --if-present run test"

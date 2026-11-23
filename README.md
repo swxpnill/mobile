@@ -11,6 +11,7 @@ Right now the app runs entirely on an **in-app mock API**: no server, database o
 | `apps/mobile` | The Expo app (Expo Router, TanStack Query, Zustand) |
 | `packages/shared` | Schemas, permissions, redaction, units and formatters, used by app, mock and API |
 | `packages/mock-api` | The in-app API: same routes, rules and errors as the real one |
+| `apps/api` | The real API (Fastify, Drizzle, Postgres), built to the same contract; M1 routes so far |
 | `packages/contract-tests` | One API test suite that every backend must pass |
 | `docs/superpowers` | Design spec and implementation plans |
 
@@ -27,6 +28,28 @@ pnpm test
 ```
 
 All commands work in PowerShell and in Git Bash. If `corepack enable` fails with a permissions error, run the terminal once as Administrator.
+
+## Run the API locally
+
+The API in `apps/api` needs Postgres; `dev:db` starts an embedded Postgres 16 on port 54328 (it never touches a Postgres on 5432). Copy `.env.example` to `apps/api/.env` once (`dev:db` prints the two database URLs it expects).
+
+```sh
+# terminal 1: leave running (Ctrl+C stops it)
+pnpm dev:db
+
+# terminal 2
+pnpm db:migrate    # schema, role tonnage_app, RLS
+pnpm db:seed       # the sample world (Agrawal Group: 4 companies, 4 plants, 8 people); safe to repeat
+pnpm dev:api       # http://localhost:3000
+```
+
+Check it from a third terminal (Git Bash; the OTP code is always `123456` in dev, and `deviceId` is any UUID v7):
+
+```sh
+curl -X POST localhost:3000/v1/auth/request-code -H "content-type: application/json" -d '{"mobile":"9826100012"}'
+curl -X POST localhost:3000/v1/auth/verify -H "content-type: application/json"   -d '{"mobile":"9826100012","code":"123456","deviceId":"<a uuid v7>"}'
+curl localhost:3000/v1/me -H "authorization: Bearer <accessToken from verify>"
+```
 
 ## Running the app on your phone (Expo Go)
 
