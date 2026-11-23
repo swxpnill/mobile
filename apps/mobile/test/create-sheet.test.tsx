@@ -228,6 +228,21 @@ describe('Loading picker', () => {
       expect(mockRouter.push).not.toHaveBeenCalled();
       expect(screen.getByText('Request vehicle · pick an order')).toBeOnTheScreen();
     });
+
+    it('speaks of asking for a vehicle, not loading', async () => {
+      await setup();
+      await wrap(<LoadingPickerScreen />);
+      expect(await screen.findByText('Choose the order to ask a vehicle for.')).toBeOnTheScreen();
+      expect(screen.queryByText('Choose the open order to load a truck against.')).toBeNull();
+    });
+
+    it('nothing pending: its own empty state', async () => {
+      await setup({ seedOrders: false });
+      await wrap(<LoadingPickerScreen />);
+      expect(await screen.findByText('Nothing pending')).toBeOnTheScreen();
+      expect(screen.getByText('Every open order is fully dispatched or already closed.')).toBeOnTheScreen();
+      expect(screen.queryByText(/Trucks are loaded against/)).toBeNull();
+    });
   });
 
   it('no open orders: empty state with Create order', async () => {

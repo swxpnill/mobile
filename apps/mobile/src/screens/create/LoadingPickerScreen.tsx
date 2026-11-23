@@ -99,15 +99,23 @@ export function LoadingPickerScreen() {
         />
       }
     >
-      <Text variant="caption">Choose the open order to load a truck against.</Text>
+      <Text variant="caption">
+        {request ? 'Choose the order to ask a vehicle for.' : 'Choose the open order to load a truck against.'}
+      </Text>
       <SearchField value={search} onChangeText={setSearch} placeholder="Search order no., party" />
       {empty && loading ? (
         <ActivityIndicator color={t.br} accessibilityLabel="Loading" />
       ) : empty ? (
         <EmptyState
           icon="truck"
-          title={q ? 'No open orders match' : 'No open orders'}
-          body={q ? `Nothing open matches “${q}”.` : 'Trucks are loaded against an open order. Book one first.'}
+          title={q ? 'No open orders match' : request ? 'Nothing pending' : 'No open orders'}
+          body={
+            q
+              ? `Nothing open matches “${q}”.`
+              : request
+                ? 'Every open order is fully dispatched or already closed.'
+                : 'Trucks are loaded against an open order. Book one first.'
+          }
           actions={[{ label: 'Create order', onPress: () => router.push('/order-form') }]}
         />
       ) : (
