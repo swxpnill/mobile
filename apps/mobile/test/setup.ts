@@ -51,6 +51,8 @@ jest.mock('expo-background-task', () => ({
   unregisterTaskAsync: jest.fn(async () => undefined),
   triggerTaskWorkerForTestingAsync: jest.fn(async () => true),
 }));
+// Clipboard is native: tests check what was copied.
+jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn(async () => true) }));
 jest.mock('expo-task-manager', () => ({
   defineTask: jest.fn(),
   isTaskRegisteredAsync: jest.fn(async () => false),

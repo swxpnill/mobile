@@ -70,6 +70,8 @@ export const TEXT_PAIRS: readonly TextPair[] = [
   { fg: 'invtx2', bg: 'inv', min: 4.5 },
   { fg: 'onDanger', bg: 'dgf', min: 4.5 },
   { fg: 'vitx', bg: 'vi', min: 4.5 },
+  // WhatsApp button: white bold button text (large text, 3:1).
+  { fg: 'invtx', bg: 'wa', min: 3 },
   // Icons and large figures.
   { fg: 'br', bg: 'card', min: 3 },
   { fg: 'ok', bg: 'card', min: 3 },

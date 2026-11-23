@@ -19,4 +19,13 @@ describe('contact links', () => {
       expect([bad, whatsappLink(bad, 'x')]).toEqual([bad, null]);
     }
   });
+
+  it('a vehicle request message keeps its line breaks, bullets and ampersands intact (%0A, %26)', () => {
+    const text = 'Namaste R.K. ji,\n• 12 mm — 24.000 MT & more';
+    const link = whatsappLink('+919926830011', text);
+    expect(link).toBe(`https://wa.me/919926830011?text=${encodeURIComponent(text)}`);
+    expect(link).toContain('%0A');
+    expect(link).toContain('%26');
+    expect(link?.split('?text=')[1]).not.toMatch(/[\n&]/);
+  });
 });
