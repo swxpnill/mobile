@@ -1,5 +1,5 @@
 import type { ErrorCode, TokenPair } from '@tonnage/shared';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { withTenant, type Db, type Tx } from '../db/client.ts';
 import { devices, otpChallenges, users } from '../db/schema/index.ts';
 import type { Env } from '../env.ts';
@@ -147,14 +147,21 @@ export function createOtpService(deps: {
       if (!account) return otpInvalid();
       const { tenant_id: tenantId, user_id: userId } = account;
 
-      await tx
-        .update(otpChallenges)
-        .set({ consumed: true, failures: 0, updatedAt: at })
-        .where(eq(otpChallenges.mobile, input.mobile));
-
       // Users and devices have RLS: written with the tenant set (ledger ruling P1).
-      return withTenant(tx, tenantId, async (ttx) => {
-        await ttx.update(users).set({ lastSeenAt: at }).where(eq(users.id, userId));
+      return withTenant(tx, tenantId, async (ttx): Promise<Refusal | TokenPair> => {
+        // `activeAccounts` read without a lock. This takes the user row lock (before any refresh
+        // token's, the lock order) and re-checks `active` on the latest row: a deactivation that
+        // committed meanwhile wins, and the code stays unconsumed, as when the lookup finds no one.
+        const seen = await ttx
+          .update(users)
+          .set({ lastSeenAt: at })
+          .where(and(eq(users.id, userId), eq(users.active, true)))
+          .returning({ id: users.id });
+        if (seen.length === 0) return otpInvalid();
+        await ttx
+          .update(otpChallenges)
+          .set({ consumed: true, failures: 0, updatedAt: at })
+          .where(eq(otpChallenges.mobile, input.mobile));
         // The phone moves to whoever signed in on it (Ruling 9).
         await ttx
           .insert(devices)

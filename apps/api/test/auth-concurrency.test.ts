@@ -1,10 +1,11 @@
 import { ERROR_MESSAGES, tokenPairSchema } from '@tonnage/shared';
 import { createFakeClock } from '@tonnage/mock-api';
-import { eq, isNotNull, isNull } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { otpChallenges, refreshTokens } from '../src/db/schema/index.ts';
 import {
   TEST_NOW,
+  bearerFor,
   buildTestApp,
   closeTestApps,
   ownerInsertTenant,
@@ -20,14 +21,16 @@ const DEVICE_B = '019a4c00-0000-7000-8000-00000000d002';
 
 let t: TestApp;
 let clock: ReturnType<typeof createFakeClock>;
+let tenantId: string;
+let ownerId: string;
 
 beforeEach(async () => {
   // A real pool (default size 10), requests in flight together: the database decides the order.
   clock = createFakeClock(TEST_NOW);
   t = await buildTestApp({ clock });
   await t.reset();
-  const tenantId = await ownerInsertTenant(t.ownerDb, 'Agrawal Group');
-  await ownerInsertUser(t.ownerDb, tenantId, { mobile: RAJESH, name: 'Rajesh Agrawal' });
+  tenantId = await ownerInsertTenant(t.ownerDb, 'Agrawal Group');
+  ownerId = await ownerInsertUser(t.ownerDb, tenantId, { mobile: RAJESH, name: 'Rajesh Agrawal' });
 });
 
 const post = (path: string, payload: object) =>
@@ -148,5 +151,35 @@ describe('auth under concurrency', () => {
     expect([200, 401]).toContain(rotation?.statusCode);
     // Whichever ran first, theft detection leaves this person no live refresh token.
     expect(await t.ownerDb.select().from(refreshTokens).where(isNull(refreshTokens.revokedAt))).toEqual([]);
+  });
+
+  it('a sign-in racing a deactivation that commits first → 401 OTP_INVALID and no live refresh token', async () => {
+    const PRIYA = '+919826100013';
+    const priyaId = await ownerInsertUser(t.ownerDb, tenantId, {
+      mobile: PRIYA,
+      name: 'Priya Sharma',
+      role: 'city_staff',
+    });
+    expect((await post('request-code', { mobile: PRIYA })).statusCode).toBe(200);
+    const owner = await bearerFor(t, tenantId, ownerId);
+
+    // Stage 1: the owner's deactivation queues on Priya's row first. Stage 2: her verify has already
+    // read her as active (no lock yet) and queues behind it on the same row. The deactivation commits
+    // first; the verify must notice, not issue a token to someone no longer active.
+    const [deactivate, verify] = await raceBehindRowLock(
+      'select 1 from users where id = $1 for update',
+      [priyaId],
+      () => [t.app.inject({ method: 'POST', url: `/v1/users/${priyaId}/deactivate`, headers: owner })],
+      () => [post('verify', { mobile: PRIYA, code: '123456', deviceId: DEVICE })],
+    );
+    expect(deactivate?.statusCode).toBe(200);
+    expect(verify?.statusCode).toBe(401);
+    expect(verify?.json()).toEqual({ code: 'OTP_INVALID', message: ERROR_MESSAGES.OTP_INVALID });
+    expect(
+      await t.ownerDb
+        .select()
+        .from(refreshTokens)
+        .where(and(eq(refreshTokens.userId, priyaId), isNull(refreshTokens.revokedAt))),
+    ).toEqual([]);
   });
 });
