@@ -341,3 +341,41 @@ it('changing role to city_staff deletes user_plants rows in the same transaction
 - [ ] **Step 4: Run everything.** `pnpm lint && pnpm typecheck && pnpm test` → green. Push the branch: CI is green with the Postgres service.
 - [ ] **Step 5: Smoke-test the app against the local API (Ruling 11).** Run `pnpm dev:api`, then `adb reverse tcp:3000 tcp:3000` and `EXPO_PUBLIC_API_MODE=http EXPO_PUBLIC_API_URL=http://127.0.0.1:3000 npx expo start --localhost --clear`. Sign in as Rajesh with `123456`, then open More → Companies, Users and Settings. Edit a company name and change unit basis to kg; both persist after a reload. Record what you saw in the PR description.
 - [ ] **Step 6: Commit.** `test(api): M1 contract suite and route parity green against the real API`
+
+---
+
+## Carried forward from B1
+
+From the final whole-branch review; each line is owned by the milestone named.
+
+**B2 Global Constraints**
+- Handlers throw or return 2xx: the API rolls back a returned non-2xx, unlike the mock.
+- Quantity and money columns use `bigint(…, { mode: 'number' })`: `toWire`'s `JSON.stringify` throws on BigInt.
+- CI runs `drizzle-kit check` and fails when `generate` produces a diff (spec §10.2).
+- Decide `created_by` columns (spec §4) versus `activity_log`.
+- Revoke insert/delete on `tenants` from `tonnage_app`; grant update only on `(settings, updated_at)`.
+- `Idempotency-Key` length/charset → 422, with a contract test.
+- The stale-replay-after-purge race on idempotency keys.
+- 413 before auth is an exception to Ruling 10; record it.
+- `findCompany` loads all visible companies; look one up by id.
+- A shared lock-wait test helper with a time deadline, filtered by `datname`.
+- `withTenant(tx)` leaves `app.tenant_id` set after its savepoint, until the outer transaction ends.
+
+**B4**
+- Clean up expired `refresh_tokens`.
+- One push token per phone across tenants.
+- The push-token `deviceId` is `string(8..64)`, not a uuid.
+- Consider a composite FK `refresh_tokens.device_id` → `devices(tenant_id, id)`.
+
+**B5**
+- `trustProxy` from env; refresh exempt from or separately limited by the rate limit; mobile copy for `RATE_LIMITED`.
+- The rate-limit store is in memory (one instance only).
+- Queue the SMS send or fire and forget (timing enumeration); handle `otp.send` failing after the commit.
+- An advisory lock in `migrate`.
+- Copy `rls.sql` and `drizzle/` into the build.
+- Check that `pnpm deploy --prod --filter @tonnage/api` doesn't pull the Expo tree.
+- Reject the example `JWT_SECRET` in production.
+- A successor box that fails to open (secret rotation) → refuse, not 500.
+- pino redaction beyond the top level.
+- Cap `x-request-id`.
+- `migrate`'s rollback error masks the original error.
