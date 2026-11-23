@@ -24,13 +24,26 @@ grant usage on schema public to tonnage_app;
 grant select, insert, update, delete on all tables in schema public to tonnage_app;
 alter default privileges in schema public grant select, insert, update, delete on tables to tonnage_app;
 
--- 3. Tenant isolation. `nullif(..., '')`: once a transaction-local setting has ended, the session
--- reports '' rather than null, and ''::uuid would raise instead of matching nothing.
+-- 3. Tenant isolation, on every public table with a tenant_id column, so a table a later migration
+-- adds is covered without anyone listing it. Exempt (keep in step with test/migrate.test.ts):
+--   refresh_tokens: looked up by token hash before the tenant is known (refresh carries no tenant).
+-- `tenants` has no tenant_id column. `nullif(..., '')`: once a transaction-local setting has ended,
+-- the session reports '' rather than null, and ''::uuid would raise instead of matching nothing.
 do $$
 declare
   t text;
 begin
-  foreach t in array array['companies', 'plants', 'users', 'user_plants', 'devices', 'idempotency_keys', 'activity_log']
+  for t in
+    select c.relname
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public'
+       and c.relkind in ('r', 'p')
+       and c.relname <> all (array['refresh_tokens'])
+       and exists (select 1 from pg_attribute a
+                    where a.attrelid = c.oid and a.attname = 'tenant_id'
+                      and a.attnum > 0 and not a.attisdropped)
+     order by c.relname
   loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists tenant_isolation on public.%I', t);
