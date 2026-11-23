@@ -1,7 +1,7 @@
 import { type Order, type SubOrder, type VehicleRequest, toDisplayQty, unitLabel } from '@tonnage/shared';
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { useDisplayBasis } from '../../api/hooks/me';
+import { useDisplayBasis, useMe } from '../../api/hooks/me';
 import { useQueuedVehicleRequests } from '../../api/hooks/vehicleRequests';
 import { istClock } from '../../format/time';
 import { useTheme } from '../../theme/ThemeProvider';
@@ -49,7 +49,8 @@ export function OrderTrucks({ o, onOpenRequest }: { o: Order; onOpenRequest?(r: 
   const { t } = useTheme();
   const basis = useDisplayBasis();
   const queued = useQueuedVehicleRequests(o.id);
-  const requests = noteRequests(o, queued);
+  const { data: me } = useMe();
+  const requests = noteRequests(o, queued, me);
   const dispatched = o.subOrders.reduce((n, s) => n + s.dispatchedTrucks, 0);
   const open = o.subOrders.flatMap((s) => s.openTrucks);
   if (open.length === 0 && dispatched === 0 && requests.length === 0) return null;
@@ -60,22 +61,34 @@ export function OrderTrucks({ o, onOpenRequest }: { o: Order; onOpenRequest?(r: 
     const sizes = requestSizes(o, r);
     const head = `Vehicle requested · ${toDisplayQty(r.totalKg, basis, { withUnit: true })}${sizes ? ` · ${sizes}` : ''}`;
     const meta = `${r.contactName} · ${channelWord(r.channel)} · ${istClock(r.requestedAt)}${newest.waiting ? ' · waiting to send' : ''}`;
+    const body = (
+      <>
+        <Icon name="chat" size={16} color={t.wnt} />
+        <View style={styles.fill}>
+          <Text variant="caption" weight="semibold" color="wnt" numberOfLines={1}>{head}</Text>
+          <Text variant="caption" color="wnt" numberOfLines={1}>{meta}</Text>
+        </View>
+      </>
+    );
+    const noteStyle = [styles.note, { backgroundColor: t.wns }];
     note = (
       <>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${head}, ${meta}`}
-          accessibilityHint={onOpenRequest ? 'Opens the request' : undefined}
-          disabled={!onOpenRequest}
-          onPress={() => onOpenRequest?.(r)}
-          style={[styles.note, { backgroundColor: t.wns }]}
-        >
-          <Icon name="chat" size={16} color={t.wnt} />
-          <View style={styles.fill}>
-            <Text variant="caption" weight="semibold" color="wnt" numberOfLines={1}>{head}</Text>
-            <Text variant="caption" color="wnt" numberOfLines={1}>{meta}</Text>
+        {onOpenRequest ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${head}, ${meta}`}
+            accessibilityHint="Opens the request"
+            onPress={() => onOpenRequest(r)}
+            style={noteStyle}
+          >
+            {body}
+          </Pressable>
+        ) : (
+          // Roles without truck.assign only read it: plain text, not a disabled button.
+          <View accessible accessibilityLabel={`${head}, ${meta}`} style={noteStyle}>
+            {body}
           </View>
-        </Pressable>
+        )}
         {requests.length > 1 ? <Text variant="caption">{`+${requests.length - 1} earlier`}</Text> : null}
       </>
     );

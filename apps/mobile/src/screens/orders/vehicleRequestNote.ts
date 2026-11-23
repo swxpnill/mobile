@@ -1,6 +1,7 @@
 import { type Order, type VehicleRequest, type VehicleRequestBody } from '@tonnage/shared';
 import { splitProduct } from './RequestVehicleSheet';
 
+type Person = { id: string; name: string };
 export type QueuedRequest = VehicleRequestBody & { queuedAt: string; key: string };
 /** A request as the note shows it; `waiting` while it is still only on this phone. */
 export type NoteRequest = { request: VehicleRequest; waiting: boolean };
@@ -8,7 +9,7 @@ export type NoteRequest = { request: VehicleRequest; waiting: boolean };
 export const channelWord = (c: VehicleRequest['channel']): string => (c === 'whatsapp' ? 'WhatsApp' : 'Call');
 
 /** The queued request as the order will show it once recorded (the server's row replaces it). */
-function fromQueued(order: Order, q: QueuedRequest): VehicleRequest {
+function fromQueued(order: Order, q: QueuedRequest, me: Person | undefined): VehicleRequest {
   const party = [order.customer, order.broker].find((p) => p?.id === q.partyId);
   const subOf = new Map(order.subOrders.flatMap((s) => s.lines.map((l) => [l.id, s.id] as const)));
   return {
@@ -21,17 +22,17 @@ function fromQueued(order: Order, q: QueuedRequest): VehicleRequest {
     lines: q.lines.map((l) => ({ orderLineId: l.orderLineId, subOrderId: subOf.get(l.orderLineId) ?? '', kg: l.kg })),
     totalKg: q.totalKg,
     requestedAt: q.queuedAt,
-    requestedBy: order.createdBy,
+    requestedBy: me ? { id: me.id, name: me.name } : { id: '', name: '' }, // queued on this phone by whoever is signed in
   };
 }
 
-/** Open requests (server's and still-queued ones), newest first. */
-export function noteRequests(order: Order, queued: QueuedRequest[]): NoteRequest[] {
+/** Open requests (server's and still-queued ones), newest first. `me` is who queued them on this phone. */
+export function noteRequests(order: Order, queued: QueuedRequest[], me?: Person): NoteRequest[] {
   const waitingIds = new Set(queued.map((q) => `queued-${q.key}`));
   const rows: NoteRequest[] = order.vehicleRequests.map((request) => ({ request, waiting: waitingIds.has(request.id) }));
   const have = new Set(rows.map((r) => r.request.id));
   for (const q of queued) {
-    if (!have.has(`queued-${q.key}`)) rows.push({ request: fromQueued(order, q), waiting: true });
+    if (!have.has(`queued-${q.key}`)) rows.push({ request: fromQueued(order, q, me), waiting: true });
   }
   return rows.sort((a, b) => Date.parse(b.request.requestedAt) - Date.parse(a.request.requestedAt));
 }

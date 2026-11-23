@@ -17,6 +17,7 @@ import { enqueueVehicleRequest, resetVehicleRequestQueueForTests } from '../src/
 import { resetUnitFilterForTests } from '../src/prefs/unitFilter';
 import { OrderDetailScreen } from '../src/screens/orders/OrderDetailScreen';
 import { shareText } from '../src/screens/orders/shareText';
+import { noteRequests } from '../src/screens/orders/vehicleRequestNote';
 import { ThemeProvider } from '../src/theme/ThemeProvider';
 import { ToastHost } from '../src/ui';
 
@@ -205,6 +206,22 @@ describe('OrderDetailScreen: Request vehicle (canvas 04)', () => {
     expect(screen.queryByRole('button', { name: 'Assign vehicle' })).toBeNull();
   });
 
+  it('plant head: the note is plain text (not a button), trimmed to their sub-order', async () => {
+    const o = await orderNo('SO-2611-0142');
+    const seeded = o.vehicleRequests[0]!;
+    const aip = o.subOrders.find((s) => s.companyCode === 'AIP')!;
+    await api(`/v1/orders/${o.id}/vehicle-requests`, {
+      method: 'POST',
+      idempotencyKey: 'rv-ph-1',
+      body: { partyId: seeded.partyId, contactName: seeded.contactName, number: seeded.number, channel: 'call', lines: [{ orderLineId: aip.lines[0]!.id, kg: 5_000 }], totalKg: 5_000 },
+    });
+    await signIn(ids.users.kiran);
+    client.clear();
+    await wrap(<OrderDetailScreen id={o.id} />);
+    expect(await screen.findByLabelText(/^Vehicle requested · 5\.000 MT/)).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: /^Vehicle requested/ })).toBeNull();
+  });
+
   it('an order with nothing left to load hides Request vehicle', async () => {
     const o = await orderNo('SO-2610-0136'); // short closed
     await wrap(<OrderDetailScreen id={o.id} />);
@@ -273,6 +290,18 @@ describe('OrderDetailScreen: Request vehicle (canvas 04)', () => {
     await fireEvent.press(await screen.findByRole('button', { name: 'More actions' }));
     await fireEvent.press(await screen.findByRole('button', { name: /^Activity history/ }));
     expect(await screen.findByText(`Vehicle requested from ${seeded.contactName} via Call · 5.000 MT`)).toBeOnTheScreen();
+  });
+});
+
+describe('noteRequests', () => {
+  it('a request still on the phone is by the signed-in person, not the order\'s creator', async () => {
+    await signIn(ids.users.priya);
+    const o = await orderNo('SO-2611-0142');
+    expect(o.createdBy.id).not.toBe(ids.users.priya);
+    const seeded = o.vehicleRequests[0]!;
+    const queued = { partyId: seeded.partyId, contactName: seeded.contactName, number: seeded.number, channel: 'call' as const, lines: [{ orderLineId: seeded.lines[0]!.orderLineId, kg: 1_000 }], totalKg: 1_000, queuedAt: new Date(NOW).toISOString(), key: 'q-1' };
+    const [newest] = noteRequests(o, [queued], { id: ids.users.priya, name: 'Priya Sharma' });
+    expect(newest).toMatchObject({ waiting: true, request: { id: 'queued-q-1', requestedBy: { id: ids.users.priya, name: 'Priya Sharma' } } });
   });
 });
 
