@@ -178,6 +178,7 @@ export function toOrder(c: OrderCtx, order: OrderRec): Order {
     basicRate: order.basicRate,
     notify: { ...order.notify },
     subOrders: subs.map((s) => toSubOrder(c, order, s)),
+    vehicleRequests: [],
     totals,
     estimatedValue: lines.reduce((sum, l) => sum + lineValueOf(l), 0),
     ...(order.brokerId !== null
