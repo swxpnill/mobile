@@ -41,6 +41,7 @@ export function DispatchScreen() {
   const chosen = all.find((c) => c.id === companyId);
   const canEdit = me ? can(me.role, 'truck.edit') : false;
   const canApprove = me ? can(me.role, 'dispatch.approve') : false;
+  const canLoad = me ? can(me.role, 'truck.assign') : false;
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const now = Date.now();
 
@@ -129,12 +130,22 @@ export function DispatchScreen() {
         refreshControl={
           <RefreshControl refreshing={board.isRefetching} onRefresh={() => void board.refetch()} tintColor={t.br} colors={[t.br]} />
         }
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, canLoad ? { paddingBottom: FAB_CLEARANCE } : null]}
         ItemSeparatorComponent={Separator}
         keyboardShouldPersistTaps="handled"
         initialNumToRender={8}
         windowSize={7}
       />
+      {canLoad ? (
+        <View style={styles.fabs} pointerEvents="box-none">
+          <Button variant="secondary" icon="chat" style={[styles.fab, { shadowColor: t.shadow }]} onPress={() => router.push('/pick-loading?mode=request')}>
+            Request vehicle
+          </Button>
+          <Button icon="plus" style={[styles.fab, { shadowColor: t.shadow }]} onPress={() => router.push('/pick-loading')}>
+            Assign vehicle
+          </Button>
+        </View>
+      ) : null}
       <UnitSwitcherSheet visible={switcher} onClose={() => setSwitcher(false)} />
       {approving ? (
         <ApproveSheet
@@ -148,11 +159,16 @@ export function DispatchScreen() {
   );
 }
 
+// Buttons 52 high + 16 above the tab bar + 16 gap: the last card scrolls clear of them.
+const FAB_CLEARANCE = 52 + 16 + 16;
+
 const Separator = () => <View style={styles.sep} />;
 
 const styles = StyleSheet.create({
   noPad: { padding: 0, paddingHorizontal: 0, paddingTop: 0, gap: 0 },
   content: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 32 },
+  fabs: { position: 'absolute', left: 20, right: 20, bottom: 16, flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
+  fab: { paddingHorizontal: 18, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.14, shadowRadius: 24, elevation: 6 },
   header: { gap: 14, marginBottom: 12 },
   top: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   fill: { flex: 1, minWidth: 0 },

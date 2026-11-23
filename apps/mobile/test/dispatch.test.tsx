@@ -241,6 +241,30 @@ describe('Dispatch board (canvas 08)', () => {
     await view.unmount();
   });
 
+  it('owner: Request vehicle and Assign vehicle buttons open the picker', async () => {
+    await wrap(<DispatchScreen />);
+    await screen.findByLabelText(/^CG 04 MK 2291/);
+    await fireEvent.press(screen.getByRole('button', { name: 'Request vehicle' }));
+    expect(mockRouter.push).toHaveBeenCalledWith('/pick-loading?mode=request');
+    await fireEvent.press(screen.getByRole('button', { name: 'Assign vehicle' }));
+    expect(mockRouter.push).toHaveBeenCalledWith('/pick-loading');
+  });
+
+  it('plant head and supervisor see neither button', async () => {
+    await signIn(ids.users.kiran);
+    let view = await wrap(<DispatchScreen />);
+    await screen.findByLabelText(/^CG 04 MK 2291/);
+    expect(screen.queryByRole('button', { name: 'Request vehicle' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Assign vehicle' })).toBeNull();
+    await view.unmount();
+    await signIn(ids.users.ravi);
+    view = await wrap(<DispatchScreen />);
+    await screen.findByText('Dispatch');
+    expect(screen.queryByRole('button', { name: 'Request vehicle' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Assign vehicle' })).toBeNull();
+    await view.unmount();
+  });
+
   it('the KRM unit filter shows only KRM trucks', async () => {
     unitFilterStore.getState().set(ids.users.rajesh, ids.companies.KRM);
     await wrap(<DispatchScreen />);

@@ -17,8 +17,9 @@ import { CREATE_OPTIONS, createOptionsFor } from '../src/screens/create/createOp
 import { LoadingPickerScreen } from '../src/screens/create/LoadingPickerScreen';
 import { ThemeProvider } from '../src/theme/ThemeProvider';
 
+let mockParams: Record<string, string> = {};
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), canGoBack: () => true };
-jest.mock('expo-router', () => ({ useRouter: () => mockRouter, useLocalSearchParams: () => ({}) }));
+jest.mock('expo-router', () => ({ useRouter: () => mockRouter, useLocalSearchParams: () => mockParams }));
 
 const NOW = Date.UTC(2026, 10, 3, 4, 30);
 const { ids } = SAMPLE_WORLD;
@@ -52,6 +53,7 @@ afterAll(() => nowSpy.mockRestore());
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  mockParams = {};
   await AsyncStorage.clear();
   (SecureStore as unknown as { __reset(): void }).__reset();
   resetSessionForTests();
@@ -193,6 +195,39 @@ describe('Loading picker', () => {
     await fireEvent.changeText(screen.getByPlaceholderText('Search order no., party'), 'zzzz-nothing');
     expect(await screen.findByText('No open orders match')).toBeOnTheScreen();
     expect(before).toBeGreaterThan(0);
+  });
+
+  describe('request mode (?mode=request)', () => {
+    beforeEach(() => {
+      mockParams = { mode: 'request' };
+    });
+
+    it('is titled for the request and lists one row per order with something pending', async () => {
+      await setup();
+      const orders = await allOrders();
+      const pendingOrders = orders.filter((o) =>
+        o.subOrders.some((s) => (s.status === 'open' || s.status === 'partly_dispatched') && s.totals.pendingKg > 0),
+      );
+      const noPending = orders.filter((o) => !pendingOrders.includes(o));
+      expect(noPending.length).toBeGreaterThan(0);
+      await wrap(<LoadingPickerScreen />);
+      expect(await screen.findByText('Request vehicle · pick an order')).toBeOnTheScreen();
+      for (const o of pendingOrders) {
+        const row = await screen.findByRole('button', { name: new RegExp(`^${o.number}, `) });
+        expect(row.props.accessibilityLabel).toMatch(/ MT pending$/);
+      }
+      expect(screen.getAllByRole('button', { name: / pending$/ })).toHaveLength(pendingOrders.length);
+      for (const o of noPending) expect(screen.queryByText(o.number)).toBeNull();
+    });
+
+    it('tapping SO-2611-0141 opens the request sheet for it, without leaving the picker', async () => {
+      await setup();
+      await wrap(<LoadingPickerScreen />);
+      await fireEvent.press(await screen.findByRole('button', { name: /^SO-2611-0141, / }));
+      expect(await screen.findByText('Send to')).toBeOnTheScreen();
+      expect(mockRouter.push).not.toHaveBeenCalled();
+      expect(screen.getByText('Request vehicle · pick an order')).toBeOnTheScreen();
+    });
   });
 
   it('no open orders: empty state with Create order', async () => {
