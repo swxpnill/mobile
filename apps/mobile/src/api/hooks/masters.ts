@@ -42,10 +42,10 @@ export function useParties(filters: PartyFilters = {}, enabled = true) {
   });
 }
 
-export function useParty(id: string | undefined) {
+export function useParty(id: string | undefined, enabled = true) {
   return useQuery({
     queryKey: partyKey(id ?? ''),
-    enabled: useSignedIn() && id !== undefined,
+    enabled: useSignedIn() && id !== undefined && enabled,
     queryFn: () => api(`/v1/parties/${id}`, { schema: partySchema }),
   });
 }

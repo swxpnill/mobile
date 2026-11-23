@@ -211,7 +211,7 @@ export function LinkButton({ label, accessibilityLabel, onPress }: { label: stri
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       onPress={onPress}
-      hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
       style={({ pressed }) => [styles.link, pressed ? styles.pressed : null]}
     >
       <Text variant="caption" weight="medium" color="brt">
@@ -235,6 +235,7 @@ const styles = StyleSheet.create({
   qtyInput: { flex: 1, minWidth: 0, textAlign: 'right', padding: 0 },
   total: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingVertical: 12, paddingHorizontal: 14 },
   totalQty: { fontSize: 17, lineHeight: 22 },
-  link: { minHeight: 32, justifyContent: 'center' },
+  // 32 high and at least 44 wide with the hit slop (a short word like "Copy" is ~28 wide).
+  link: { minHeight: 32, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
   pressed: { opacity: 0.6 },
 });

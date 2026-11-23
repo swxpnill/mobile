@@ -56,10 +56,17 @@ type Props = { order: Order; visible: boolean; onClose(): void; prefill?: Vehicl
 /**
  * Canvas board 40: ask the order's broker or customer for a truck, by WhatsApp or a call, with a
  * prefilled message. The request is recorded when the call or chat opens (Ruling 8). Every opening
- * starts fresh (or from `prefill`, an open request).
+ * starts fresh (or from `prefill`, an open request). The sheet stays mounted when it closes, so
+ * its Modal slides (or fades) out; a new opening is a new body.
  */
 export function RequestVehicleSheet(props: Props) {
-  return <RequestVehicleBody key={`${props.visible}:${props.prefill?.id ?? ''}`} {...props} />;
+  const [opened, setOpened] = useState(props.visible ? 1 : 0);
+  const [wasVisible, setWasVisible] = useState(props.visible);
+  if (props.visible !== wasVisible) {
+    setWasVisible(props.visible);
+    if (props.visible) setOpened((n) => n + 1);
+  }
+  return <RequestVehicleBody key={`${opened}:${props.prefill?.id ?? ''}`} {...props} />;
 }
 
 const firstWord = (s: string) => s.trim().split(/\s+/)[0] ?? s;
@@ -91,11 +98,12 @@ function RequestVehicleBody({ order, visible, onClose, prefill }: Props) {
   const router = useRouter();
   const basis = useDisplayBasis();
   const { data: me } = useMe();
-  const { data: settings } = useTenantSettings();
-  const { data: companies } = useCompanies();
-  const { data: plants } = usePlants();
-  const broker = useParty(order.broker?.id);
-  const customer = useParty(order.customer?.id);
+  // Nothing is fetched while the sheet is closed.
+  const { data: settings } = useTenantSettings(visible);
+  const { data: companies } = useCompanies(visible);
+  const { data: plants } = usePlants(visible);
+  const broker = useParty(order.broker?.id, visible);
+  const customer = useParty(order.customer?.id, visible);
   const { send } = useRequestVehicle(order.id);
   const once = useSingleFlight();
   const [busy, setBusy] = useState<VehicleRequestBody['channel'] | null>(null);
@@ -124,12 +132,16 @@ function RequestVehicleBody({ order, visible, onClose, prefill }: Props) {
   const refs = [order.broker ? { ref: order.broker, kind: 'Broker' as const, q: broker } : null, order.customer ? { ref: order.customer, kind: 'Customer' as const, q: customer } : null].filter(
     (x): x is NonNullable<typeof x> => x !== null,
   );
-  const loaded = refs.every((r) => r.q.data !== undefined);
+  // Each party on its own: one that fails to load leaves the other usable.
+  const statusOf = (r: (typeof refs)[number]): 'loading' | 'error' | 'loaded' =>
+    r.q.data !== undefined ? 'loaded' : r.q.isError ? 'error' : 'loading';
+  const settled = refs.every((r) => statusOf(r) !== 'loading');
   const parties: Record<string, Party> = Object.fromEntries(refs.flatMap((r) => (r.q.data ? [[r.ref.id, r.q.data]] : [])));
 
-  // Who is asked first: the open request's number, else the broker's WhatsApp, else the customer's…
+  // Who is asked first, once every party has loaded or failed: the open request's number, else the
+  // broker's WhatsApp, else the customer's…; with none loaded, the first party (its error shows).
   useEffect(() => {
-    if (state.recipient || !loaded || refs.length === 0) return;
+    if (state.recipient || !visible || !settled || refs.length === 0) return;
     const fromPrefill = (() => {
       const party = prefill ? parties[prefill.partyId] : undefined;
       for (const c of party?.contacts ?? []) {
@@ -138,8 +150,11 @@ function RequestVehicleBody({ order, visible, onClose, prefill }: Props) {
       }
       return null;
     })();
-    const first = parties[refs[0]!.ref.id];
-    dispatch({ type: 'recipient', recipient: fromPrefill ?? defaultRecipient(order, parties) ?? (first ? pickNumber(first) : null) });
+    const firstLoaded = refs.map((r) => parties[r.ref.id]).find((p): p is Party => p !== undefined);
+    dispatch({
+      type: 'recipient',
+      recipient: fromPrefill ?? defaultRecipient(order, parties) ?? (firstLoaded ? pickNumber(firstLoaded) : { partyId: refs[0]!.ref.id, contactId: null, numberId: null }),
+    });
   });
 
   const party = state.recipient ? parties[state.recipient.partyId] : undefined;
@@ -229,6 +244,10 @@ function RequestVehicleBody({ order, visible, onClose, prefill }: Props) {
     </View>
   );
 
+  // The party whose numbers show: nothing (Loading numbers…) until the first recipient is chosen,
+  // so "No number saved" never flashes before it.
+  const shown = state.recipient ? refs.find((r) => r.ref.id === state.recipient?.partyId) : undefined;
+  const shownStatus = shown ? statusOf(shown) : 'loading';
   const mayAddNumber = me ? can(me.role, 'masters.manage') : false;
   const numbers = party?.contacts.flatMap((c) => c.numbers.map((n) => ({ c, n }))) ?? [];
 
@@ -244,7 +263,7 @@ function RequestVehicleBody({ order, visible, onClose, prefill }: Props) {
               value={state.recipient?.partyId ?? refs[0]!.ref.id}
               onChange={(id) => {
                 const p = parties[id];
-                if (p) dispatch({ type: 'recipient', recipient: pickNumber(p) });
+                dispatch({ type: 'recipient', recipient: p ? pickNumber(p) : { partyId: id, contactId: null, numberId: null } });
               }}
               options={refs.map((r) => ({ value: r.ref.id, label: r.ref.name, detail: r.kind, detailColor: r.kind === 'Broker' ? 'vi' : undefined }))}
             />
@@ -260,7 +279,24 @@ function RequestVehicleBody({ order, visible, onClose, prefill }: Props) {
               </PlainRow>
             </Group>
           ) : null}
-          {!loaded ? null : numbers.length === 0 ? (
+          {!shown || shownStatus === 'loading' ? (
+            <Group>
+              <PlainRow>
+                <Text color="tx3" accessibilityLiveRegion="polite">
+                  Loading numbers…
+                </Text>
+              </PlainRow>
+            </Group>
+          ) : shownStatus === 'error' ? (
+            <Group>
+              <PlainRow>
+                <Text color="tx2" style={styles.fill} accessibilityRole="alert">
+                  {`Couldn't load ${shown.ref.name}'s numbers`}
+                </Text>
+                <LinkButton label="Try again" onPress={() => void shown.q.refetch()} />
+              </PlainRow>
+            </Group>
+          ) : numbers.length === 0 ? (
             <Group>
               <PlainRow>
                 <Text color="tx2" style={styles.fill}>

@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
 import * as SecureStore from 'expo-secure-store';
 import type { ReactElement } from 'react';
-import { Linking } from 'react-native';
+import { Linking, StyleSheet } from 'react-native';
 import type { ReactTestRendererJSON } from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { z } from 'zod';
@@ -34,8 +34,7 @@ let client: QueryClient;
 let nowSpy: jest.SpyInstance;
 let onClose: jest.Mock;
 
-const wrap = (ui: ReactElement) =>
-  render(
+const tree = (ui: ReactElement) => (
     <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 0, left: 0, right: 0, bottom: 0 } }}>
       <QueryClientProvider client={client}>
         <ThemeProvider>
@@ -45,8 +44,9 @@ const wrap = (ui: ReactElement) =>
           </UnitBasisProvider>
         </ThemeProvider>
       </QueryClientProvider>
-    </SafeAreaProvider>,
-  );
+    </SafeAreaProvider>
+);
+const wrap = (ui: ReactElement) => render(tree(ui));
 
 async function orderNo(number: string): Promise<Order> {
   const list = await api(`/v1/orders?q=${number}`, { schema: orderListSchema });
@@ -274,6 +274,65 @@ describe('RequestVehicleSheet', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Add a number' }));
     expect(mockRouter.push).toHaveBeenCalledWith(`/parties/form?id=${o.customer!.id}`);
     expect(screen.getByRole('button', { name: /^Call/ })).toBeDisabled();
+  });
+
+  it('a party that fails to load says so with Try again; the other party stays usable', async () => {
+    const o = await orderNo('SO-2611-0142');
+    // The broker is known from before; the customer was never loaded and the phone is offline.
+    client.setQueryData(['party', o.broker!.id], await api(`/v1/parties/${o.broker!.id}`, { schema: partySchema }));
+    mock.controls.setOffline(true);
+    await sheet(o);
+    expect(checked(/\+91 98261 00501/)).toBe(true);
+    await fireEvent.press(screen.getByRole('radio', { name: 'Shubham Traders, Customer' }));
+    expect(screen.getByText("Couldn't load Shubham Traders's numbers")).toBeOnTheScreen();
+    expect(screen.queryByText('No number saved')).toBeNull();
+    expect(screen.getByRole('button', { name: /Send on WhatsApp/ })).toBeDisabled();
+    mock.controls.setOffline(false);
+    await fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByRole('radio', { name: /Suresh Jain, Mobile/ })).toBeOnTheScreen();
+    // The broker's number stays usable after the round trip.
+    await fireEvent.press(screen.getByRole('radio', { name: 'R.K. Agarwal, Broker' }));
+    expect(checked(/\+91 98261 00501/)).toBe(true);
+  });
+
+  it('while the parties load it shows Loading numbers…, never a flash of "No number saved"', async () => {
+    const o = await orderNo('SO-2611-0142');
+    mock.controls.setLatency(300);
+    await wrap(<RequestVehicleSheet order={o} visible onClose={onClose} />);
+    expect(screen.getByText('Loading numbers…')).toBeOnTheScreen();
+    expect(screen.queryByText('No number saved')).toBeNull();
+    expect(await screen.findByRole('radio', { name: /\+91 98261 00501/ })).toBeOnTheScreen();
+    expect(screen.queryByText('Loading numbers…')).toBeNull();
+    mock.controls.setLatency(0);
+  });
+
+  it('closed: nothing is fetched; each opening starts fresh', async () => {
+    const o = await orderNo('SO-2611-0142');
+    const ui = (visible: boolean) => <RequestVehicleSheet order={o} visible={visible} onClose={onClose} />;
+    await wrap(ui(false));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(client.getQueryData(['party', o.broker!.id])).toBeUndefined();
+    expect(client.getQueryData(['companies'])).toBeUndefined();
+    await screen.rerender(tree(ui(true)));
+    await screen.findAllByRole('radio', { name: /\+91/ });
+    await fireEvent.press(screen.getByRole('radio', { name: /^Pick lines/ }));
+    await screen.rerender(tree(ui(false)));
+    // Closing hides the same body (its Modal animates out); the test renderer drops a hidden
+    // Modal from the tree, so what is checked is that the next opening starts fresh.
+    expect(screen.queryByText('Request vehicle')).toBeNull();
+    await screen.rerender(tree(ui(true)));
+    await screen.findAllByRole('radio', { name: /\+91/ });
+    expect(checked(/^All pending/)).toBe(true);
+  });
+
+  it('Copy and Update message have a 44 dp touch box', async () => {
+    const o = await orderNo('SO-2611-0142');
+    await sheet(o);
+    const copy = screen.getByRole('button', { name: 'Copy message' });
+    const style = StyleSheet.flatten(copy.props.style) as { minWidth?: number; minHeight?: number };
+    const slop = copy.props.hitSlop as { top: number; bottom: number; left: number; right: number };
+    expect((style.minWidth ?? 0) + slop.left + slop.right).toBeGreaterThanOrEqual(44);
+    expect((style.minHeight ?? 0) + slop.top + slop.bottom).toBeGreaterThanOrEqual(44);
   });
 
   describe.each(['light', 'dark'] as const)('%s theme', (scheme) => {

@@ -81,12 +81,18 @@ export function selection(s: RvState): { orderLineId: string; kg: number }[] {
 
 export const totalKg = (s: RvState): number => selection(s).reduce((n, l) => n + l.kg, 0);
 
-/** Digits and one decimal point, with at most the basis' decimals (3 for MT, none for kg). */
-function sanitizeQty(text: string, basis: UnitBasis): string {
-  const kept = text.replace(/[^\d.]/g, '');
-  const [whole = '', ...rest] = kept.split('.');
-  if (basis === 'kg' || rest.length === 0) return whole;
-  return `${whole}.${rest.join('').slice(0, 3)}`;
+/**
+ * What may be in a quantity field, or null for a negative (clamped to 0, Review Focus 4).
+ * MT: digits and one decimal point, at most 3 decimals; a comma is a decimal comma, unless a
+ * point is there too (then commas group thousands, as the app shows "1,234.500").
+ * kg: digits and grouping commas (parseQtyInput drops them); anything after a point is cut.
+ */
+function sanitizeQty(text: string, basis: UnitBasis): string | null {
+  if (text.includes('-')) return null;
+  if (basis === 'kg') return (text.split('.')[0] ?? '').replace(/[^\d,]/g, '');
+  const pointed = text.includes('.') ? text.replace(/,/g, '') : text.replace(/,/g, '.');
+  const [whole = '', ...rest] = pointed.replace(/[^\d.]/g, '').split('.');
+  return rest.length === 0 ? whole : `${whole}.${rest.join('').slice(0, 3)}`;
 }
 
 function without<V>(record: Record<string, V>, key: string): Record<string, V> {
@@ -132,6 +138,7 @@ export function requestVehicleReducer(s: RvState, a: RvAction): RvState {
       const line = s.lines.find((l) => l.id === a.lineId);
       if (!line) return s;
       const text = sanitizeQty(a.text, a.basis);
+      if (text === null) return { ...s, picks: { ...s.picks, [a.lineId]: { on: false, kg: 0 } }, texts: { ...s.texts, [a.lineId]: '0' } };
       const parsed = parseQtyInput(text, a.basis);
       const typed = parsed.ok ? parsed.value : 0;
       const kg = clampLineKg(typed, line.pendingKg);

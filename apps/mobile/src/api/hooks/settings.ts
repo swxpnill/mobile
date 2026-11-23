@@ -6,10 +6,10 @@ import { currentIdentity, useSignedIn } from './cache';
 export const SETTINGS_KEY = ['settings'] as const;
 
 /** Business-wide rules (tolerance, aged-order days, pricing…). Everyone may read them. */
-export function useTenantSettings() {
+export function useTenantSettings(enabled = true) {
   return useQuery({
     queryKey: SETTINGS_KEY,
-    enabled: useSignedIn(),
+    enabled: useSignedIn() && enabled,
     queryFn: () => api('/v1/settings', { schema: tenantSettingsSchema }),
   });
 }

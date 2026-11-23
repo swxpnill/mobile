@@ -42,15 +42,39 @@ describe('requestVehicleState', () => {
     expect(s.picks.l1).toEqual({ on: false, kg: 24_000 });
   });
 
-  it('typing above pending clamps to pending; more than 3 decimals and a minus are dropped', () => {
+  it('typing above pending clamps to pending; more than 3 decimals are cut', () => {
     let s = reduce(initRequestState(LINES), { type: 'material', material: 'lines' });
     s = reduce(s, { type: 'lineText', lineId: 'l3', text: '35', basis: 'mt' });
     expect(s.picks.l3).toEqual({ on: true, kg: 30_000 });
     expect(s.texts.l3).toBe('30.000');
-    s = reduce(s, { type: 'lineText', lineId: 'l1', text: '-12.34567', basis: 'mt' });
+    s = reduce(s, { type: 'lineText', lineId: 'l1', text: '12.34567', basis: 'mt' });
     expect(s.picks.l1).toEqual({ on: true, kg: 12_345 });
     expect(s.texts.l1).toBe('12.345');
     s = reduce(s, { type: 'lineText', lineId: 'l2', text: '4500', basis: 'kg' });
+    expect(s.picks.l2).toEqual({ on: true, kg: 4_500 });
+  });
+
+  it('Review Focus 4: a negative quantity is clamped to 0 and unticks the line', () => {
+    let s = reduce(initRequestState(LINES), { type: 'material', material: 'lines' });
+    s = reduce(s, { type: 'lineText', lineId: 'l1', text: '-12.34567', basis: 'mt' });
+    expect(s.picks.l1).toEqual({ on: false, kg: 0 });
+    expect(s.texts.l1).toBe('0');
+    s = reduce(s, { type: 'lineText', lineId: 'l2', text: '-', basis: 'kg' });
+    expect(s.picks.l2).toEqual({ on: false, kg: 0 });
+  });
+
+  it('a decimal comma is a decimal point on MT; on kg commas group thousands', () => {
+    let s = reduce(initRequestState(LINES), { type: 'material', material: 'lines' });
+    s = reduce(s, { type: 'lineText', lineId: 'l1', text: '12,5', basis: 'mt' });
+    expect(s.picks.l1).toEqual({ on: true, kg: 12_500 });
+    expect(s.texts.l1).toBe('12.5');
+    // Both marks: the comma groups (as the app shows "1,234.500"), the point is the decimal.
+    s = reduce(s, { type: 'lineText', lineId: 'l3', text: '2,0.5', basis: 'mt' });
+    expect(s.picks.l3).toEqual({ on: true, kg: 20_500 });
+    s = reduce(s, { type: 'lineText', lineId: 'l2', text: '4,500', basis: 'kg' });
+    expect(s.picks.l2).toEqual({ on: true, kg: 4_500 });
+    expect(s.texts.l2).toBe('4,500');
+    s = reduce(s, { type: 'lineText', lineId: 'l2', text: '4500.7', basis: 'kg' });
     expect(s.picks.l2).toEqual({ on: true, kg: 4_500 });
   });
 
