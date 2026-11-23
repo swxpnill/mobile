@@ -78,7 +78,7 @@ const shownNumber = (n: string) => {
   return m ? `+91 ${m[1]} ${m[2]} ${m[3]}` : n;
 };
 /** "TMT Fe500D · 12 mm" → product "TMT Fe500D", size "12 mm" (the message's "TMT Fe500D 12 mm · 12 m"). */
-const splitProduct = (name: string) => {
+export const splitProduct = (name: string) => {
   const [product = name, ...size] = name.split(' · ');
   return { product, size: size.join(' · ') };
 };

@@ -1,11 +1,14 @@
-import { type Order, type SubOrder, toDisplayQty, unitLabel } from '@tonnage/shared';
+import { type Order, type SubOrder, type VehicleRequest, toDisplayQty, unitLabel } from '@tonnage/shared';
 import { useRouter } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { useDisplayBasis } from '../../api/hooks/me';
+import { useQueuedVehicleRequests } from '../../api/hooks/vehicleRequests';
+import { istClock } from '../../format/time';
 import { useTheme } from '../../theme/ThemeProvider';
 import { Badge, Button, Group, Icon, Row, Text } from '../../ui';
 import { TRUCK_STATE_META } from '../dispatch/truckStateMeta';
 import { truckLine } from './ShortCloseSheet';
+import { channelWord, noteRequests, requestSizes } from './vehicleRequestNote';
 
 /** Where "Assign vehicle" goes for one sub-order. */
 export const assignHref = (o: Order, s: SubOrder) =>
@@ -41,16 +44,47 @@ export function SubOrderTrucks({ o, s, canAssign }: { o: Order; s: SubOrder; can
 }
 
 /** The order's open trucks, each opening its detail, and the dispatched count. */
-export function OrderTrucks({ o }: { o: Order }) {
+export function OrderTrucks({ o, onOpenRequest }: { o: Order; onOpenRequest?(r: VehicleRequest): void }) {
   const router = useRouter();
   const { t } = useTheme();
   const basis = useDisplayBasis();
+  const queued = useQueuedVehicleRequests(o.id);
+  const requests = noteRequests(o, queued);
   const dispatched = o.subOrders.reduce((n, s) => n + s.dispatchedTrucks, 0);
   const open = o.subOrders.flatMap((s) => s.openTrucks);
-  if (open.length === 0 && dispatched === 0) return null;
+  if (open.length === 0 && dispatched === 0 && requests.length === 0) return null;
+  const newest = requests[0];
+  let note = null;
+  if (newest) {
+    const r = newest.request;
+    const sizes = requestSizes(o, r);
+    const head = `Vehicle requested · ${toDisplayQty(r.totalKg, basis, { withUnit: true })}${sizes ? ` · ${sizes}` : ''}`;
+    const meta = `${r.contactName} · ${channelWord(r.channel)} · ${istClock(r.requestedAt)}${newest.waiting ? ' · waiting to send' : ''}`;
+    note = (
+      <>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${head}, ${meta}`}
+          accessibilityHint={onOpenRequest ? 'Opens the request' : undefined}
+          disabled={!onOpenRequest}
+          onPress={() => onOpenRequest?.(r)}
+          style={[styles.note, { backgroundColor: t.wns }]}
+        >
+          <Icon name="chat" size={16} color={t.wnt} />
+          <View style={styles.fill}>
+            <Text variant="caption" weight="semibold" color="wnt" numberOfLines={1}>{head}</Text>
+            <Text variant="caption" color="wnt" numberOfLines={1}>{meta}</Text>
+          </View>
+        </Pressable>
+        {requests.length > 1 ? <Text variant="caption">{`+${requests.length - 1} earlier`}</Text> : null}
+      </>
+    );
+  }
   return (
     <>
       <Text variant="heading">Trucks</Text>
+      {note}
+      {open.length > 0 || dispatched > 0 ? (
       <Group>
         {o.subOrders.flatMap((s) =>
           s.openTrucks.map((x) => {
@@ -75,6 +109,7 @@ export function OrderTrucks({ o }: { o: Order }) {
           </Row>
         ) : null}
       </Group>
+      ) : null}
     </>
   );
 }
@@ -83,4 +118,5 @@ const styles = StyleSheet.create({
   inline: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   fill: { flex: 1, minWidth: 0 },
   small: { height: 44, paddingHorizontal: 14 },
+  note: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12 },
 });

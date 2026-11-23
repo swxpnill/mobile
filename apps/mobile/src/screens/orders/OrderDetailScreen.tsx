@@ -1,6 +1,7 @@
 import {
   type Order,
   type SubOrder,
+  type VehicleRequest,
   can,
   formatLength,
   formatRupeesShort,
@@ -28,10 +29,11 @@ import { MoveQuantitySheet } from './MoveQuantitySheet';
 import { type OrderAction, OrderActionsSheet } from './OrderActionsSheet';
 import { shareText } from './shareText';
 import { OrderTrucks, SubOrderTrucks, assignHref } from './OrderTrucks';
+import { RequestVehicleSheet } from './RequestVehicleSheet';
 import { ShortCloseSheet } from './ShortCloseSheet';
 import { statusMeta } from './statusMeta';
 
-type SheetName = 'actions' | 'shortClose' | 'delete' | 'move' | 'activity' | null;
+type SheetName = 'actions' | 'shortClose' | 'delete' | 'move' | 'activity' | 'request' | null;
 
 /** Canvas board 04: one order, its sub-orders per company, lines, open trucks and actions. */
 export function OrderDetailScreen({ id }: { id: string }) {
@@ -66,6 +68,8 @@ function Detail({ o, refetch, refreshing }: { o: Order; refetch(): void; refresh
   const dupKey = useSubmitKey();
   const once = useSingleFlight();
   const [sheet, setSheet] = useState<SheetName>(null);
+  // Kept until the next opening (not cleared on close) so the sheet's close animation survives.
+  const [prefill, setPrefill] = useState<VehicleRequest | undefined>(undefined);
   const role = me?.role;
   const may = (a: Parameters<typeof can>[1]) => (role ? can(role, a) : false);
   const all = byCode(companies ?? []);
@@ -156,10 +160,18 @@ function Detail({ o, refetch, refreshing }: { o: Order; refetch(): void; refresh
       }
       refresh={{ refreshing, onRefresh: refetch }}
       footer={
-        may('order.shortClose') && open.length > 0 ? (
+        may('truck.assign') && open.length > 0 && o.totals.pendingKg > 0 ? (
           <View style={styles.footer}>
-            <Button variant="secondary" onPress={() => setSheet('shortClose')}>
-              Short close
+            <Button
+              variant="secondary"
+              icon="chat"
+              style={styles.fill}
+              onPress={() => {
+                setPrefill(undefined);
+                setSheet('request');
+              }}
+            >
+              Request vehicle
             </Button>
             {assignable.length > 0 ? (
               <Button
@@ -215,7 +227,17 @@ function Detail({ o, refetch, refreshing }: { o: Order; refetch(): void; refresh
         />
       ))}
 
-      <OrderTrucks o={o} />
+      <OrderTrucks
+        o={o}
+        onOpenRequest={
+          may('truck.assign')
+            ? (r) => {
+                setPrefill(r);
+                setSheet('request');
+              }
+            : undefined
+        }
+      />
 
       <OrderActionsSheet
         visible={sheet === 'actions'}
@@ -224,6 +246,9 @@ function Detail({ o, refetch, refreshing }: { o: Order; refetch(): void; refresh
         actions={actions}
         onClose={() => setSheet((x) => (x === 'actions' ? null : x))}
       />
+      {may('truck.assign') ? (
+        <RequestVehicleSheet order={o} visible={sheet === 'request'} onClose={() => setSheet(null)} prefill={prefill} />
+      ) : null}
       <ShortCloseSheet order={o} visible={sheet === 'shortClose'} onClose={() => setSheet(null)} />
       <DeleteOrderSheet
         order={o}
