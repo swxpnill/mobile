@@ -7,11 +7,14 @@ import {
 } from 'react-native';
 import { useTheme } from '../theme/ThemeProvider';
 import { radius } from '../theme/tokens';
+import { Icon, type IconName } from './Icon';
 import { Text } from './Text';
 
 export interface ButtonProps {
-  /** `violet`: the tare step's action (canvas `.bv`). */
-  variant?: 'primary' | 'secondary' | 'danger' | 'violet';
+  /** `violet`: the tare step's action (canvas `.bv`); `whatsapp`: Send on WhatsApp (token `wa`). */
+  variant?: 'primary' | 'secondary' | 'danger' | 'violet' | 'whatsapp';
+  /** A leading icon in the text colour. */
+  icon?: IconName;
   onPress(): void;
   disabled?: boolean;
   /** Shows a spinner and blocks presses (a request is in flight). */
@@ -30,6 +33,7 @@ export function Button({
   children,
   accessibilityLabel,
   style,
+  icon,
 }: ButtonProps) {
   const { t } = useTheme();
   const inactive = Boolean(disabled || loading);
@@ -38,6 +42,7 @@ export function Button({
     secondary: { bg: t.card, fg: t.tx, border: t.bd2 },
     danger: { bg: t.dgf, fg: t.onDanger, border: undefined },
     violet: { bg: t.vi, fg: t.vitx, border: undefined },
+    whatsapp: { bg: t.wa, fg: t.invtx, border: undefined },
   }[variant];
   return (
     <Pressable
@@ -58,9 +63,12 @@ export function Button({
       {loading ? (
         <ActivityIndicator color={colors.fg} />
       ) : (
-        <Text weight="semibold" style={{ color: colors.fg, fontSize: 15 }} numberOfLines={1}>
-          {children}
-        </Text>
+        <>
+          {icon ? <Icon name={icon} size={18} color={colors.fg} /> : null}
+          <Text weight="semibold" style={{ color: colors.fg, fontSize: 15 }} numberOfLines={1}>
+            {children}
+          </Text>
+        </>
       )}
     </Pressable>
   );

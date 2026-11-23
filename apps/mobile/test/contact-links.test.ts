@@ -1,4 +1,4 @@
-import { telLink, whatsappLink } from '../src/format/contactLinks';
+import { dialLink, telLink, whatsappLink } from '../src/format/contactLinks';
 
 // TON-57 Ruling 11: links only for a normalised Indian mobile; anything else gets no button.
 describe('contact links', () => {
@@ -27,5 +27,11 @@ describe('contact links', () => {
     expect(link).toContain('%0A');
     expect(link).toContain('%26');
     expect(link?.split('?text=')[1]).not.toMatch(/[\n&]/);
+  });
+
+  it('Request vehicle dials any saved number, a landline too', () => {
+    expect(dialLink('+917122551234')).toBe('tel:+917122551234');
+    expect(dialLink('+91 98261 00501')).toBe('tel:+919826100501');
+    expect(dialLink('')).toBeNull();
   });
 });
