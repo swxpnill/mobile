@@ -101,6 +101,36 @@ describe('defineRoute', () => {
     ).toThrow('Route POST /v1/test/both: public routes cannot be idempotent');
   });
 
+  it('a route under /v1 registered without defineRoute fails at registration', async () => {
+    const t = await buildTestApp();
+    const register = async () => {
+      t.app.get('/v1/test/raw', async () => ({ ok: true }));
+      await t.app.ready();
+    };
+    await expect(register()).rejects.toThrow(
+      'Route GET /v1/test/raw is under /v1 but was not registered with defineRoute',
+    );
+  });
+
+  it('a route under /v1 registered in a prefixed plugin without defineRoute fails too', async () => {
+    const t = await buildTestApp();
+    await expect(
+      t.app.register(
+        async (child) => {
+          child.post('/raw', async () => ({}));
+        },
+        { prefix: '/v1/test' },
+      ),
+    ).rejects.toThrow('Route POST /v1/test/raw is under /v1 but was not registered with defineRoute');
+  });
+
+  it('routes outside /v1 are not the pipeline’s concern', async () => {
+    const t = await buildTestApp();
+    t.app.get('/_t/outside', async () => ({ ok: true }));
+    await t.app.ready();
+    expect((await t.app.inject({ method: 'GET', url: '/_t/outside' })).json()).toEqual({ ok: true });
+  });
+
   it('routeTable lists what defineRoute registered, prefixes included', async () => {
     const t = await buildTestApp();
     defineRoute(t.app, 'POST', '/v1/test/x', {

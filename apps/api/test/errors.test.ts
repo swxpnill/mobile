@@ -12,13 +12,13 @@ afterEach(closeTestApps);
 
 async function appWithThrowawayRoutes() {
   const t = await buildTestApp();
-  t.app.post('/v1/_t/body', { schema: { body: z.object({ mobile: z.string().regex(/^\d{10}$/) }) } }, async () => ({
+  t.app.post('/_t/body', { schema: { body: z.object({ mobile: z.string().regex(/^\d{10}$/) }) } }, async () => ({
     ok: true,
   }));
-  t.app.get('/v1/_t/missing', async () => {
+  t.app.get('/_t/missing', async () => {
     throw new AppError(404, 'NOT_FOUND');
   });
-  t.app.get('/v1/_t/boom', async () => {
+  t.app.get('/_t/boom', async () => {
     throw new Error('secret internals');
   });
   await t.app.ready();
@@ -28,7 +28,7 @@ async function appWithThrowawayRoutes() {
 describe('error contract', () => {
   it('maps a zod body failure to 422 VALIDATION with paths', async () => {
     const app = await appWithThrowawayRoutes();
-    const res = await app.inject({ method: 'POST', url: '/v1/_t/body', payload: { mobile: 'x' } });
+    const res = await app.inject({ method: 'POST', url: '/_t/body', payload: { mobile: 'x' } });
     expect(res.statusCode).toBe(422);
     const body = res.json();
     expect(body).toEqual({
@@ -40,15 +40,15 @@ describe('error contract', () => {
 
   it('keeps numeric path segments numeric', async () => {
     const t = await buildTestApp();
-    t.app.post('/v1/_t/list', { schema: { body: z.object({ items: z.array(z.number()) }) } }, async () => ({}));
+    t.app.post('/_t/list', { schema: { body: z.object({ items: z.array(z.number()) }) } }, async () => ({}));
     await t.app.ready();
-    const res = await t.app.inject({ method: 'POST', url: '/v1/_t/list', payload: { items: [1, 'x'] } });
+    const res = await t.app.inject({ method: 'POST', url: '/_t/list', payload: { items: [1, 'x'] } });
     expect(res.json().details[0].path).toEqual(['items', 1]);
   });
 
   it('sends an AppError as exactly code and message', async () => {
     const app = await appWithThrowawayRoutes();
-    const res = await app.inject({ method: 'GET', url: '/v1/_t/missing' });
+    const res = await app.inject({ method: 'GET', url: '/_t/missing' });
     expect(res.statusCode).toBe(404);
     expect(res.json()).toEqual({ code: 'NOT_FOUND', message: ERROR_MESSAGES.NOT_FOUND });
     expect(Object.keys(res.json()).sort()).toEqual(['code', 'message']);
@@ -69,12 +69,12 @@ describe('error contract', () => {
       clock: createFakeClock(0),
       logStream: stream,
     });
-    app.get('/v1/_t/boom', async () => {
+    app.get('/_t/boom', async () => {
       throw new Error('secret internals');
     });
     await app.ready();
 
-    const res = await app.inject({ method: 'GET', url: '/v1/_t/boom', headers: { 'x-request-id': 'req-77' } });
+    const res = await app.inject({ method: 'GET', url: '/_t/boom', headers: { 'x-request-id': 'req-77' } });
     expect(res.statusCode).toBe(500);
     expect(res.json()).toEqual({ code: 'INTERNAL', message: 'Something went wrong' });
     expect(res.body).not.toContain('secret internals');
@@ -99,13 +99,13 @@ describe('error contract', () => {
       [413, 422, 'VALIDATION'],
     ];
     for (const [thrown] of cases) {
-      t.app.get(`/v1/_t/status-${thrown}`, async () => {
+      t.app.get(`/_t/status-${thrown}`, async () => {
         throw Object.assign(new Error(`plugin said ${thrown}`), { statusCode: thrown });
       });
     }
     await t.app.ready();
     for (const [thrown, status, code] of cases) {
-      const res = await t.app.inject({ method: 'GET', url: `/v1/_t/status-${thrown}` });
+      const res = await t.app.inject({ method: 'GET', url: `/_t/status-${thrown}` });
       expect(res.statusCode).toBe(status);
       expect(res.json()).toMatchObject({ code, message: ERROR_MESSAGES[code as keyof typeof ERROR_MESSAGES] });
       expect(res.body).not.toContain('plugin said');
@@ -123,7 +123,7 @@ describe('error contract', () => {
     const app = await appWithThrowawayRoutes();
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/_t/body',
+      url: '/_t/body',
       headers: { 'content-type': 'application/json' },
       payload: '{"mobile": ',
     });
@@ -141,14 +141,14 @@ describe('error contract', () => {
     });
     const { db, close } = createDb(inject('appDatabaseUrl'));
     const app = await buildApp({ env: testEnv({ LOG_LEVEL: 'info' }), db, clock: createFakeClock(0), logStream: stream });
-    app.post('/v1/_t/log', async (req) => {
+    app.post('/_t/log', async (req) => {
       req.log.info({ body: req.body, headers: req.headers }, 'received');
       return {};
     });
     await app.ready();
     await app.inject({
       method: 'POST',
-      url: '/v1/_t/log',
+      url: '/_t/log',
       headers: { authorization: 'Bearer SECRET-TOKEN' },
       payload: { code: '654321', refreshToken: 'REFRESH-SECRET' },
     });

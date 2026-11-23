@@ -92,12 +92,30 @@ declare module 'fastify' {
   interface FastifyRequest {
     auth: RequestAuth | null;
   }
+  interface FastifyContextConfig {
+    /** Set by `defineRoute` only: the mark the onRoute guard looks for. */
+    pipelineRoute?: true;
+  }
 }
+
+/** Every API route goes through the pipeline (auth, policy, scope, transaction, redaction). */
+const API_PREFIX = '/v1';
 
 /** Decorates the root app; call before registering any route plugin. */
 export function registerPipeline(app: FastifyInstance, deps: PipelineDeps): void {
   app.decorate('pipeline', { ...deps, routes: [] });
   app.decorateRequest('auth', null);
+  // Structural, not by review: a route under /v1 that skipped `defineRoute` would skip every check
+  // above. Hooks on the root reach routes registered in child plugins too; HEAD twins of GET routes
+  // carry the same config.
+  app.addHook('onRoute', (route) => {
+    const url = route.url ?? route.path;
+    const underApi = url === API_PREFIX || url.startsWith(`${API_PREFIX}/`);
+    if (underApi && route.config?.pipelineRoute !== true) {
+      const methods = Array.isArray(route.method) ? route.method.join(',') : route.method;
+      throw new Error(`Route ${methods} ${url} is under ${API_PREFIX} but was not registered with defineRoute`);
+    }
+  });
 }
 
 /** What `defineRoute` registered on this app (child plugins share the root's table). */
@@ -187,12 +205,14 @@ export function defineRoute<B = unknown, Q = Record<string, string>>(
   pipeline.routes.push(entry);
 
   const schema = config.response ? { response: config.response } : undefined;
+  const routeConfig = { pipelineRoute: true as const };
 
   if (config.public) {
     const c = config;
     app.route({
       method,
       url,
+      config: routeConfig,
       ...(schema ? { schema } : {}),
       handler: async (req, reply) => {
         const result = await c.handler({
@@ -214,6 +234,7 @@ export function defineRoute<B = unknown, Q = Record<string, string>>(
   app.route({
     method,
     url,
+    config: routeConfig,
     ...(schema ? { schema } : {}),
     // Before the body is parsed, so a caller without a valid token never sees a body error.
     onRequest: async (req) => {
