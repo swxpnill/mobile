@@ -7,6 +7,7 @@ import {
   SAMPLE_WORLD,
   financialYear,
   istDateOf,
+  isWhatsAppNumber,
   formatOrderNumber,
   lineRate,
   subOrderSuffix,
@@ -66,6 +67,8 @@ interface DemoOrder {
   basicRate: number | null;
   subs: { company: 'AIP' | 'VSL' | 'KRM' | 'NAP'; lines: DemoLine[]; trucks?: DemoTruck[] }[];
   shortClose?: { reason: ShortCloseReason; agoMs: number };
+  /** An open Request vehicle sent to the broker's first WhatsApp number, for one line. */
+  vehicleRequest?: { sub: number; line: number; kg: number; agoMs: number };
 }
 
 const m = (value: number): Length => ({ value, unit: 'm' });
@@ -198,8 +201,35 @@ const DEMO: DemoOrder[] = [
         lines: [{ product: PR.tmt16, length: { value: 40, unit: 'ft' }, kg: 30_000, typedRate: 45_600, overprice: 300 }],
       },
     ],
+    // KRM has no truck yet: R.K. Agarwal was asked on WhatsApp for one (the amber note on canvas 04).
+    vehicleRequest: { sub: 1, line: 0, kg: 30_000, agoMs: 20 * MINUTE },
   },
 ];
+
+/** The open request of a demo order (like the rest of the seed, without an activity row). */
+function seedVehicleRequest(state: MockState, orderId: string, d: DemoOrder, linesBySub: OrderLineRec[][], now: number): void {
+  const v = d.vehicleRequest;
+  const line = v ? linesBySub[v.sub]?.[v.line] : undefined;
+  const broker = state.parties.find((p) => p.id === d.broker);
+  const contact = broker?.contacts.find((c) => c.numbers.some(isWhatsAppNumber));
+  const number = contact?.numbers.find(isWhatsAppNumber);
+  if (!v || !line || !broker || !contact || !number) throw new Error('seedDemoOrders: vehicle request needs a line and a broker number');
+  const at = toIso(now - v.agoMs);
+  state.vehicleRequests.push({
+    id: newId(),
+    tenantId: broker.tenantId,
+    orderId,
+    partyId: broker.id,
+    partyName: broker.name,
+    contactName: contact.name,
+    number: number.number,
+    channel: 'whatsapp',
+    lines: [{ orderLineId: line.id, subOrderId: line.subOrderId, kg: v.kg }],
+    totalKg: v.kg,
+    requestedAt: at,
+    requestedBy: d.createdBy,
+  });
+}
 
 /**
  * Adds the canvas demo orders (app only; contract tests start without orders). Statuses come out
@@ -236,6 +266,7 @@ export function seedDemoOrders(state: MockState, clock: Clock): void {
       updatedAt: at,
     });
 
+    const linesBySub: OrderLineRec[][] = [];
     d.subs.forEach((s, si) => {
       const companyId = companyIdByCode.get(s.company);
       if (!companyId) throw new Error(`seedDemoOrders: company ${s.company} missing`);
@@ -283,6 +314,7 @@ export function seedDemoOrders(state: MockState, clock: Clock): void {
         };
       });
       state.orderLines.push(...lines);
+      linesBySub.push(lines);
 
       // Trucks are listed oldest first per company, so loading slips are numbered in time order.
       for (const t of s.trucks ?? []) {
@@ -330,6 +362,8 @@ export function seedDemoOrders(state: MockState, clock: Clock): void {
         sub.closedBy = U.rajesh;
       }
     }
+
+    if (d.vehicleRequest) seedVehicleRequest(state, orderId, d, linesBySub, now);
 
     const fy = financialYear(at);
     lastSeqByFy.set(fy, Math.max(lastSeqByFy.get(fy) ?? 0, d.seq));

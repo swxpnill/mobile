@@ -17,12 +17,16 @@ import {
   type TenantSettings,
   type TokenPair,
   type UnitBasis,
+  type VehicleRequestChannel,
 } from '@tonnage/shared';
 import { type Clock, toIso } from './clock.ts';
 import { errorMessage } from './errors.ts';
 
-/** Bump when the shape of `MockState` changes; older snapshots are discarded for the seed. */
-export const SNAPSHOT_VERSION = 5;
+/**
+ * Bump when the shape of `MockState` changes; older snapshots are discarded for the seed, except
+ * the previous version, which `parseSnapshot` migrates.
+ */
+export const SNAPSHOT_VERSION = 6;
 export const DEFAULT_STORAGE_KEY = 'tonnage.mockState';
 const PERSIST_DEBOUNCE_MS = 250;
 
@@ -360,6 +364,21 @@ export interface DraftRec {
   updatedAt: string;
 }
 /** Row-locked counter in B2 (number_series); keyed per tenant, series and financial year. */
+/** A request to the order's broker or customer to send a vehicle (Request vehicle, Ruling 9). */
+export interface VehicleRequestRec {
+  id: string;
+  tenantId: string;
+  orderId: string;
+  partyId: string;
+  partyName: string;
+  contactName: string;
+  number: string;
+  channel: VehicleRequestChannel;
+  lines: { orderLineId: string; subOrderId: string; kg: number }[];
+  totalKg: number;
+  requestedAt: string;
+  requestedBy: string;
+}
 export interface NumberSeriesRec {
   tenantId: string;
   key: string;
@@ -396,6 +415,7 @@ export interface MockState {
   notifications: NotificationRec[];
   pushOutbox: PushOutboxRec[];
   devices: DeviceRec[];
+  vehicleRequests: VehicleRequestRec[];
 }
 
 export function emptyState(): MockState {
@@ -426,6 +446,7 @@ export function emptyState(): MockState {
     notifications: [],
     pushOutbox: [],
     devices: [],
+    vehicleRequests: [],
   };
 }
 
@@ -505,7 +526,13 @@ export function parseSnapshot(raw: string | null): MockState | null {
   } catch {
     return null;
   }
-  if (!isObj(v) || v.schemaVersion !== SNAPSHOT_VERSION) return null;
+  if (!isObj(v)) return null;
+  // v6 (Request vehicle): a v5 snapshot starts with no vehicle requests.
+  if (v.schemaVersion === 5) {
+    v.vehicleRequests ??= [];
+    v.schemaVersion = SNAPSHOT_VERSION;
+  }
+  if (v.schemaVersion !== SNAPSHOT_VERSION) return null;
   // Added within v4: a snapshot saved before it has none yet.
   v.truckTombstones ??= [];
   // Added within v5 (F5): older snapshots start with none.
@@ -536,6 +563,7 @@ export function parseSnapshot(raw: string | null): MockState | null {
     'notifications',
     'pushOutbox',
     'devices',
+    'vehicleRequests',
   ] as const;
   const maps = ['otp', 'accessTokens', 'refreshTokens', 'idempotency', 'appliedEvents'] as const;
   if (!arrays.every((k) => Array.isArray(v[k])) || !maps.every((k) => isObj(v[k]))) return null;
