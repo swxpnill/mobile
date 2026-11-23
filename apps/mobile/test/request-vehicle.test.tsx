@@ -310,7 +310,8 @@ describe('RequestVehicleSheet', () => {
     const o = await orderNo('SO-2611-0142');
     const ui = (visible: boolean) => <RequestVehicleSheet order={o} visible={visible} onClose={onClose} />;
     await wrap(ui(false));
-    await new Promise((r) => setTimeout(r, 20));
+    // A query starts fetching when its observer mounts (render has flushed effects): none did.
+    expect(client.isFetching()).toBe(0);
     expect(client.getQueryData(['party', o.broker!.id])).toBeUndefined();
     expect(client.getQueryData(['companies'])).toBeUndefined();
     await screen.rerender(tree(ui(true)));
@@ -323,6 +324,33 @@ describe('RequestVehicleSheet', () => {
     await screen.rerender(tree(ui(true)));
     await screen.findAllByRole('radio', { name: /\+91/ });
     expect(checked(/^All pending/)).toBe(true);
+  });
+
+  it('two lines of one size are told apart by their length: the name wraps to two lines, never cut', async () => {
+    const o = await orderNo('SO-2611-0142');
+    await sheet(o);
+    const names = () => screen.getAllByText(/ · \d+ mm · \d+ (m|ft)$/);
+    expect(names().length).toBeGreaterThan(1);
+    for (const n of names()) expect(n.props.numberOfLines).toBe(2);
+    expect(screen.getByLabelText(/^KRM, TMT Fe500D · 16 mm · 40 ft, /)).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole('radio', { name: /^Pick lines/ }));
+    for (const n of names()) expect(n.props.numberOfLines).toBe(2);
+    expect(screen.getByRole('checkbox', { name: 'Include TMT Fe500D · 16 mm · 40 ft' })).toBeOnTheScreen();
+  });
+
+  it('Pick lines: an unticked line dims its quantity field border', async () => {
+    const o = await orderNo('SO-2611-0142');
+    await sheet(o);
+    await fireEvent.press(screen.getByRole('radio', { name: /^Pick lines/ }));
+    /** The border of the box around the field: the nearest ancestor that draws one. */
+    const border = () => {
+      let node = screen.getByLabelText('MT for TMT Fe500D · 16 mm · 40 ft').parent;
+      while (node && !(StyleSheet.flatten(node.props.style) as { borderColor?: string } | undefined)?.borderColor) node = node.parent;
+      return (StyleSheet.flatten(node?.props.style) ?? {}) as { borderColor?: string };
+    };
+    expect(border().borderColor).toBe(lightTokens.bd2);
+    await fireEvent.press(screen.getByRole('checkbox', { name: 'Include TMT Fe500D · 16 mm · 40 ft' }));
+    expect(border().borderColor).toBe(lightTokens.bd);
   });
 
   it('Copy and Update message have a 44 dp touch box', async () => {

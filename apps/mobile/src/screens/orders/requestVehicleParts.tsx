@@ -109,7 +109,8 @@ export function LineSummaryRow({ code, slot, name, qty }: { code: string; slot: 
     <View style={styles.opt} accessible accessibilityLabel={`${code}, ${name}, ${qty}`}>
       <View style={[styles.fill, styles.inline]}>
         <UnitTag code={code} slot={slot} />
-        <Text weight="medium" numberOfLines={1} style={styles.fill}>
+        {/* Two lines: the length tells two lines of one size apart, so it is never cut off. */}
+        <Text weight="medium" numberOfLines={2} style={styles.fill}>
           {name}
         </Text>
       </View>
@@ -163,7 +164,7 @@ export function PickLineRow({
       <View style={styles.fill}>
         <View style={styles.inline}>
           <UnitTag code={code} slot={slot} />
-          <Text weight="medium" numberOfLines={1} style={styles.fill}>
+          <Text weight="medium" numberOfLines={2} style={styles.fill}>
             {name}
           </Text>
         </View>
@@ -171,7 +172,7 @@ export function PickLineRow({
           {caption}
         </Text>
       </View>
-      <View style={[styles.qty, { borderColor: t.bd2, backgroundColor: t.card }]}>
+      <View style={[styles.qty, { borderColor: on ? t.bd2 : t.bd, backgroundColor: t.card }]}>
         <TextInput
           {...inputTheme(t, scheme)}
           accessibilityLabel={`${unit} for ${name}`}
