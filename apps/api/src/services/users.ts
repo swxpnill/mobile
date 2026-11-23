@@ -72,9 +72,10 @@ export async function setUserPlants(
 }
 
 /**
- * Locks every active owner of the tenant, in id order, and returns their ids. Every route that can
+ * Locks every active owner of the tenant (`for no key update`, in id order), and returns their ids. Every route that can
  * remove an owner takes this lock before the target user's own lock, so two of them never wait on
- * each other in opposite orders, and the second sees the first's committed change.
+ * each other in opposite orders, and the second sees the first's committed change. NO KEY UPDATE, not UPDATE: it still conflicts
+ * with itself, but not with the FOR KEY SHARE an activity or idempotency insert takes on its actor.
  */
 export async function lockActiveOwners(tx: Tx, tenantId: string): Promise<string[]> {
   const rows = await tx
@@ -82,7 +83,7 @@ export async function lockActiveOwners(tx: Tx, tenantId: string): Promise<string
     .from(users)
     .where(and(eq(users.tenantId, tenantId), eq(users.role, 'owner'), eq(users.active, true)))
     .orderBy(asc(users.id))
-    .for('update');
+    .for('no key update');
   return rows.map((r) => r.id);
 }
 

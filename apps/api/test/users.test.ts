@@ -277,9 +277,10 @@ describe('last owner', () => {
 
 describe('deactivate and reactivate', () => {
   it('deactivate revokes every refresh token, the next request is 401; reactivate restores; repeats are no-ops', async () => {
+    const device = uuidv7();
     const tokens = createTokens(testEnv().JWT_SECRET);
     const pair = await withTenant(t.db, w.tenantId, (tx) =>
-      tokens.issuePair(tx, { id: w.staffId, tenantId: w.tenantId }, uuidv7(), TEST_NOW),
+      tokens.issuePair(tx, { id: w.staffId, tenantId: w.tenantId }, device, TEST_NOW),
     );
     const off = await post(`/v1/users/${w.staffId}/deactivate`, w.owner);
     expect(off.statusCode).toBe(200);
@@ -290,12 +291,6 @@ describe('deactivate and reactivate', () => {
       .where(and(eq(refreshTokens.userId, w.staffId), isNull(refreshTokens.revokedAt)));
     expect(live).toHaveLength(0);
     expect((await get('/v1/me', w.staff)).statusCode).toBe(401);
-    const refresh = await t.app.inject({
-      method: 'POST',
-      url: '/v1/auth/refresh',
-      payload: { refreshToken: pair.refreshToken, deviceId: uuidv7() },
-    });
-    expect(refresh.statusCode).toBe(401);
 
     const again = await post(`/v1/users/${w.staffId}/deactivate`, w.owner);
     expect(userSchema.parse(again.json()).version).toBe(2);
@@ -304,9 +299,38 @@ describe('deactivate and reactivate', () => {
     const on = await post(`/v1/users/${w.staffId}/reactivate`, w.owner);
     expect(userSchema.parse(on.json())).toMatchObject({ active: true, status: 'active', version: 3 });
     expect((await get('/v1/me', w.staff)).statusCode).toBe(200);
+    // Reactivated, so only the revocation can refuse this refresh (an inactive user is refused anyway).
+    const refresh = await t.app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      payload: { refreshToken: pair.refreshToken, deviceId: device },
+    });
+    expect(refresh.statusCode).toBe(401);
     const on2 = await post(`/v1/users/${w.staffId}/reactivate`, w.owner);
     expect(userSchema.parse(on2.json()).version).toBe(3);
     expect(await activity('user.reactivated')).toHaveLength(1);
+  });
+
+  it('reactivate and a deactivate of the same user by another owner both complete (one lock order, no deadlock)', async () => {
+    await t.ownerDb.update(users).set({ active: false }).where(eq(users.id, w.staffId));
+    // The holder keeps the first owner's row locked FOR UPDATE. The deactivate queues for it first (holding
+    // nothing of the target yet); the reactivate then locks the target and queues behind it. Released,
+    // an implementation that lets the reactivate hold the target while the deactivate holds the owners
+    // deadlocks (40P01 -> 500); with one lock order both finish.
+    const holder = await t.ownerDb.$client.connect();
+    try {
+      await holder.query('begin');
+      expect((await holder.query('select id from users where id = $1 for update', [w.ownerId])).rowCount).toBe(1);
+      const deactivate = post(`/v1/users/${w.staffId}/deactivate`, w.owner2);
+      await waitForLockWaiters(1);
+      const reactivate = post(`/v1/users/${w.staffId}/reactivate`, w.owner);
+      await waitForLockWaiters(2);
+      await holder.query('commit');
+      const results = await Promise.all([deactivate, reactivate]);
+      expect(results.map((r) => r.statusCode)).toEqual([200, 200]);
+    } finally {
+      holder.release();
+    }
   });
 
   it('unknown or foreign user → 404', async () => {

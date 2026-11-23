@@ -135,6 +135,7 @@ export function userRoutes({ tokens }: { tokens: Tokens }): FastifyPluginAsync {
       action: 'users.manage',
       response: { 200: userSchema },
       handler: async ({ tx, user, params, now }) => {
+        await lockActiveOwners(tx, user.tenantId); // same lock order as the other user-admin writes
         const current = await lockUser(tx, user.tenantId, params.id);
         if (current.active) return { body: toUser(current, await plantIdsOf(tx, current.id)) };
         const [row] = await tx
