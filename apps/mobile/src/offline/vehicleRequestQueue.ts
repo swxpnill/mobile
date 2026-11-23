@@ -16,8 +16,6 @@ export interface QueuedVehicleRequest {
 }
 
 const itemSchema = z.object({ orderId: z.string(), body: vehicleRequestBodySchema, key: z.string(), queuedAt: z.string() });
-const itemsSchema = z.array(itemSchema);
-
 /** One queue per person on this phone: signing out or switching person keeps it, nobody else sees it. */
 const QUEUE_PREFIX = 'tonnage-vehicle-requests-';
 export const vehicleRequestQueueKey = (userId: string) => `${QUEUE_PREFIX}${userId}`;
@@ -37,15 +35,35 @@ async function load(userId: string): Promise<QueuedVehicleRequest[]> {
   const hit = cache.get(userId);
   if (hit) return hit;
   const raw = await AsyncStorage.getItem(vehicleRequestQueueKey(userId));
-  let items: QueuedVehicleRequest[] = [];
-  if (raw) {
-    // Items that no longer match the contract can never be sent: they are dropped, not retried forever.
-    const parsed = itemsSchema.safeParse(JSON.parse(raw));
-    if (parsed.success) items = parsed.data;
-  }
+  const items = raw ? parseQueue(raw) : [];
   cache.set(userId, items);
   return items;
 }
+
+/**
+ * The stored queue, keeping every entry that still matches the contract. Corrupt text or an entry
+ * that can never be sent is dropped (and logged once), never retried forever; the rest survives.
+ */
+function parseQueue(raw: string): QueuedVehicleRequest[] {
+  let stored: unknown;
+  try {
+    stored = JSON.parse(raw);
+  } catch {
+    console.warn('Vehicle request queue: stored text is not JSON; it was dropped');
+    return [];
+  }
+  const entries = Array.isArray(stored) ? stored : [];
+  const items = entries.flatMap((e) => {
+    const parsed = itemSchema.safeParse(e);
+    return parsed.success ? [parsed.data] : [];
+  });
+  const dropped = Array.isArray(stored) ? entries.length - items.length : 1;
+  if (dropped > 0) console.warn(`Vehicle request queue: dropped ${dropped} unreadable entr${dropped === 1 ? 'y' : 'ies'}`);
+  return items;
+}
+
+/** How many requests wait in this person's queue, or null before it has been read from storage. */
+export const queuedVehicleRequestCount = (userId: string): number | null => cache.get(userId)?.length ?? null;
 
 async function save(userId: string, items: QueuedVehicleRequest[]): Promise<void> {
   await AsyncStorage.setItem(vehicleRequestQueueKey(userId), JSON.stringify(items));

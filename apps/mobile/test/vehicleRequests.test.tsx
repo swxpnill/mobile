@@ -11,7 +11,13 @@ import { createFakeClock, createMockApi, type MockApi } from '@tonnage/mock-api'
 import { api } from '../src/api/client';
 import { ME_CACHE_KEY, useMe } from '../src/api/hooks/me';
 import { useOrder, useOrderActivity } from '../src/api/hooks/orders';
-import { flushQueuedVehicleRequests, useQueuedVehicleRequests, useRequestVehicle } from '../src/api/hooks/vehicleRequests';
+import {
+  VEHICLE_REQUEST_FLUSH_DELAY_MS,
+  flushQueuedVehicleRequests,
+  useQueuedVehicleRequests,
+  useRequestVehicle,
+  useVehicleRequestFlusher,
+} from '../src/api/hooks/vehicleRequests';
 import { setMockApi, setTransport } from '../src/api/transport';
 import { resetSessionForTests, useSession } from '../src/auth/session';
 import { copyText } from '../src/format/clipboard';
@@ -21,6 +27,7 @@ import {
   clearAllVehicleRequestQueues,
   readVehicleRequestQueue,
   resetVehicleRequestQueueForTests,
+  vehicleRequestQueueKey,
 } from '../src/offline/vehicleRequestQueue';
 import * as Toast from '../src/ui/Toast';
 
@@ -157,6 +164,88 @@ describe('useRequestVehicle', () => {
     expect(sent).toBe(1);
     expect(await activityOf(order.id)).toHaveLength(1);
     expect(await readVehicleRequestQueue(RAJESH)).toEqual([]);
+  });
+});
+
+describe('Ruling 5: when the queue is sent', () => {
+  it('a server error (5xx) on the first send queues it like a network error (WhatsApp already opened)', async () => {
+    const { order, body } = await pickOrder();
+    const { result } = await renderHook(() => ({ vr: useRequestVehicle(order.id), me: useMe() }), { wrapper });
+    await waitFor(() => expect(result.current.me.data).toBeDefined());
+    mock.controls.failNext(503, 'INTERNAL');
+    let outcome: string | undefined;
+    await act(async () => {
+      outcome = await result.current.vr.send(body);
+    });
+    expect(outcome).toBe('queued');
+    expect(await readVehicleRequestQueue(RAJESH)).toHaveLength(1);
+    expect(await activityOf(order.id)).toHaveLength(0);
+  });
+
+  it('back online, any successful request flushes the queue (no app foreground needed)', async () => {
+    const { order, body } = await pickOrder();
+    const { result } = await renderHook(
+      () => {
+        useVehicleRequestFlusher();
+        return { vr: useRequestVehicle(order.id), me: useMe() };
+      },
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.me.data).toBeDefined());
+    mock.controls.setOffline(true);
+    await act(async () => {
+      expect(await result.current.vr.send(body)).toBe('queued');
+    });
+    mock.controls.setOffline(false);
+    jest.useFakeTimers();
+    try {
+      // An ordinary order refetch succeeds; the flush follows it shortly after.
+      await act(async () => {
+        await api(`/v1/orders/${order.id}`, { schema: orderSchema });
+        await jest.advanceTimersByTimeAsync(VEHICLE_REQUEST_FLUSH_DELAY_MS);
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+    await waitFor(async () => expect(await readVehicleRequestQueue(RAJESH)).toEqual([]));
+    expect(await activityOf(order.id)).toHaveLength(1);
+  });
+});
+
+describe('corrupt local data', () => {
+  it('a corrupt kept profile is ignored: the send still queues for the signed-in person', async () => {
+    const { order, body } = await pickOrder();
+    await AsyncStorage.setItem(ME_CACHE_KEY, '{not json');
+    const { result } = await renderHook(() => useRequestVehicle(order.id), { wrapper });
+    mock.controls.failNext(503, 'INTERNAL'); // the send fails; /v1/me then answers
+    let outcome: string | undefined;
+    await act(async () => {
+      outcome = await result.current.send(body);
+    });
+    expect(outcome).toBe('queued');
+    expect(await readVehicleRequestQueue(RAJESH)).toHaveLength(1);
+  });
+
+  it('a queue that is not JSON is read as empty and a new request can still be saved', async () => {
+    const { order, body } = await pickOrder();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await AsyncStorage.setItem(vehicleRequestQueueKey(RAJESH), '[{oops');
+    expect(await readVehicleRequestQueue(RAJESH)).toEqual([]);
+    await enqueueVehicleRequest(RAJESH, { orderId: order.id, body, key: 'k1', queuedAt: '2026-11-03T04:30:00.000Z' });
+    expect((await readVehicleRequestQueue(RAJESH)).map((i) => i.key)).toEqual(['k1']);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('a corrupt entry is dropped (logged once); the rest of the queue survives', async () => {
+    const { order, body } = await pickOrder();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const good = (key: string) => ({ orderId: order.id, body, key, queuedAt: '2026-11-03T04:30:00.000Z' });
+    await AsyncStorage.setItem(vehicleRequestQueueKey(RAJESH), JSON.stringify([good('k1'), { junk: true }, 7, good('k2')]));
+    expect((await readVehicleRequestQueue(RAJESH)).map((i) => i.key)).toEqual(['k1', 'k2']);
+    expect((await readVehicleRequestQueue(RAJESH)).map((i) => i.key)).toEqual(['k1', 'k2']);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
   });
 });
 
