@@ -363,7 +363,6 @@ export interface DraftRec {
   createdAt: string;
   updatedAt: string;
 }
-/** Row-locked counter in B2 (number_series); keyed per tenant, series and financial year. */
 /** A request to the order's broker or customer to send a vehicle (Request vehicle, Ruling 9). */
 export interface VehicleRequestRec {
   id: string;
@@ -379,6 +378,7 @@ export interface VehicleRequestRec {
   requestedAt: string;
   requestedBy: string;
 }
+/** Row-locked counter in B2 (number_series); keyed per tenant, series and financial year. */
 export interface NumberSeriesRec {
   tenantId: string;
   key: string;
