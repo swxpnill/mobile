@@ -271,6 +271,12 @@ describe('Reset demo data', () => {
     }
   });
 
+  it('Reset demo data also clears every vehicle-request queue on the phone', async () => {
+    await AsyncStorage.setItem(`tonnage-vehicle-requests-${ids.users.rajesh}`, '[]');
+    await demo.resetDemoData();
+    expect((await AsyncStorage.getAllKeys()).filter((k) => k.startsWith('tonnage-vehicle-requests-'))).toEqual([]);
+  });
+
   it('Cancel keeps everything', async () => {
     await wrap(<DemoToolsScreen />);
     await fireEvent.press(await screen.findByRole('button', { name: 'Reset demo data' }));

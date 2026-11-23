@@ -8,6 +8,7 @@ import {
   meSchema,
   vehicleRequestSchema,
 } from '@tonnage/shared';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { type QueryClient, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
@@ -22,14 +23,23 @@ import {
 import { api } from '../client';
 import { useSubmitKey } from '../submitKey';
 import { currentIdentity } from './cache';
-import { ME_KEY, useMe } from './me';
+import { ME_CACHE_KEY, ME_KEY, useMe } from './me';
 import { afterOrderChange, orderKey } from './orders';
 
 const createdSchema = z.object({ request: vehicleRequestSchema });
 const path = (orderId: string) => `/v1/orders/${orderId}/vehicle-requests`;
 
+/**
+ * The signed-in person. The session holds only opaque tokens, so offline this falls back to the
+ * profile copy kept for launch (ME_CACHE_KEY) before asking the server.
+ */
 async function currentUser(qc: QueryClient): Promise<Me> {
-  return qc.getQueryData<Me>(ME_KEY) ?? (await qc.fetchQuery({ queryKey: ME_KEY, queryFn: () => api('/v1/me', { schema: meSchema }) }));
+  const cached = qc.getQueryData<Me>(ME_KEY);
+  if (cached) return cached;
+  const raw = await AsyncStorage.getItem(ME_CACHE_KEY).catch(() => null);
+  const kept = raw ? meSchema.safeParse(JSON.parse(raw)) : null;
+  if (kept?.success) return kept.data;
+  return qc.fetchQuery({ queryKey: ME_KEY, queryFn: () => api('/v1/me', { schema: meSchema }) });
 }
 
 /** Shows a request in the order's cache before the server has it (never replaces the server's list). */
@@ -73,6 +83,12 @@ export async function flushQueuedVehicleRequests(qc: QueryClient, userId: string
     if (currentIdentity() !== identity) throw new NetworkError('Signed in as someone else');
     await api(path(item.orderId), { method: 'POST', body: item.body, idempotencyKey: item.key });
     afterOrderChange(qc, identity);
+  }, (item) => {
+    // Refused for good: the optimistic row must not stay as if it were recorded.
+    qc.setQueryData<Order>(orderKey(item.orderId), (o) =>
+      o ? { ...o, vehicleRequests: o.vehicleRequests.filter((r) => r.id !== `queued-${item.key}`) } : o,
+    );
+    void qc.invalidateQueries({ queryKey: orderKey(item.orderId) });
   });
   return sent;
 }

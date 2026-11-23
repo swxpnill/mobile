@@ -19,7 +19,8 @@ const itemSchema = z.object({ orderId: z.string(), body: vehicleRequestBodySchem
 const itemsSchema = z.array(itemSchema);
 
 /** One queue per person on this phone: signing out or switching person keeps it, nobody else sees it. */
-export const vehicleRequestQueueKey = (userId: string) => `tonnage-vehicle-requests-${userId}`;
+const QUEUE_PREFIX = 'tonnage-vehicle-requests-';
+export const vehicleRequestQueueKey = (userId: string) => `${QUEUE_PREFIX}${userId}`;
 
 const cache = new Map<string, QueuedVehicleRequest[]>();
 const listeners = new Set<() => void>();
@@ -70,7 +71,11 @@ const NEVER = new Set([403, 404, 422]);
  * stops the run and keeps the item and those behind it. Resolves with how many were recorded.
  * One run per person at a time: a second call joins the one in progress.
  */
-export function flushVehicleRequests(userId: string, send: (item: QueuedVehicleRequest) => Promise<void>): Promise<number> {
+export function flushVehicleRequests(
+  userId: string,
+  send: (item: QueuedVehicleRequest) => Promise<void>,
+  onDropped?: (item: QueuedVehicleRequest) => void,
+): Promise<number> {
   const running = flushing.get(userId);
   if (running) return running;
   const run = (async () => {
@@ -84,6 +89,7 @@ export function flushVehicleRequests(userId: string, send: (item: QueuedVehicleR
       } catch (e) {
         if (!(e instanceof ApiError) || !NEVER.has(e.status)) return sent;
         showToast(`Couldn't record the vehicle request: ${e.message}`);
+        onDropped?.(item);
       }
       await remove(userId, item.key);
     }
@@ -115,6 +121,16 @@ export function useVehicleRequestQueue(
     // `v` is the queue's change counter: the cache is read again whenever it moves.
     [userId, orderId, v],
   );
+}
+
+/** Reset demo data: every person's queue on this phone goes (the orders they point at are gone). */
+export async function clearAllVehicleRequestQueues(): Promise<void> {
+  await serial(async () => {
+    const keys = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(QUEUE_PREFIX));
+    if (keys.length) await AsyncStorage.multiRemove(keys);
+    cache.clear();
+    notify();
+  });
 }
 
 export function resetVehicleRequestQueueForTests(): void {

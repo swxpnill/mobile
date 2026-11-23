@@ -49,7 +49,7 @@ export interface Tokens {
   shadow: string;
   /** Text and icons on the danger fill (`dgf`). */
   onDanger: string;
-  /** WhatsApp action fill (Request vehicle, canvas 40); white bold text on it, 3:1. */
+  /** WhatsApp action fill (Request vehicle, canvas 40); white text on it passes 4.5:1. */
   wa: string;
   /** Switch knob. */
   thumb: string;
@@ -92,7 +92,7 @@ export const lightTokens: Tokens = {
   scrim: 'rgba(11,13,18,.42)',
   shadow: '#0B0D12',
   onDanger: '#FFFFFF',
-  wa: '#128C4A',
+  wa: '#15803D',
   thumb: '#FFFFFF',
 };
 
@@ -134,7 +134,7 @@ export const darkTokens: Tokens = {
   scrim: 'rgba(0,0,0,.6)',
   shadow: '#000000',
   onDanger: '#FFFFFF',
-  wa: '#1FA855',
+  wa: '#15803D',
   thumb: '#FFFFFF',
 };
 

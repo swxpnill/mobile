@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { type Order, SAMPLE_WORLD, type VehicleRequestBody, activityEntrySchema, orderSchema } from '@tonnage/shared';
 import { createFakeClock, createMockApi, type MockApi } from '@tonnage/mock-api';
 import { api } from '../src/api/client';
-import { useMe } from '../src/api/hooks/me';
+import { ME_CACHE_KEY, useMe } from '../src/api/hooks/me';
 import { useOrder, useOrderActivity } from '../src/api/hooks/orders';
 import { flushQueuedVehicleRequests, useQueuedVehicleRequests, useRequestVehicle } from '../src/api/hooks/vehicleRequests';
 import { setMockApi, setTransport } from '../src/api/transport';
@@ -18,6 +18,7 @@ import { copyText } from '../src/format/clipboard';
 import {
   enqueueVehicleRequest,
   flushVehicleRequests,
+  clearAllVehicleRequestQueues,
   readVehicleRequestQueue,
   resetVehicleRequestQueueForTests,
 } from '../src/offline/vehicleRequestQueue';
@@ -188,6 +189,52 @@ describe('the offline queue', () => {
     await enqueueVehicleRequest(RAJESH, { orderId: order.id, body, key: 'k1', queuedAt: '2026-11-03T04:30:00.000Z' });
     expect(await readVehicleRequestQueue(ids.users.priya)).toEqual([]);
     expect(await AsyncStorage.getItem(`tonnage-vehicle-requests-${RAJESH}`)).toContain('k1');
+  });
+});
+
+describe('refused queued items and the cache', () => {
+  it('a 422-dropped item leaves no phantom request in the order cache', async () => {
+    const { order, body } = await pickOrder();
+    const tooMuch: VehicleRequestBody = { ...body, lines: [{ orderLineId: body.lines[0]!.orderLineId, kg: 900_000_000 }], totalKg: 900_000_000 };
+    const { result } = await renderHook(() => ({ vr: useRequestVehicle(order.id), order: useOrder(order.id), me: useMe() }), { wrapper });
+    await waitFor(() => expect(result.current.me.data && result.current.order.data).toBeDefined());
+    mock.controls.setOffline(true);
+    await act(async () => {
+      expect(await result.current.vr.send(tooMuch)).toBe('queued');
+    });
+    const phantom = () => (client.getQueryData(['order', order.id]) as Order).vehicleRequests.filter((r) => r.id.startsWith('queued-'));
+    expect(phantom()).toHaveLength(1);
+    mock.controls.setOffline(false);
+    await act(async () => {
+      await flushQueuedVehicleRequests(client, RAJESH);
+    });
+    expect(await readVehicleRequestQueue(RAJESH)).toEqual([]);
+    expect(phantom()).toEqual([]);
+  });
+
+  it('offline with no profile in memory, send still queues (falls back to the kept profile)', async () => {
+    const { order, body } = await pickOrder();
+    const me = await api('/v1/me');
+    await AsyncStorage.setItem(ME_CACHE_KEY, JSON.stringify(me));
+    const { result } = await renderHook(() => useRequestVehicle(order.id), { wrapper });
+    mock.controls.setOffline(true);
+    let outcome: string | undefined;
+    await act(async () => {
+      outcome = await result.current.send(body);
+    });
+    expect(outcome).toBe('queued');
+    expect(await readVehicleRequestQueue(RAJESH)).toHaveLength(1);
+  });
+
+  it("clearAllVehicleRequestQueues empties every person's queue", async () => {
+    const { order, body } = await pickOrder();
+    const item = { orderId: order.id, body, key: 'k1', queuedAt: '2026-11-03T04:30:00.000Z' };
+    await enqueueVehicleRequest(RAJESH, item);
+    await enqueueVehicleRequest(ids.users.priya, { ...item, key: 'k2' });
+    await clearAllVehicleRequestQueues();
+    expect(await readVehicleRequestQueue(RAJESH)).toEqual([]);
+    expect(await readVehicleRequestQueue(ids.users.priya)).toEqual([]);
+    expect((await AsyncStorage.getAllKeys()).filter((k) => k.startsWith('tonnage-vehicle-requests-'))).toEqual([]);
   });
 });
 
