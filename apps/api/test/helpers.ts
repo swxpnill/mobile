@@ -6,7 +6,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { inject } from 'vitest';
 import type { Clock } from '../src/clock.ts';
 import { createDb, type Db } from '../src/db/client.ts';
-import { companies, parties, partyAddresses, tenants, users } from '../src/db/schema/index.ts';
+import { companies, parties, partyAddresses, productCompanies, products, tenants, users } from '../src/db/schema/index.ts';
 import { createTokens } from '../src/auth/tokens.ts';
 import { loadEnv, type Env } from '../src/env.ts';
 import type { OtpProvider } from '../src/auth/otp-provider.ts';
@@ -160,6 +160,32 @@ export async function ownerInsertParty(
     { id: shipToId, tenantId, partyId: id, position: 1, kind: 'ship_to', label: 'Site', address: 'Siltara', isDefault: true, ...stamps },
   ]);
   return { id, billToId, shipToId };
+}
+
+/** Inserts a product linked to the given companies (in that order) through the owner connection; returns its id. */
+export async function ownerInsertProduct(
+  ownerDb: Db,
+  tenantId: string,
+  createdBy: string,
+  companyIds: string[],
+  product: { category?: string; grade?: string; sizeLabel?: string; conversionPerMt?: number } = {},
+): Promise<string> {
+  const id = uuidv7();
+  await ownerDb.insert(products).values({
+    id,
+    tenantId,
+    category: product.category ?? 'TMT',
+    grade: product.grade ?? 'Fe500D',
+    sizeLabel: product.sizeLabel ?? '12 mm',
+    conversionPerMt: product.conversionPerMt ?? 0,
+    standardLengths: [],
+    createdBy,
+    ...stamps,
+  });
+  await ownerDb
+    .insert(productCompanies)
+    .values(companyIds.map((companyId, position) => ({ tenantId, productId: id, companyId, position, ...stamps })));
+  return id;
 }
 
 /** An `Authorization` header for a user, signed with the test secret at the test clock's time. */

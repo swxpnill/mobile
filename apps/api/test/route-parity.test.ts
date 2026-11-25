@@ -30,7 +30,17 @@ const M1_ROUTES = [
 ] as const;
 
 /** B2 routes, added task by task (plan Ruling 1). */
-const B2_ROUTES = ['GET /v1/parties', 'POST /v1/parties', 'GET /v1/parties/:id', 'PATCH /v1/parties/:id'] as const;
+const B2_ROUTES = [
+  'GET /v1/parties',
+  'POST /v1/parties',
+  'GET /v1/parties/:id',
+  'PATCH /v1/parties/:id',
+  'GET /v1/products',
+  'POST /v1/products',
+  'GET /v1/products/:id',
+  'PATCH /v1/products/:id',
+  'DELETE /v1/products/:id',
+] as const;
 
 interface Shape {
   route: string;

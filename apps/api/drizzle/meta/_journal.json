@@ -15,6 +15,13 @@
       "when": 1795587721950,
       "tag": "0001_masters",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795589199449,
+      "tag": "0002_product_company_position",
+      "breakpoints": true
     }
   ]
 }

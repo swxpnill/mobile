@@ -150,6 +150,13 @@ export const products = pgTable(
   (t) => [
     unique('products_tenant_id_id_key').on(t.tenantId, t.id),
     index('products_tenant_category_idx').on(t.tenantId, t.category),
+    // One product per display name (case-insensitive), as the shared `productDisplayName` reads it:
+    // category and grade joined by a space, then the size. Also what makes two racing creates safe.
+    uniqueIndex('products_tenant_display_name_key').on(
+      t.tenantId,
+      sql`lower(btrim(${t.category} || ' ' || ${t.grade}))`,
+      sql`lower(${t.sizeLabel})`,
+    ),
     foreignKey({
       name: 'products_created_by_fk',
       columns: [t.tenantId, t.createdBy],
@@ -158,13 +165,14 @@ export const products = pgTable(
   ],
 );
 
-/** Which companies sell a product. */
+/** Which companies sell a product, in the order the client sent them (`position`, as the mock keeps them). */
 export const productCompanies = pgTable(
   'product_companies',
   {
     tenantId: tenantId().references(() => tenants.id),
     productId: uuid('product_id').notNull(),
     companyId: uuid('company_id').notNull(),
+    position: integer('position').notNull(),
     ...timestamps,
   },
   (t) => [
