@@ -6,6 +6,7 @@ import {
   type QtyTotals,
   type SubOrder,
   type TenantSettings,
+  orderAgeDays,
   billedRate,
   brokerEarningEstimate,
   isTerminal,
@@ -14,12 +15,11 @@ import {
   over,
   overToleranceKg,
   pending,
+  productsLabel as sharedProductsLabel,
   subOrderNumber,
   totalsOf,
 } from '@tonnage/shared';
 import { type GraphMath, type LineRow, type OrderGraph, type SubOrderGraph, graphMath } from './orderGraph.ts';
-
-const DAY = 24 * 60 * 60 * 1000;
 
 /** The mock's default when a tenant's settings predate the tolerance setting. */
 const DEFAULT_COMPLETION_TOLERANCE_KG = 1000;
@@ -48,10 +48,8 @@ export function visibleSubOrders(c: OrderViewCtx, g: OrderGraph): SubOrderGraph[
 
 const lineValueOf = (l: LineRow) => lineValue(l.orderedKg, billedRate(l.rate, l.overpricePerMt));
 
-/** Days since booking, by elapsed time (the aged badge counts full days). */
-export function ageDays(g: OrderGraph, now: number): number {
-  return Math.max(0, Math.floor((now - g.order.createdAt.getTime()) / DAY));
-}
+/** Days since booking (shared rule). */
+export const ageDays = (g: OrderGraph, now: number): number => orderAgeDays(g.order.createdAt.getTime(), now);
 
 /** Status of the order as the caller sees it (only visible sub-orders count). */
 function visibleStatus(m: GraphMath, subs: readonly SubOrderGraph[]): OrderStatus {
@@ -170,28 +168,9 @@ export function toOrder(g: OrderGraph, c: OrderViewCtx): Order {
   };
 }
 
-const MM_SIZE = /^\d+(\.\d+)?\s*mm$/;
-const labelCollator = new Intl.Collator('en', { numeric: true });
-
-/** "TMT 12, 16 mm", "MS Billet", "TMT 16 mm · Angle": sizes in mm are merged per category. */
+/** "TMT 12, 16 mm", "MS Billet", "TMT 16 mm � Angle": sizes in mm are merged per category. */
 export function productsLabel(c: OrderViewCtx, lines: readonly LineRow[]): string {
-  const byCategory = new Map<string, string[]>();
-  for (const l of lines) {
-    const p = c.productById.get(l.productId);
-    if (!p) continue;
-    const sizes = byCategory.get(p.category) ?? [];
-    if (!sizes.includes(p.sizeLabel)) sizes.push(p.sizeLabel);
-    byCategory.set(p.category, sizes);
-  }
-  return [...byCategory.entries()]
-    .map(([category, sizes]) => {
-      if (sizes.every((s) => MM_SIZE.test(s))) {
-        const nums = sizes.map((s) => s.replace(/\s*mm$/, '')).sort(labelCollator.compare);
-        return `${category} ${nums.join(', ')} mm`;
-      }
-      return category;
-    })
-    .join(' · ');
+  return sharedProductsLabel(lines.flatMap((l) => c.productById.get(l.productId) ?? []));
 }
 
 /** A list row; with a company filter the figures (and status) cover that company's sub-order only. */

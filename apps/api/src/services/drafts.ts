@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, lt, type SQL } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import type { Tx } from '../db/client.ts';
 import { drafts, users } from '../db/schema/index.ts';
@@ -10,7 +10,7 @@ import { isId } from './org.ts';
 
 const DAY = 24 * 60 * 60 * 1000;
 
-/** Drafts are purged 7 days after their last save (§5.3). */
+/** Drafts are purged 7 days after their last save (spec 5.3). */
 export const DRAFT_TTL_MS = 7 * DAY;
 
 /** A draft belongs to its creator; the owner may open anyone's (row-level security keeps the tenant). */
@@ -39,7 +39,6 @@ export async function deleteDraftIfVisible(tx: Tx, user: AuthedUser, id: string)
   await tx.delete(drafts).where(and(eq(drafts.id, id), visibleDraft(user)));
 }
 
-
 /**
  * Drops the caller's drafts last saved more than 7 days before `now`, in one statement. Run at the
  * start of every drafts request (there is no job yet); other people's drafts are theirs to purge.
@@ -56,10 +55,10 @@ export async function draftCreatorNames(tx: Tx, rows: readonly DraftRow[]): Prom
   return new Map(found.map((u) => [u.id, u.name]));
 }
 
-/** The caller's drafts, most recently saved first (ties by id, descending). */
+/** The caller's drafts, most recently saved first (ties in creation order, as the mock's stable sort). */
 export async function listDrafts(tx: Tx, user: AuthedUser, now: number): Promise<DraftRow[]> {
   await purgeExpiredDrafts(tx, user, now);
-  return tx.select().from(drafts).where(visibleDraft(user)).orderBy(desc(drafts.updatedAt), desc(drafts.id));
+  return tx.select().from(drafts).where(visibleDraft(user)).orderBy(desc(drafts.updatedAt), asc(drafts.id));
 }
 
 /**

@@ -5,27 +5,14 @@ import {
   billedRate,
   isOpenTruckState,
   isTerminal,
-  istDateParts,
+  istDayStart,
+  istWeekStart,
   lineValue,
 } from '@tonnage/shared';
 import { graphMath, truckNetKg, type OrderGraph, type TruckGraph } from './orderGraph.ts';
 import { ageDays } from './orders.ts';
 
 const DAY = 24 * 60 * 60 * 1000;
-const IST_OFFSET_MS = (5 * 60 + 30) * 60_000;
-
-/** Start of the IST calendar day containing `ms`, as epoch ms. */
-export function istDayStart(ms: number): number {
-  const { year, month, day } = istDateParts(ms);
-  return Date.UTC(year, month - 1, day) - IST_OFFSET_MS;
-}
-
-/** Monday 00:00 IST of the week containing `ms`. */
-export function istWeekStart(ms: number): number {
-  const dayStart = istDayStart(ms);
-  const weekday = new Date(dayStart + IST_OFFSET_MS).getUTCDay(); // 0 = Sunday
-  return dayStart - ((weekday + 6) % 7) * DAY;
-}
 
 /** What `toHome` reads besides the graphs: the visible companies and plants, the unit filter, the settings. */
 export interface HomeInput {

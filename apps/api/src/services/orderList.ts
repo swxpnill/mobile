@@ -1,4 +1,4 @@
-import type { OrderList, OrderListQuery, OrderListStatus, PlantScope } from '@tonnage/shared';
+import { agedCutoff, type OrderList, type OrderListQuery, type OrderListStatus, type PlantScope } from '@tonnage/shared';
 import { and, sql, type SQL } from 'drizzle-orm';
 import type { Tx } from '../db/client.ts';
 import { orders, parties, subOrders } from '../db/schema/index.ts';
@@ -9,8 +9,6 @@ import { toOrderSummary } from '../views/orders.ts';
 import { anyId, loadOrderGraph, orderViewCtx } from './orderGraph.ts';
 import { visibleCompanies } from './org.ts';
 import { loadSettings } from './settings.ts';
-
-const DAY = 24 * 60 * 60 * 1000;
 
 const emptyCounts = (): Record<OrderListStatus, number> => ({
   all: 0,
@@ -83,8 +81,7 @@ export async function listOrders(
   const cursor = decodeCursor(query.cursor);
   if (visible.length === 0) return { items: [], counts: emptyCounts(), nextCursor: null };
   const settings = await loadSettings(tx, user.tenantId);
-  // `ageDays > agedOrderDays` needs at least (agedOrderDays + 1) whole days since booking.
-  const agedBefore = new Date(now - (settings.agedOrderDays + 1) * DAY);
+  const agedBefore = new Date(agedCutoff(now, settings.agedOrderDays));
   const candidates = await tx
     .select({ id: orders.id })
     .from(orders)

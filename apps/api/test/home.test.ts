@@ -129,6 +129,58 @@ describe('Home equals the mock', () => {
   });
 });
 
+describe('Home: week, change and aged orders equal the mock', () => {
+  const dispatchOn = async (orders: Map<Side, Order>, vehicleNo: string, kg: number) => {
+    for (const s of [p.mock, p.api]) {
+      const sub = orders.get(s)?.subOrders[0];
+      if (!sub) throw new Error('no sub-order');
+      await s.addTruck({
+        subOrderId: sub.id,
+        state: 'dispatched',
+        vehicleNo,
+        tareKg: 10_000,
+        plan: [{ orderLineId: sub.lines[0]!.id, plannedKg: kg }],
+        allocations: [{ orderLineId: sub.lines[0]!.id, netKg: kg }],
+      });
+    }
+  };
+
+  it('sentThisWeek and changePct against last week (Monday 00:00 IST boundary)', async () => {
+    await setup();
+    const o = await book(krmOrder);
+    // Last week's dispatch (Tue 27 Oct), then this week's (Tue 3 Nov): +50 %.
+    p.clock.advance(-7 * 24 * HOUR);
+    await dispatchOn(o, 'CG 07 AA 0001', 20_000);
+    p.clock.advance(7 * 24 * HOUR);
+    await dispatchOn(o, 'CG 07 AA 0002', 30_000);
+    const res = await home('rajesh');
+    expect(res[1].body).toMatchObject({ sentThisWeek: { kg: 30_000, changePct: 50 } });
+    same(res);
+    // Sunday 8 Nov 23:59 IST is still this week; Monday 00:00 IST starts a new one.
+    p.clock.advance(5 * 24 * HOUR + 13 * HOUR + 59 * 60_000); // Sun 23:59 IST
+    expect(((await home('rajesh'))[1].body as Home).sentThisWeek).toEqual({ kg: 30_000, changePct: 50 });
+    same(await home('rajesh'));
+    p.clock.advance(60_000); // Mon 00:00 IST
+    const monday = await home('rajesh');
+    expect(monday[1].body).toMatchObject({ sentThisWeek: { kg: 0, changePct: -100 } });
+    same(monday);
+  });
+
+  it('agedOrders counts open orders with pending older than the setting', async () => {
+    await setup();
+    await book(krmOrder);
+    const fresh = await home('rajesh');
+    expect(fresh[1].body).toMatchObject({ agedOrders: 0 });
+    const days = (fresh[1].body as Home).agedOrderDays;
+    p.clock.advance(days * 24 * HOUR);
+    expect(((await home('rajesh'))[1].body as Home).agedOrders).toBe(0);
+    p.clock.advance(24 * HOUR);
+    const aged = await home('rajesh');
+    expect(aged[1].body).toMatchObject({ agedOrders: 1 });
+    same(aged);
+  });
+});
+
 describe('Home for a plant head', () => {
   it('shows no money keys and only his plants trucks', async () => {
     await setup();

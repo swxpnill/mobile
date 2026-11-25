@@ -1,6 +1,7 @@
 import type { Draft } from '@tonnage/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { closeTestApps } from './helpers.ts';
+import { waitForLockWaiters } from './support/lockWait.ts';
 import { normaliseIds } from './support/normalise.ts';
 import { buildParity, type Parity, type Res } from './support/parity.ts';
 
@@ -100,5 +101,46 @@ describe('drafts equal the mock', () => {
     const list = await p.both('GET', () => '/v1/orders/drafts');
     expect((list[1].body as Draft[]).length).toBe(1);
     same(list);
+  });
+
+  it('drafts saved at the same instant list in creation order, as the mock', async () => {
+    for (let n = 1; n <= 3; n += 1) await p.both('POST', () => '/v1/orders/drafts', () => ({ body: payload(n) }));
+    const list = await p.both('GET', () => '/v1/orders/drafts');
+    expect((list[1].body as Draft[]).map((d) => (d.payload as { step: number }).step)).toEqual([1, 2, 3]);
+    same(list);
+  });
+
+  it('the owner purges an expired draft of someone else and sees the same list as the mock', async () => {
+    await p.both('POST', () => '/v1/orders/drafts', () => ({ body: payload(1), as: 'priya' }));
+    p.clock.advance(3 * DAY);
+    await p.both('POST', () => '/v1/orders/drafts', () => ({ body: payload(2), as: 'priya' }));
+    p.clock.advance(5 * DAY); // the first is 8 days old, the second 5
+    const list = await p.both('GET', () => '/v1/orders/drafts', () => ({ as: 'rajesh' }));
+    expect((list[1].body as Draft[]).length).toBe(1);
+    same(list);
+    const rows = await p.t.ownerDb.$client.query<{ n: number }>('select count(*)::int as n from drafts');
+    expect(rows.rows[0]?.n).toBe(1);
+  });
+
+  it('two saves with the same version at once: one 200, one 409 STALE', async () => {
+    const made = await p.api.call('POST', '/v1/orders/drafts', { body: payload(1) });
+    const id = (made.body as Draft).id;
+    const holder = await p.t.ownerDb.$client.connect();
+    try {
+      await holder.query('begin');
+      await holder.query('select 1 from drafts where id = $1 for update', [id]);
+      const first = p.api.call('PUT', `/v1/orders/drafts/${id}`, { body: { ...payload(2), version: 1 } });
+      await waitForLockWaiters(p.t.ownerDb, 1);
+      const second = p.api.call('PUT', `/v1/orders/drafts/${id}`, { body: { ...payload(3), version: 1 } });
+      await waitForLockWaiters(p.t.ownerDb, 2);
+      await holder.query('commit');
+      const [a, b] = await Promise.all([first, second]);
+      expect([a.status, b.status]).toEqual([200, 409]);
+      expect(b.body).toMatchObject({ code: 'STALE' });
+    } finally {
+      holder.release();
+    }
+    const after = await p.api.call('GET', `/v1/orders/drafts/${id}`);
+    expect(after.body).toMatchObject({ version: 2, payload: { step: 2 } });
   });
 });
