@@ -239,7 +239,7 @@ export function openVehicleRequests(c: OrderCtx, order: OrderRec, visible: reado
     });
 }
 
-/** "TMT 12, 16 mm", "MS Billet", "TMT 16 mm · Angle": sizes in mm are merged per category. */
+/** "TMT 12, 16 mm", "MS Billet", "TMT 16 mm Â· Angle": sizes in mm are merged per category. */
 export function productsLabel(c: OrderCtx, lines: readonly OrderLineRec[]): string {
   return sharedProductsLabel(lines.flatMap((l) => c.productNameById.get(l.productId) ?? []));
 }

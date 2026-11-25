@@ -168,7 +168,7 @@ export function toOrder(g: OrderGraph, c: OrderViewCtx): Order {
   };
 }
 
-/** "TMT 12, 16 mm", "MS Billet", "TMT 16 mm · Angle": sizes in mm are merged per category. */
+/** "TMT 12, 16 mm", "MS Billet", "TMT 16 mm Â· Angle": sizes in mm are merged per category. */
 export function productsLabel(c: OrderViewCtx, lines: readonly LineRow[]): string {
   return sharedProductsLabel(lines.flatMap((l) => c.productById.get(l.productId) ?? []));
 }
