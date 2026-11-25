@@ -87,11 +87,27 @@ type PartyShape = {
   addresses: { kind: 'bill_to' | 'ship_to'; isDefault: boolean }[];
 };
 
-/** Customers need one bill-to and ship-to sites with exactly one default; only brokers earn commission. */
+/**
+ * Customers need one bill-to and ship-to sites with exactly one default; no party has two default
+ * bill-to addresses; only brokers earn commission.
+ */
 function partyRules(p: PartyShape, ctx: z.RefinementCtx): void {
   if (p.type !== 'broker' && p.defaultCommissionPerMt !== null) {
     ctx.addIssue({ code: 'custom', path: ['defaultCommissionPerMt'], message: 'Only brokers have a commission' });
   }
+  // Any party: at most one default bill-to (the API backs this with a partial unique index).
+  let defaultBill = false;
+  p.addresses.forEach((a, i) => {
+    if (a.kind !== 'bill_to' || !a.isDefault) return;
+    if (defaultBill) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['addresses', i, 'isDefault'],
+        message: 'Only one bill-to address can be the default',
+      });
+    }
+    defaultBill = true;
+  });
   if (p.type === 'customer') {
     const bill = p.addresses.filter((a) => a.kind === 'bill_to');
     const ship = p.addresses.filter((a) => a.kind === 'ship_to');

@@ -104,6 +104,19 @@ export function register(factory: TargetFactory): void {
         expect(paths(res.body)).toContainEqual(['addresses']);
       });
 
+      it('a second default bill-to → 422 at addresses.i.isDefault', async () => {
+        const t = target();
+        const token = await tokenFor(t, PEOPLE.rajesh);
+        const bill = { kind: 'bill_to', label: 'Bill to', address: 'Raipur', isDefault: true };
+        const res = await post(t, token, '/v1/parties', {
+          ...broker,
+          gstin: null,
+          addresses: [bill, { ...bill, label: 'Head office' }],
+        });
+        expectError(res, 422, 'VALIDATION');
+        expect(paths(res.body)).toEqual([['addresses', 1, 'isDefault']]);
+      });
+
       it('plant head and supervisor have no access to parties (403, a role rule, not scope)', async () => {
         const t = target();
         for (const who of [PEOPLE.kiran, PEOPLE.ravi]) {

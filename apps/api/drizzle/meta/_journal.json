@@ -8,6 +8,13 @@
       "when": 1795241695006,
       "tag": "0000_m1_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1795587721950,
+      "tag": "0001_masters",
+      "breakpoints": true
     }
   ]
 }

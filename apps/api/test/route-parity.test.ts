@@ -29,6 +29,9 @@ const M1_ROUTES = [
   'PATCH /v1/settings',
 ] as const;
 
+/** B2 routes, added task by task (plan Ruling 1). */
+const B2_ROUTES = ['GET /v1/parties', 'POST /v1/parties', 'GET /v1/parties/:id', 'PATCH /v1/parties/:id'] as const;
+
 interface Shape {
   route: string;
   public: boolean;
@@ -63,9 +66,14 @@ describe('route parity with the mock (M1)', () => {
     expect(M1_ROUTES.filter((r) => !mock.has(r))).toEqual([]);
   });
 
-  it('the API registers exactly the M1 routes under /v1, with the same public, action and idempotent', async () => {
+  it('every B2 route so far is in the mock', () => {
+    const mock = new Set(ALL_ROUTES.map((r) => `${r.method} ${normalise(r.pattern)}`));
+    expect(B2_ROUTES.filter((r) => !mock.has(r))).toEqual([]);
+  });
+
+  it('the API registers exactly the M1 and B2 routes under /v1, with the same public, action and idempotent', async () => {
     const { app } = await buildTestApp();
-    const wanted = new Set<string>(M1_ROUTES);
+    const wanted = new Set<string>([...M1_ROUTES, ...B2_ROUTES]);
     const mock = ALL_ROUTES.map((r) => shape({ ...r, path: r.pattern }))
       .filter((s) => wanted.has(s.route))
       .sort(byRoute);

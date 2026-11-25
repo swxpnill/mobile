@@ -71,6 +71,16 @@ describe('partyBodySchema', () => {
     expect(paths(partyBodySchema.safeParse(twoDefaults))).toContainEqual(['addresses']);
   });
 
+  it('any party: at most one bill-to is the default; the second default is named at its isDefault', () => {
+    const bill = { kind: 'bill_to', label: 'Bill to', address: 'Raipur', isDefault: true };
+    const broker = { ...shubham, type: 'broker', defaultCommissionPerMt: 150, addresses: [bill, { ...bill, label: 'Head office' }] };
+    const r = partyBodySchema.safeParse(broker);
+    expect(r.error?.issues.map((i) => ({ path: i.path, message: i.message }))).toEqual([
+      { path: ['addresses', 1, 'isDefault'], message: 'Only one bill-to address can be the default' },
+    ]);
+    expect(partyBodySchema.safeParse({ ...broker, addresses: [bill, { ...bill, isDefault: false }] }).success).toBe(true);
+  });
+
   it('only brokers carry a default commission', () => {
     expect(paths(partyBodySchema.safeParse({ ...shubham, defaultCommissionPerMt: 150 }))).toContainEqual([
       'defaultCommissionPerMt',

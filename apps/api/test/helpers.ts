@@ -1,12 +1,12 @@
 import { createFakeClock } from '@tonnage/mock-api';
-import type { Role } from '@tonnage/shared';
+import type { PartyType, Role } from '@tonnage/shared';
 import type { FastifyInstance } from 'fastify';
 import type { DestinationStream } from 'pino';
 import { v7 as uuidv7 } from 'uuid';
 import { inject } from 'vitest';
 import type { Clock } from '../src/clock.ts';
 import { createDb, type Db } from '../src/db/client.ts';
-import { companies, tenants, users } from '../src/db/schema/index.ts';
+import { companies, parties, partyAddresses, tenants, users } from '../src/db/schema/index.ts';
 import { createTokens } from '../src/auth/tokens.ts';
 import { loadEnv, type Env } from '../src/env.ts';
 import type { OtpProvider } from '../src/auth/otp-provider.ts';
@@ -125,6 +125,41 @@ export async function ownerInsertUser(
     ...stamps,
   });
   return id;
+}
+
+/**
+ * Inserts a party through the owner connection (R3: tests make their own masters). A customer also
+ * gets a default bill-to and a default ship-to site, whose ids are returned.
+ */
+export async function ownerInsertParty(
+  ownerDb: Db,
+  tenantId: string,
+  createdBy: string,
+  party: { type: PartyType; name: string; gstin?: string | null; active?: boolean; defaultCommissionPerMt?: number | null },
+): Promise<{ id: string; billToId: string | null; shipToId: string | null }> {
+  const id = uuidv7();
+  await ownerDb.insert(parties).values({
+    id,
+    tenantId,
+    type: party.type,
+    name: party.name,
+    gstin: party.gstin ?? null,
+    city: 'Raipur',
+    defaultCommissionPerMt: party.defaultCommissionPerMt ?? (party.type === 'broker' ? 150 : null),
+    paymentTermsText: '',
+    isSelfTransporter: false,
+    active: party.active ?? true,
+    createdBy,
+    ...stamps,
+  });
+  if (party.type !== 'customer') return { id, billToId: null, shipToId: null };
+  const billToId = uuidv7();
+  const shipToId = uuidv7();
+  await ownerDb.insert(partyAddresses).values([
+    { id: billToId, tenantId, partyId: id, position: 0, kind: 'bill_to', label: 'Bill to', address: 'Raipur', isDefault: true, ...stamps },
+    { id: shipToId, tenantId, partyId: id, position: 1, kind: 'ship_to', label: 'Site', address: 'Siltara', isDefault: true, ...stamps },
+  ]);
+  return { id, billToId, shipToId };
 }
 
 /** An `Authorization` header for a user, signed with the test secret at the test clock's time. */

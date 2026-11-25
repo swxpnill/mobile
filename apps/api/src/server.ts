@@ -15,6 +15,7 @@ import { authRoutes } from './routes/auth.ts';
 import { companyRoutes } from './routes/companies.ts';
 import { meRoutes } from './routes/me.ts';
 import { metaRoutes } from './routes/meta.ts';
+import { partyRoutes } from './routes/parties.ts';
 import { plantRoutes } from './routes/plants.ts';
 import { settingsRoutes } from './routes/settings.ts';
 import { userRoutes } from './routes/users.ts';
@@ -88,6 +89,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(settingsRoutes, { prefix: '/v1' });
   await app.register(meRoutes, { prefix: '/v1' });
   await app.register(userRoutes({ tokens }), { prefix: '/v1' });
+  await app.register(partyRoutes, { prefix: '/v1' });
   await app.register(authRoutes({ env, otp, tokens }), {
     prefix: '/v1/auth',
   });

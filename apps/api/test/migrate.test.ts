@@ -8,13 +8,19 @@ import { migrate } from '../src/db/migrate.ts';
  */
 const RLS_EXEMPT = ['refresh_tokens'];
 
-/** The M1 tenant tables, so the catalog check below can never pass vacuously. */
+/** The tenant tables so far, so the catalog check below can never pass vacuously. */
 const TENANT_TABLES = [
   'activity_log',
   'companies',
+  'contact_numbers',
   'devices',
   'idempotency_keys',
+  'parties',
+  'party_addresses',
+  'party_contacts',
   'plants',
+  'product_companies',
+  'products',
   'user_plants',
   'users',
 ];
