@@ -12,6 +12,7 @@ import {
   ownerInsertUser,
   type TestApp,
 } from './helpers.ts';
+import { waitForLockWaiters } from './support/lockWait.ts';
 
 afterEach(closeTestApps);
 
@@ -36,20 +37,6 @@ beforeEach(async () => {
 const post = (path: string, payload: object) =>
   t.app.inject({ method: 'POST', url: `/v1/auth/${path}`, payload });
 
-/** How many of the API's transactions are waiting on a lock. Polled on its own connection: inside
- * the holder's transaction pg_stat_activity would be a snapshot. */
-async function waitForLockWaiters(count: number): Promise<void> {
-  for (let attempt = 0; ; attempt++) {
-    const res = await t.ownerDb.$client.query<{ n: number }>(
-      `select count(*)::int as n from pg_stat_activity
-        where usename = 'tonnage_app' and wait_event_type = 'Lock'`,
-    );
-    const waiting = res.rows[0]?.n ?? 0;
-    if (waiting >= count) return;
-    if (attempt > 2000) throw new Error(`only ${waiting} of ${count} requests reached a lock`);
-  }
-}
-
 /**
  * Makes the race deterministic: the test holds a row lock (owner connection) and sends the requests
  * in stages, waiting after each stage until all requests sent so far are blocked on a lock; then it
@@ -68,7 +55,7 @@ async function raceBehindRowLock<T>(
     const inFlight: Promise<T>[] = [];
     for (const stage of stages) {
       inFlight.push(...stage());
-      await waitForLockWaiters(inFlight.length);
+      await waitForLockWaiters(t.ownerDb, inFlight.length);
     }
     await holder.query('commit');
     return await Promise.all(inFlight);

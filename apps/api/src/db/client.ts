@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { PgTransaction } from 'drizzle-orm/pg-core';
 import pg from 'pg';
 import * as schema from './schema/index.ts';
 
@@ -43,12 +44,25 @@ export function createDb(
 /**
  * Runs `fn` in a transaction scoped to one tenant: `app.tenant_id` is set transaction-locally
  * (`set_config(..., true)`), so RLS sees only that tenant's rows and the setting is gone at commit
- * or rollback, never left on the pooled connection. Given a transaction (auth, which learns the tenant
- * mid-transaction), it runs in a savepoint of it and the setting lasts until that transaction ends.
+ * or rollback, never left on the pooled connection.
+ *
+ * Given a transaction (auth, which learns the tenant mid-transaction), it runs in a savepoint of it.
+ * A transaction-local setting outlives a released savepoint, so the caller's previous value ('' when
+ * it had none) is put back afterwards, whether `fn` returned or threw: the outer transaction never
+ * goes on as another tenant by accident.
  */
-export function withTenant<T>(db: Db | Tx, tenantId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
-  return db.transaction(async (tx) => {
-    await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
-    return fn(tx);
-  });
+export async function withTenant<T>(db: Db | Tx, tenantId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
+  const run = (tx: Tx): Promise<T> =>
+    tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`).then(() => fn(tx));
+  if (!(db instanceof PgTransaction)) return db.transaction(run);
+
+  const current = await db.execute<{ v: string | null }>(
+    sql`select current_setting('app.tenant_id', true) as v`,
+  );
+  const previous = current.rows[0]?.v ?? '';
+  try {
+    return await db.transaction(run);
+  } finally {
+    await db.execute(sql`select set_config('app.tenant_id', ${previous}, true)`);
+  }
 }

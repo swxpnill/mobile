@@ -1,5 +1,5 @@
 import { idSchema, type PlantScope } from '@tonnage/shared';
-import { and, eq, inArray, type SQL } from 'drizzle-orm';
+import { and, eq, exists, inArray, sql, type SQL } from 'drizzle-orm';
 import type { Tx } from '../db/client.ts';
 import { companies, plants } from '../db/schema/index.ts';
 import { pgError } from '../db/pg-error.ts';
@@ -38,7 +38,21 @@ export async function visibleCompanies(tx: Tx, scope: PlantScope): Promise<Compa
 /** Company by id within tenant and scope; 404 otherwise (the same for missing and out of scope). */
 export async function findCompany(tx: Tx, scope: PlantScope, id: string | undefined): Promise<CompanyRow> {
   if (!isId(id)) throw new AppError(404, 'NOT_FOUND');
-  const found = (await visibleCompanies(tx, scope)).find((c) => c.id === id);
+  if (scope.kind === 'plants' && scope.plantIds.length === 0) throw new AppError(404, 'NOT_FOUND');
+  // One row by primary key; a plant role also needs one of its plants to belong to the company.
+  const owned =
+    scope.kind === 'all'
+      ? undefined
+      : exists(
+          tx
+            .select({ one: sql`1` })
+            .from(plants)
+            .where(and(eq(plants.companyId, companies.id), inArray(plants.id, scope.plantIds))),
+        );
+  const [found] = await tx
+    .select()
+    .from(companies)
+    .where(and(eq(companies.id, id), owned));
   if (!found) throw new AppError(404, 'NOT_FOUND');
   return found;
 }

@@ -27,6 +27,18 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
+      # The migrations agree with each other, and the schema files have no change that lacks one.
+      - name: Drizzle migrations are consistent
+        run: pnpm --filter @tonnage/api exec drizzle-kit check
+      - name: Drizzle schema has no ungenerated changes
+        shell: bash
+        run: |
+          pnpm --filter @tonnage/api db:generate
+          if [ -n "$(git status --porcelain apps/api/drizzle)" ]; then
+            echo "::error::db:generate changed apps/api/drizzle: run 'pnpm --filter @tonnage/api db:generate' and commit the migration."
+            git status --porcelain apps/api/drizzle
+            exit 1
+          fi
       - run: pnpm test
         env:
           TEST_DATABASE_ADMIN_URL: postgres://postgres:postgres@localhost:5432/postgres

@@ -16,6 +16,7 @@ import {
   TEST_NOW,
   type TestApp,
 } from './helpers.ts';
+import { waitForLockWaiters } from './support/lockWait.ts';
 
 afterEach(closeTestApps);
 
@@ -96,17 +97,6 @@ const activity = (action: string) => t.ownerDb.select().from(activityLog).where(
 const plantsOf = async (userId: string) =>
   (await t.ownerDb.select().from(userPlants).where(eq(userPlants.userId, userId))).map((r) => r.plantId);
 
-/** How many of the API's transactions are waiting on a lock (polled on the owner connection). */
-async function waitForLockWaiters(count: number): Promise<void> {
-  for (let attempt = 0; ; attempt++) {
-    const res = await t.ownerDb.$client.query<{ n: number }>(
-      `select count(*)::int as n from pg_stat_activity where usename = 'tonnage_app' and wait_event_type = 'Lock'`,
-    );
-    if ((res.rows[0]?.n ?? 0) >= count) return;
-    if (attempt > 2000) throw new Error(`only ${res.rows[0]?.n ?? 0} of ${count} requests reached a lock`);
-  }
-}
-
 describe('invite', () => {
   it('201 with status invited, version 1, invited_at from the clock; logged; idempotent', async () => {
     const key = uuidv7();
@@ -174,7 +164,7 @@ describe('invite', () => {
       );
       const body = { name: 'Race', mobile: '9826100077', role: 'city_staff', plantIds: [] };
       const inFlight = [invite(w.owner, body), invite(w.owner, body)];
-      await waitForLockWaiters(2);
+      await waitForLockWaiters(t.ownerDb, 2);
       await holder.query('rollback');
       const results = await Promise.all(inFlight);
       expect(results.map((r) => r.statusCode).sort()).toEqual([201, 409]);
@@ -259,7 +249,7 @@ describe('last owner', () => {
         post(`/v1/users/${w.owner2Id}/deactivate`, w.owner),
         post(`/v1/users/${w.ownerId}/deactivate`, w.owner2),
       ];
-      await waitForLockWaiters(2);
+      await waitForLockWaiters(t.ownerDb, 2);
       await holder.query('commit');
       const results = await Promise.all(inFlight);
       expect(results.map((r) => r.statusCode).sort()).toEqual([200, 409]);
@@ -322,9 +312,9 @@ describe('deactivate and reactivate', () => {
       await holder.query('begin');
       expect((await holder.query('select id from users where id = $1 for update', [w.ownerId])).rowCount).toBe(1);
       const deactivate = post(`/v1/users/${w.staffId}/deactivate`, w.owner2);
-      await waitForLockWaiters(1);
+      await waitForLockWaiters(t.ownerDb, 1);
       const reactivate = post(`/v1/users/${w.staffId}/reactivate`, w.owner);
-      await waitForLockWaiters(2);
+      await waitForLockWaiters(t.ownerDb, 2);
       await holder.query('commit');
       const results = await Promise.all([deactivate, reactivate]);
       expect(results.map((r) => r.statusCode)).toEqual([200, 200]);

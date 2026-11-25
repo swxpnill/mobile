@@ -1,4 +1,5 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { IDEMPOTENCY_KEY_MESSAGE, isIdempotencyKey } from '@tonnage/shared';
+import { and, eq, gt, lte, sql } from 'drizzle-orm';
 import type { Tx } from '../db/client.ts';
 import { idempotencyKeys } from '../db/schema/index.ts';
 import { AppError } from './errors.ts';
@@ -18,36 +19,54 @@ export type Claim = { kind: 'run' } | { kind: 'replay'; status: number; body: un
 
 /**
  * Claims `(user, key)` for this request, inside the request's transaction, before the handler runs.
+ * The key must follow the shared rule (1–128 of `A-Z a-z 0-9 _ . : -`), else 422 at `idempotency-key`.
  *
- * The insert takes the slot with `on conflict do nothing`. A concurrent request with the same key
- * blocks on the primary key until the first one ends: if it committed, the insert does nothing and
- * the stored result is replayed; if it rolled back (a failed handler, Ruling 7), the insert goes
- * through and this request runs its handler.
+ * One statement takes the slot: a new key is inserted; a key whose row is older than 24 h is
+ * re-claimed in place (`on conflict do update ... where created_at <= cutoff`: route, result and
+ * timestamps replaced). A concurrent request with the same key blocks on that row until the first
+ * one ends. If it committed, the row is fresh, the update's condition fails on the latest version,
+ * and the stored result is replayed. If it rolled back (a failed handler, Ruling 7), the row is back
+ * as it was (absent, or still expired) and this request takes it. Either way one handler runs, and a
+ * result older than 24 h is never replayed: the lookup below ignores expired rows too.
  */
 export async function claimKey(tx: Tx, slot: KeySlot, now: number): Promise<Claim> {
+  if (!isIdempotencyKey(slot.key)) {
+    throw new AppError(422, 'VALIDATION', [{ path: ['idempotency-key'], message: IDEMPOTENCY_KEY_MESSAGE }]);
+  }
   const cutoff = new Date(now - IDEMPOTENCY_TTL_MS);
-  // The user's expired keys. `skip locked`: a row another request is purging at this moment is left
-  // to it, so two requests never wait on each other here.
+  // The user's other expired keys, as housekeeping. `skip locked`: a row another request is
+  // purging or re-claiming at this moment is left to it, so two requests never wait on each other
+  // here. This request's own key is re-claimed by the upsert below, never deleted and re-inserted.
   await tx.execute(sql`
     delete from ${idempotencyKeys}
     where (user_id, key) in (
       select user_id, key from ${idempotencyKeys}
-      where user_id = ${slot.userId} and created_at <= ${cutoff}
+      where user_id = ${slot.userId} and key <> ${slot.key} and created_at <= ${cutoff}
       for update skip locked
     )`);
 
   const at = new Date(now);
-  const inserted = await tx
+  const claimed = await tx
     .insert(idempotencyKeys)
     .values({ ...slot, status: null, body: null, createdAt: at, updatedAt: at })
-    .onConflictDoNothing({ target: [idempotencyKeys.userId, idempotencyKeys.key] })
+    .onConflictDoUpdate({
+      target: [idempotencyKeys.userId, idempotencyKeys.key],
+      set: { route: slot.route, status: null, body: null, createdAt: at, updatedAt: at },
+      setWhere: lte(idempotencyKeys.createdAt, cutoff),
+    })
     .returning({ key: idempotencyKeys.key });
-  if (inserted.length > 0) return { kind: 'run' };
+  if (claimed.length > 0) return { kind: 'run' };
 
   const [stored] = await tx
     .select({ route: idempotencyKeys.route, status: idempotencyKeys.status, body: idempotencyKeys.body })
     .from(idempotencyKeys)
-    .where(and(eq(idempotencyKeys.userId, slot.userId), eq(idempotencyKeys.key, slot.key)));
+    .where(
+      and(
+        eq(idempotencyKeys.userId, slot.userId),
+        eq(idempotencyKeys.key, slot.key),
+        gt(idempotencyKeys.createdAt, cutoff),
+      ),
+    );
   if (stored && stored.route !== slot.route) {
     throw new AppError(422, 'VALIDATION', [
       { path: ['idempotency-key'], message: 'This key was already used for another request' },

@@ -141,6 +141,32 @@ export function register(factory: TargetFactory): void {
       expect(validationDetailsSchema.parse(err.details)[0]?.path).toEqual(['idempotency-key']);
     });
 
+    it('a malformed Idempotency-Key (200 characters, or with a space) → 422 VALIDATION at idempotency-key; nothing created', async () => {
+      const t = target();
+      const owner = await tokenFor(t, PEOPLE.rajesh);
+      for (const key of ['k'.repeat(200), 'has a space']) {
+        const err = expectError(
+          await call(t, 'POST', '/v1/plants', { token: owner, idempotencyKey: key, body: plantBody }),
+          422,
+          'VALIDATION',
+        );
+        expect(validationDetailsSchema.parse(err.details).map((d) => d.path)).toEqual([['idempotency-key']]);
+      }
+      // The longest allowed key, of every allowed character class, still works.
+      const longest = `${'aZ9_.:-'.repeat(18)}ab`;
+      expect(longest).toHaveLength(128);
+      expectOk(
+        await call(t, 'POST', '/v1/plants', { token: owner, idempotencyKey: longest, body: plantBody }),
+        plantSchema,
+        201,
+      );
+      const list = expectOk(
+        await call(t, 'GET', `/v1/plants?companyId=${COMPANY.VSL}`, { token: owner }),
+        z.array(plantSchema),
+      );
+      expect(list.filter((p) => p.name === 'Urla II')).toHaveLength(1);
+    });
+
     it('two concurrent same-key POSTs → one plant; the other gets 409 IDEMPOTENCY_IN_PROGRESS or the replay', async () => {
       // Which of the two outcomes happens depends on timing: the second request either finds the
       // first still running (409) or already finished (replay). Both are correct; a second plant
