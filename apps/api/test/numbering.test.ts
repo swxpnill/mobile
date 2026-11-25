@@ -7,8 +7,7 @@ import { seed } from '../src/db/seed.ts';
 import { nextNumber } from '../src/services/numbering.ts';
 import { bearerFor, buildTestApp, closeTestApps, TEST_NOW, type TestApp } from './helpers.ts';
 import { createMasters, krmOrder, type Masters } from './support/masters.ts';
-import type { Side } from './support/parity.ts';
-import { fastifyTransport } from './fastify-transport.ts';
+import { apiSide } from './support/parity.ts';
 import { waitForLockWaiters } from './support/lockWait.ts';
 
 afterEach(closeTestApps);
@@ -21,31 +20,13 @@ let clock: ReturnType<typeof createFakeClock>;
 let masters: Masters;
 let owner: Record<string, string>;
 
-/** The API as a parity `Side`, so the shared master builders work against it alone. */
-const apiSide = (): Side => {
-  const transport = fastifyTransport(t.app);
-  return {
-    name: 'api',
-    call: async (method, path, opts = {}) => {
-      const res = await transport.request({
-        method,
-        path,
-        headers: { ...owner, 'content-type': 'application/json', 'idempotency-key': uuidv7() },
-        body: opts.body,
-      });
-      return { status: res.status, body: res.body };
-    },
-    addTruck: () => Promise.reject(new Error('not used')),
-  };
-};
-
 beforeEach(async () => {
   clock = createFakeClock(TEST_NOW);
   t = await buildTestApp({ clock });
   await t.reset();
   await seed(t.ownerDb, clock);
   owner = await bearerFor(t, TENANT, RAJESH);
-  masters = await createMasters(apiSide());
+  masters = await createMasters(apiSide(t, () => owner));
 });
 
 const book = () =>

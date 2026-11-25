@@ -8,7 +8,9 @@ import {
   subOrderSuffix,
 } from '@tonnage/shared';
 import { v7 as uuidv7 } from 'uuid';
+import { asc } from 'drizzle-orm';
 import type { Tx } from '../db/client.ts';
+import { pgError } from '../db/pg-error.ts';
 import { companies, orderLines, orders, subOrders } from '../db/schema/index.ts';
 import type { AuthedUser } from '../http/auth-hook.ts';
 import { AppError, type IssueDetail } from '../http/errors.ts';
@@ -20,7 +22,7 @@ import { anyId } from './orderGraph.ts';
 import { afterOrderCreated } from './orderEffects.ts';
 import { ORDER_SERIES, nextNumber } from './numbering.ts';
 import { partyRefIssues } from './parties.ts';
-import { loadProducts } from './products.ts';
+import { PRODUCT_LINE_FK, loadProducts } from './products.ts';
 import { loadSettings } from './settings.ts';
 
 /** What an order write books: the create body without its draft, or an edit body (Task 6). */
@@ -39,10 +41,15 @@ export type CheckedProducts = ReadonlyMap<string, ProductGraph>;
 export async function validateOrderRefs(tx: Tx, body: OrderInput): Promise<CheckedProducts> {
   const issues: IssueDetail[] = await partyRefIssues(tx, body);
   const companyIds = [...new Set(body.subOrders.map((s) => s.companyId))];
+  // FOR SHARE, held to commit: a deactivation (which locks the company FOR UPDATE before counting
+  // its open sub-orders) either ran first, and this read sees active = false, or waits for this
+  // order and then counts it. Lock order across the API: company rows before order rows.
   const companyRows = await tx
     .select({ id: companies.id, active: companies.active })
     .from(companies)
-    .where(anyId(companies.id, companyIds));
+    .where(anyId(companies.id, companyIds))
+    .orderBy(asc(companies.id))
+    .for('share');
   const companyById = new Map(companyRows.map((c) => [c.id, c]));
   const products = await loadProducts(tx, body.subOrders.flatMap((s) => s.lines.map((l) => l.productId)));
 
@@ -131,6 +138,30 @@ export function newSubOrderRow(
 }
 
 /**
+ * Foreign keys an order write can meet when a referenced address or product went away after
+ * `validateOrderRefs` looked (a party PATCH dropping the address, a product DELETE, committed while
+ * the insert waited on their row).
+ */
+const LATE_REFERENCE_FKS: ReadonlySet<string> = new Set(['orders_bill_to_fk', 'orders_ship_to_fk', PRODUCT_LINE_FK]);
+
+/**
+ * Runs an order's inserts in a savepoint. When one of `LATE_REFERENCE_FKS` refuses them, the
+ * references are checked again (the transaction is usable after the savepoint's rollback), which
+ * now reports the vanished address or product as the same 422 with the same path and message.
+ */
+export async function withLateReferenceCheck<T>(tx: Tx, body: OrderInput, write: (sp: Tx) => Promise<T>): Promise<T> {
+  try {
+    return await tx.transaction(write);
+  } catch (e) {
+    const pg = pgError(e);
+    if (pg?.code === '23503' && pg.constraint !== undefined && LATE_REFERENCE_FKS.has(pg.constraint)) {
+      await validateOrderRefs(tx, body);
+    }
+    throw e;
+  }
+}
+
+/**
  * Books an order (`POST /v1/orders`; Task 5's draft submit uses it too): checks the references,
  * takes the next number of the IST financial year under the series row lock, writes the order,
  * its sub-orders (A, B, … in body order) and priced lines, consumes the draft, logs the activity.
@@ -148,32 +179,34 @@ export async function createOrder(
   const at = new Date(now);
   const id = uuidv7();
   const number = formatOrderNumber(settings.orderNumberFormat, now, seq);
-  await tx.insert(orders).values({
-    id,
-    tenantId: user.tenantId,
-    number,
-    type: body.type,
-    customerId: body.customerId,
-    brokerId: body.brokerId,
-    commissionPerMtSnapshot: body.brokerId !== null ? body.commissionPerMt : null,
-    billToId: body.billToId,
-    shipToId: body.shipToId,
-    pricingMethod: body.pricingMethod,
-    basicRate: body.pricingMethod === 'basic_conversion' ? body.basicRate : null,
-    notifyCustomer: body.notify.customer,
-    notifyBroker: body.notify.broker,
-    suffixesUsed: body.subOrders.length,
-    createdBy: user.id,
-    version: 1,
-    createdAt: at,
-    updatedAt: at,
-  });
   const order = { id, tenantId: user.tenantId };
   const subs = body.subOrders.map((s, si) => ({ input: s, row: newSubOrderRow(order, s.companyId, subOrderSuffix(si), at) }));
-  await tx.insert(subOrders).values(subs.map((s) => s.row));
-  await tx
-    .insert(orderLines)
-    .values(subs.flatMap((s) => s.input.lines.map((l, position) => newLineRow(body, products, s.row, l, position, at))));
+  await withLateReferenceCheck(tx, body, async (sp) => {
+    await sp.insert(orders).values({
+      id,
+      tenantId: user.tenantId,
+      number,
+      type: body.type,
+      customerId: body.customerId,
+      brokerId: body.brokerId,
+      commissionPerMtSnapshot: body.brokerId !== null ? body.commissionPerMt : null,
+      billToId: body.billToId,
+      shipToId: body.shipToId,
+      pricingMethod: body.pricingMethod,
+      basicRate: body.pricingMethod === 'basic_conversion' ? body.basicRate : null,
+      notifyCustomer: body.notify.customer,
+      notifyBroker: body.notify.broker,
+      suffixesUsed: body.subOrders.length,
+      createdBy: user.id,
+      version: 1,
+      createdAt: at,
+      updatedAt: at,
+    });
+    await sp.insert(subOrders).values(subs.map((s) => s.row));
+    await sp
+      .insert(orderLines)
+      .values(subs.flatMap((s) => s.input.lines.map((l, position) => newLineRow(body, products, s.row, l, position, at))));
+  });
   if (body.draftId !== null) await deleteDraftIfVisible(tx, user, body.draftId);
   await logActivity(tx, user, now, { entityType: 'order', entityId: id, action: 'order.created', meta: { number }, orderId: id });
   await afterOrderCreated(tx, ctx, id);

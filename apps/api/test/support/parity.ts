@@ -108,3 +108,19 @@ export async function buildParity(start = TEST_NOW): Promise<Parity> {
     },
   };
 }
+
+/** The API alone as a `Side` (for tests that only need its masters), calling as the given headers. */
+export function apiSide(t: TestApp, headers: () => Record<string, string>): Side {
+  const transport = fastifyTransport(t.app);
+  return {
+    name: 'api',
+    call: async (method, path, opts = {}) => {
+      const h: Record<string, string> = { ...headers(), 'content-type': 'application/json' };
+      const key = keyFor(method, opts.key);
+      if (key !== undefined) h['idempotency-key'] = key;
+      const res = await transport.request({ method, path, headers: h, body: opts.body });
+      return { status: res.status, body: res.body ?? null };
+    },
+    addTruck: (input) => ownerInsertTruck(t.ownerDb, input, t.clock.now()),
+  };
+}

@@ -75,6 +75,10 @@ export async function findPlant(tx: Tx, scope: PlantScope, id: string | undefine
  * Statuses are derived, so the company's sub-orders are loaded with their orders' graphs.
  */
 export async function assertCompanyDeactivatable(tx: Tx, companyId: string): Promise<void> {
+  // The company row first (lock order across the API: company rows before order rows). An order
+  // create holds it FOR SHARE from its company check to commit, so this waits for that order and
+  // counts it; a create arriving after this lock waits and then sees the company inactive.
+  await tx.select({ id: companies.id }).from(companies).where(eq(companies.id, companyId)).for('update');
   const rows = await tx
     .select({ orderId: subOrders.orderId })
     .from(subOrders)
