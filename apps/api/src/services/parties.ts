@@ -1,5 +1,5 @@
 import type { PartyBody, PartyType, partyListQuerySchema } from '@tonnage/shared';
-import { and, asc, eq, notInArray, sql, type SQL, type SQLWrapper } from 'drizzle-orm';
+import { and, asc, eq, inArray, notInArray, sql, type SQL, type SQLWrapper } from 'drizzle-orm';
 import type { z } from 'zod';
 import { v7 as uuidv7 } from 'uuid';
 import type { Tx } from '../db/client.ts';
@@ -15,28 +15,27 @@ import {
 } from '../views/parties.ts';
 import { isId } from './org.ts';
 
-/** A party and its children in four queries. Row-level security keeps it to the caller's tenant. */
+/** A party and its children in four sequential queries. Row-level security keeps it to the caller's tenant. */
 export async function loadParty(tx: Tx, id: string | undefined): Promise<PartyGraph | null> {
   if (!isId(id)) return null;
   const [party] = await tx.select().from(parties).where(eq(parties.id, id));
   if (!party) return null;
-  const [contacts, numbers, addresses] = await Promise.all([
-    tx
-      .select()
-      .from(partyContacts)
-      .where(and(eq(partyContacts.tenantId, party.tenantId), eq(partyContacts.partyId, id)))
-      .orderBy(asc(partyContacts.position)),
-    tx
-      .select()
-      .from(contactNumbers)
-      .where(and(eq(contactNumbers.tenantId, party.tenantId), eq(contactNumbers.partyId, id)))
-      .orderBy(asc(contactNumbers.position)),
-    tx
-      .select()
-      .from(partyAddresses)
-      .where(and(eq(partyAddresses.tenantId, party.tenantId), eq(partyAddresses.partyId, id)))
-      .orderBy(asc(partyAddresses.position)),
-  ]);
+  // One after another: a transaction is one connection, and pg queues (and deprecates) overlapping queries.
+  const contacts = await tx
+    .select()
+    .from(partyContacts)
+    .where(and(eq(partyContacts.tenantId, party.tenantId), eq(partyContacts.partyId, id)))
+    .orderBy(asc(partyContacts.position));
+  const numbers = await tx
+    .select()
+    .from(contactNumbers)
+    .where(and(eq(contactNumbers.tenantId, party.tenantId), eq(contactNumbers.partyId, id)))
+    .orderBy(asc(contactNumbers.position));
+  const addresses = await tx
+    .select()
+    .from(partyAddresses)
+    .where(and(eq(partyAddresses.tenantId, party.tenantId), eq(partyAddresses.partyId, id)))
+    .orderBy(asc(partyAddresses.position));
   return {
     party,
     contacts: contacts.map((c) => ({ ...c, numbers: numbers.filter((n) => n.contactId === c.id) })),
@@ -58,6 +57,40 @@ export interface PartyRefs {
   shipToId: string | null;
 }
 
+/** What an order needs to know about a referenced party. */
+interface PartyRef {
+  type: PartyType;
+  active: boolean;
+  addresses: { id: string; kind: 'bill_to' | 'ship_to' }[];
+}
+
+/** The referenced parties in one query: type, active and their addresses (ids not uuids never match). */
+async function partyRefs(tx: Tx, ids: readonly (string | null)[]): Promise<Map<string, PartyRef>> {
+  const wanted = [...new Set(ids.filter((id): id is string => id !== null && isId(id)))];
+  if (wanted.length === 0) return new Map();
+  const rows = await tx
+    .select({
+      id: parties.id,
+      type: parties.type,
+      active: parties.active,
+      addressId: partyAddresses.id,
+      kind: partyAddresses.kind,
+    })
+    .from(parties)
+    .leftJoin(
+      partyAddresses,
+      and(eq(partyAddresses.tenantId, parties.tenantId), eq(partyAddresses.partyId, parties.id)),
+    )
+    .where(inArray(parties.id, wanted));
+  const out = new Map<string, PartyRef>();
+  for (const r of rows) {
+    const ref = out.get(r.id) ?? { type: r.type, active: r.active, addresses: [] };
+    if (r.addressId !== null && r.kind !== null) ref.addresses.push({ id: r.addressId, kind: r.kind });
+    out.set(r.id, ref);
+  }
+  return out;
+}
+
 /**
  * What an order points at on the party side, as the mock's `validateOrderRefs` checks it: parties of
  * the right type and active, addresses belonging to the customer. Returns the issues (the caller
@@ -65,17 +98,18 @@ export interface PartyRefs {
  */
 export async function partyRefIssues(tx: Tx, refs: PartyRefs): Promise<IssueDetail[]> {
   const issues: IssueDetail[] = [];
-  const party = async (id: string | null, type: Extract<PartyType, 'customer' | 'broker'>, path: string) => {
+  const found = await partyRefs(tx, [refs.customerId, refs.brokerId]);
+  const party = (id: string | null, type: Extract<PartyType, 'customer' | 'broker'>, path: string) => {
     if (id === null) return null;
-    const g = await loadParty(tx, id);
-    if (!g || g.party.type !== type || !g.party.active) {
+    const p = found.get(id);
+    if (!p || p.type !== type || !p.active) {
       issues.push({ path: [path], message: `Choose an active ${type}` });
       return null;
     }
-    return g;
+    return p;
   };
-  const customer = await party(refs.customerId, 'customer', 'customerId');
-  await party(refs.brokerId, 'broker', 'brokerId');
+  const customer = party(refs.customerId, 'customer', 'customerId');
+  party(refs.brokerId, 'broker', 'brokerId');
   if (customer) {
     const has = (id: string | null, kind: 'bill_to' | 'ship_to') =>
       id === null || customer.addresses.some((x) => x.id === id && x.kind === kind);

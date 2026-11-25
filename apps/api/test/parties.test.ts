@@ -221,6 +221,27 @@ describe('parties', () => {
     expect((await get(`/v1/parties/${a.id}`, owner)).json<Party>().contacts[0]?.id).toBe(foreign.id);
   });
 
+  it('PATCH: a repeated contact, number or address id → 422 at the repeat, nothing written (never a 500)', async () => {
+    const created = await create(shubham);
+    const [suresh, manoj] = created.contacts;
+    const mobile = suresh?.numbers[0];
+    const yard = created.addresses[2];
+    if (!suresh || !manoj || !mobile || !yard) throw new Error('graph expected');
+    const fresh = [{ number: '98260 00000', label: '', whatsapp: false }];
+    const cases: [object, (string | number)[]][] = [
+      [{ contacts: [suresh, { ...manoj, id: suresh.id, numbers: fresh }] }, ['contacts', 1, 'id']],
+      [{ contacts: [{ ...suresh, numbers: [mobile, mobile] }, manoj] }, ['contacts', 0, 'numbers', 1, 'id']],
+      [{ contacts: [suresh, { ...manoj, numbers: [mobile] }] }, ['contacts', 1, 'numbers', 0, 'id']],
+      [{ addresses: [...created.addresses, yard] }, ['addresses', 3, 'id']],
+    ];
+    for (const [change, path] of cases) {
+      const res = await patch(created.id, owner, { ...editBody(created), ...change });
+      expect(res.statusCode, `${path.join('.')}: ${res.body}`).toBe(422);
+      expect(res.json().details).toEqual([{ path, message: 'This id is already used in this party' }]);
+    }
+    expect((await get(`/v1/parties/${created.id}`, owner)).json()).toEqual(created);
+  });
+
   it('PATCH: stale version → 409 STALE; type cannot change → 422 at type', async () => {
     const created = await create(broker);
     const body = editBody(created);
@@ -394,6 +415,10 @@ describe('parties', () => {
     expect(await issues({ customerId: c.id, brokerId: b.id, billToId: c.billToId, shipToId: c.shipToId })).toEqual([]);
     expect(await issues({ customerId: null, brokerId: b.id, billToId: null, shipToId: null })).toEqual([]);
     expect(await issues({ customerId: b.id, brokerId: idle.id, billToId: c.shipToId, shipToId: null })).toEqual([
+      { path: ['customerId'], message: 'Choose an active customer' },
+      { path: ['brokerId'], message: 'Choose an active broker' },
+    ]);
+    expect(await issues({ customerId: 'not-a-uuid', brokerId: c.id, billToId: null, shipToId: null })).toEqual([
       { path: ['customerId'], message: 'Choose an active customer' },
       { path: ['brokerId'], message: 'Choose an active broker' },
     ]);

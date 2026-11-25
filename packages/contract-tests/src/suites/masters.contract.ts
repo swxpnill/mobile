@@ -117,6 +117,37 @@ export function register(factory: TargetFactory): void {
         expect(paths(res.body)).toEqual([['addresses', 1, 'isDefault']]);
       });
 
+      it('a repeated contact, number or address id → 422 at the repeat', async () => {
+        const t = target();
+        const token = await tokenFor(t, PEOPLE.rajesh);
+        const current = expectOk(await call(t, 'GET', `/v1/parties/${P.shubham}`, { token }), partySchema);
+        const [contact] = current.contacts;
+        const address = current.addresses.at(-1); // a ship-to site that is not the default
+        const number = contact?.numbers[0];
+        if (!contact || !address || !number) throw new Error('Shubham has contacts, numbers and addresses');
+        const base = { ...current, version: current.version, active: true };
+        const cases: [object, (string | number)[]][] = [
+          [
+            {
+              ...base,
+              contacts: [contact, { ...contact, name: 'Again', numbers: [{ number: '98260 00000', label: '', whatsapp: false }] }],
+            },
+            ['contacts', 1, 'id'],
+          ],
+          [{ ...base, contacts: [{ ...contact, numbers: [number, number] }] }, ['contacts', 0, 'numbers', 1, 'id']],
+          [
+            { ...base, contacts: [contact, { ...contact, id: undefined, numbers: [number] }] },
+            ['contacts', 1, 'numbers', 0, 'id'],
+          ],
+          [{ ...base, addresses: [...current.addresses, address] }, ['addresses', current.addresses.length, 'id']],
+        ];
+        for (const [body, path] of cases) {
+          const res = await call(t, 'PATCH', `/v1/parties/${P.shubham}`, { token, body });
+          expectError(res, 422, 'VALIDATION');
+          expect(paths(res.body), path.join('.')).toEqual([path]);
+        }
+      });
+
       it('plant head and supervisor have no access to parties (403, a role rule, not scope)', async () => {
         const t = target();
         for (const who of [PEOPLE.kiran, PEOPLE.ravi]) {
