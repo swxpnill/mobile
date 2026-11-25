@@ -49,3 +49,17 @@ export async function afterOrderDeleted(
   void ctx;
   void e;
 }
+
+/**
+ * After an edit or a move quantity removed a sub-order together with the trucks on it (only trucks
+ * that carry nothing: cancelled, or planned at 0). B3 (sync): truck tombstones so phones drop them.
+ */
+export async function afterTrucksRemoved(
+  tx: Tx,
+  ctx: OrderEffectCtx,
+  e: { orderId: string; trucks: readonly { id: string; plantId: string }[] },
+): Promise<void> {
+  void tx;
+  void ctx;
+  void e;
+}
