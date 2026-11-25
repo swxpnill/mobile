@@ -414,6 +414,7 @@ export const orderLifecycleRoutes: RouteDef[] = [
       state.orderLines = state.orderLines.filter((l) => !subIds.has(l.subOrderId));
       state.subOrders = state.subOrders.filter((s) => !subIds.has(s.id));
       state.activity = state.activity.filter((e) => !(e.entityType === 'order' && e.entityId === order.id));
+      state.vehicleRequests = state.vehicleRequests.filter((r) => r.orderId !== order.id);
       state.orders = state.orders.filter((o) => o.id !== order.id);
       return { status: 204 };
     },

@@ -15,10 +15,10 @@ export const COMPANIES_KEY = ['companies'] as const;
 const companiesSchema = z.array(companySchema);
 
 /** Companies the user may see (all for owner and city staff; their plants' companies otherwise). */
-export function useCompanies() {
+export function useCompanies(enabled = true) {
   return useQuery({
     queryKey: COMPANIES_KEY,
-    enabled: useSignedIn(),
+    enabled: useSignedIn() && enabled,
     queryFn: () => api('/v1/companies', { schema: companiesSchema }),
   });
 }

@@ -172,6 +172,16 @@ describe('store', () => {
     expect(parseSnapshot(JSON.stringify({ ...old, truckTombstones: 'x' }))).toBeNull();
   });
 
+  it('a version 5 snapshot (before vehicle requests) loads as version 6 with none', () => {
+    const old: Record<string, unknown> = { ...seedState(createFakeClock(START)), schemaVersion: 5 };
+    delete old.vehicleRequests;
+    const parsed = parseSnapshot(JSON.stringify(old));
+    expect(parsed?.schemaVersion).toBe(6);
+    expect(parsed?.vehicleRequests).toEqual([]);
+    expect(parsed?.users).toHaveLength(8);
+    expect(parseSnapshot(JSON.stringify({ ...old, schemaVersion: 4 }))).toBeNull();
+  });
+
   it('TON-57: a truck saved before approval existed was weighed when it was dispatched', () => {
     const at = new Date(START).toISOString();
     const old = { ...seedState(createFakeClock(START)), trucks: [{ id: 'd', dispatchedAt: at }, { id: 'o', dispatchedAt: null }] };

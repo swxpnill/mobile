@@ -1,10 +1,11 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useTheme } from '../theme/ThemeProvider';
-import { SMALL_TEXT_MAX_SCALE } from '../theme/tokens';
+import { SMALL_TEXT_MAX_SCALE, type Tokens } from '../theme/tokens';
 import { Text } from './Text';
 
 export interface SegmentedControlProps<T extends string> {
-  options: readonly { value: T; label: string }[];
+  /** `detail` is a small second line ("84.000 MT", "Broker"), in `detailColor` when given. */
+  options: readonly { value: T; label: string; detail?: string; detailColor?: keyof Tokens }[];
   value: T;
   onChange(value: T): void;
   /** `compact` sits inside a settings row (30 high); `full` spans the width (38 high). */
@@ -21,6 +22,7 @@ export function SegmentedControl<T extends string>({
 }: SegmentedControlProps<T>) {
   const { t } = useTheme();
   const full = size === 'full';
+  const twoLine = options.some((o) => o.detail !== undefined);
   return (
     <View
       accessibilityRole="radiogroup"
@@ -33,7 +35,7 @@ export function SegmentedControl<T extends string>({
           <Pressable
             key={o.value}
             accessibilityRole="radio"
-            accessibilityLabel={o.label}
+            accessibilityLabel={o.detail ? `${o.label}, ${o.detail}` : o.label}
             accessibilityState={{ selected, checked: selected }}
             // Hit areas reach the 44 minimum: the compact segment is 30 high, the full one 38.
             hitSlop={full ? { top: 3, bottom: 3 } : { top: 7, bottom: 7 }}
@@ -42,18 +44,30 @@ export function SegmentedControl<T extends string>({
             }}
             style={[
               full ? styles.full : styles.compact,
+              twoLine ? styles.twoLine : null,
               selected ? [styles.on, { backgroundColor: t.card, shadowColor: t.shadow }] : null,
             ]}
           >
             <Text
               weight="medium"
               color={selected ? 'tx' : 'tx2'}
-              style={{ fontSize: full ? 13 : 12 }}
+              style={twoLine ? { fontSize: 13, lineHeight: 16 } : { fontSize: full ? 13 : 12 }}
               numberOfLines={1}
               maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
             >
               {o.label}
             </Text>
+            {o.detail ? (
+              <Text
+                weight="medium"
+                color={o.detailColor ?? 'tx3'}
+                style={styles.detail}
+                numberOfLines={1}
+                maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+              >
+                {o.detail}
+              </Text>
+            ) : null}
           </Pressable>
         );
       })}
@@ -78,6 +92,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  /** Canvas 40: two-line segments are a full 44 high. */
+  twoLine: { minHeight: 44, paddingHorizontal: 8 },
+  detail: { fontSize: 11, lineHeight: 14 },
   on: {
     shadowOpacity: 0.08,
     shadowRadius: 2,

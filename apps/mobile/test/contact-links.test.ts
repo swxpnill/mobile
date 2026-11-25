@@ -1,4 +1,4 @@
-import { telLink, whatsappLink } from '../src/format/contactLinks';
+import { dialLink, telLink, whatsappLink } from '../src/format/contactLinks';
 
 // TON-57 Ruling 11: links only for a normalised Indian mobile; anything else gets no button.
 describe('contact links', () => {
@@ -18,5 +18,20 @@ describe('contact links', () => {
       expect([bad, telLink(bad)]).toEqual([bad, null]);
       expect([bad, whatsappLink(bad, 'x')]).toEqual([bad, null]);
     }
+  });
+
+  it('a vehicle request message keeps its line breaks, bullets and ampersands intact (%0A, %26)', () => {
+    const text = 'Namaste R.K. ji,\n• 12 mm — 24.000 MT & more';
+    const link = whatsappLink('+919926830011', text);
+    expect(link).toBe(`https://wa.me/919926830011?text=${encodeURIComponent(text)}`);
+    expect(link).toContain('%0A');
+    expect(link).toContain('%26');
+    expect(link?.split('?text=')[1]).not.toMatch(/[\n&]/);
+  });
+
+  it('Request vehicle dials any saved number, a landline too', () => {
+    expect(dialLink('+917122551234')).toBe('tel:+917122551234');
+    expect(dialLink('+91 98261 00501')).toBe('tel:+919826100501');
+    expect(dialLink('')).toBeNull();
   });
 });

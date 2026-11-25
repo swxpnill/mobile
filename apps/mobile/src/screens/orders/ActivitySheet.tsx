@@ -27,6 +27,8 @@ export function describe(e: ActivityEntry, basis: ReturnType<typeof useDisplayBa
       return `Moved ${typeof m.kg === 'number' ? toDisplayQty(m.kg, basis, { withUnit: true }) : 'quantity'} from ${String(m.fromSuffix ?? '')} to ${String(m.toSuffix ?? '')}`;
     case 'order.duplicated':
       return 'Duplicated as a new draft';
+    case 'order.vehicle_requested':
+      return `Vehicle requested from ${String(m.contactName ?? '')} via ${m.channel === 'whatsapp' ? 'WhatsApp' : 'Call'}${typeof m.totalKg === 'number' ? ` · ${toDisplayQty(m.totalKg, basis, { withUnit: true })}` : ''}`;
     default:
       return e.action.replace(/^order\./, '').replace(/_/g, ' ');
   }

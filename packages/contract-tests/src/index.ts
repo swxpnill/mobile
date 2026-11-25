@@ -16,6 +16,7 @@ import { register as rejections } from './suites/rejections.contract.ts';
 import { register as settings } from './suites/settings.contract.ts';
 import { register as users } from './suites/users.contract.ts';
 import { register as notifications } from './suites/notifications.contract.ts';
+import { register as vehicleRequests } from './suites/vehicle-requests.contract.ts';
 
 export type { ContractFixtures, ContractTarget, TargetFactory } from './harness.ts';
 
@@ -30,6 +31,7 @@ export const CONTRACT_SUITES: readonly ((factory: TargetFactory) => void)[] = [
   masters,
   orders,
   lifecycle,
+  vehicleRequests,
   trucks,
   sync,
   approval,

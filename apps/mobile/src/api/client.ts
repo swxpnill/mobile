@@ -49,6 +49,17 @@ export interface ApiResult<T> {
   date: string | null;
 }
 
+const successListeners = new Set<() => void>();
+
+/**
+ * Calls `listener` after every 2xx answer: the server is reachable again, so work kept on this
+ * phone while offline can go (Ruling 5). Listeners must not throw. Returns the unsubscribe.
+ */
+export function onApiSuccess(listener: () => void): () => void {
+  successListeners.add(listener);
+  return () => void successListeners.delete(listener);
+}
+
 /**
  * One API call through the current transport. Adds the access token; on a 401 runs the shared
  * single-flight refresh and retries once. A failed refresh signs the user out; a network failure
@@ -100,6 +111,7 @@ export async function apiWithDate<T = unknown>(
     }
   }
   if (res.status < 200 || res.status >= 300) throw toApiError(res);
+  for (const listener of successListeners) listener();
   return {
     body: (schema ? schema.parse(res.body) : res.body) as T,
     date: res.headers.date ?? null,

@@ -6,15 +6,18 @@ import * as SecureStore from 'expo-secure-store';
 import type { ReactElement } from 'react';
 import { Linking } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { type Order, SAMPLE_WORLD, orderListSchema, orderSchema } from '@tonnage/shared';
+import { z } from 'zod';
+import { type Order, SAMPLE_WORLD, activityEntrySchema, orderListSchema, orderSchema } from '@tonnage/shared';
 import { createFakeClock, createMockApi, type MockApi } from '@tonnage/mock-api';
 import { api } from '../src/api/client';
 import { UnitBasisProvider } from '../src/api/hooks/me';
 import { setMockApi, setTransport } from '../src/api/transport';
 import { resetSessionForTests, useSession } from '../src/auth/session';
+import { enqueueVehicleRequest, resetVehicleRequestQueueForTests } from '../src/offline/vehicleRequestQueue';
 import { resetUnitFilterForTests } from '../src/prefs/unitFilter';
 import { OrderDetailScreen } from '../src/screens/orders/OrderDetailScreen';
 import { shareText } from '../src/screens/orders/shareText';
+import { noteRequests } from '../src/screens/orders/vehicleRequestNote';
 import { ThemeProvider } from '../src/theme/ThemeProvider';
 import { ToastHost } from '../src/ui';
 
@@ -63,6 +66,7 @@ beforeEach(async () => {
   await AsyncStorage.clear();
   (SecureStore as unknown as { __reset(): void }).__reset();
   resetSessionForTests();
+  resetVehicleRequestQueueForTests();
   resetUnitFilterForTests();
   mock = await createMockApi({ clock: createFakeClock(NOW), seedOrders: true });
   setTransport(null);
@@ -95,7 +99,8 @@ describe('OrderDetailScreen', () => {
   it('Review Focus 4: short close meets the loading truck and the one awaiting approval, confirms them, then closes', async () => {
     const o = await orderNo('SO-2611-0141');
     await wrap(<OrderDetailScreen id={o.id} />);
-    await fireEvent.press(await screen.findByRole('button', { name: 'Short close' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'More actions' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Short close/ }));
     expect(await screen.findByText('Short close 47.600 MT?')).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole('radio', { name: 'Stock not available' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Short close order' }));
@@ -177,6 +182,126 @@ describe('OrderDetailScreen', () => {
     await waitFor(() => expect(open).toHaveBeenCalledWith(expect.stringMatching(/^https:\/\/wa\.me\/\?text=/)));
     expect(decodeURIComponent(open.mock.calls[0]![0].split('text=')[1]!)).toContain('SO-2611-0141');
     open.mockRestore();
+  });
+});
+
+describe('OrderDetailScreen: Request vehicle (canvas 04)', () => {
+  it('owner: footer has Request vehicle and Assign vehicle, and no Short close (it stays in the menu)', async () => {
+    const o = await orderNo('SO-2611-0141');
+    await wrap(<OrderDetailScreen id={o.id} />);
+    expect(await screen.findByRole('button', { name: 'Request vehicle' })).toBeOnTheScreen();
+    expect(screen.getAllByRole('button', { name: 'Assign vehicle' }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: 'Short close' })).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'More actions' }));
+    expect(await screen.findByRole('button', { name: /^Short close/ })).toBeOnTheScreen();
+  });
+
+  it('plant head sees neither button', async () => {
+    await signIn(ids.users.kiran);
+    client.clear();
+    const o = await orderNo('SO-2611-0142');
+    await wrap(<OrderDetailScreen id={o.id} />);
+    expect(await screen.findByText('Aarav Ispat Pvt Ltd')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Request vehicle' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Assign vehicle' })).toBeNull();
+  });
+
+  it('plant head: the note is plain text (not a button), trimmed to their sub-order', async () => {
+    const o = await orderNo('SO-2611-0142');
+    const seeded = o.vehicleRequests[0]!;
+    const aip = o.subOrders.find((s) => s.companyCode === 'AIP')!;
+    await api(`/v1/orders/${o.id}/vehicle-requests`, {
+      method: 'POST',
+      idempotencyKey: 'rv-ph-1',
+      body: { partyId: seeded.partyId, contactName: seeded.contactName, number: seeded.number, channel: 'call', lines: [{ orderLineId: aip.lines[0]!.id, kg: 5_000 }], totalKg: 5_000 },
+    });
+    await signIn(ids.users.kiran);
+    client.clear();
+    await wrap(<OrderDetailScreen id={o.id} />);
+    expect(await screen.findByLabelText(/^Vehicle requested · 5\.000 MT/)).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: /^Vehicle requested/ })).toBeNull();
+  });
+
+  it('an order with nothing left to load hides Request vehicle', async () => {
+    const o = await orderNo('SO-2610-0136'); // short closed
+    await wrap(<OrderDetailScreen id={o.id} />);
+    expect(await screen.findByText(/^Short closed · Customer stopped lifting/)).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Request vehicle' })).toBeNull();
+  });
+
+  it('the seeded request shows its note; tapping it opens the sheet with its lines; a truck on that sub-order clears it', async () => {
+    const o = await orderNo('SO-2611-0142');
+    const req = o.vehicleRequests[0]!;
+    await wrap(<OrderDetailScreen id={o.id} />);
+    const note = await screen.findByRole('button', { name: /^Vehicle requested · 30\.000 MT · 16 mm/ });
+    expect(note).toBeOnTheScreen();
+    expect(screen.getByText(`${req.contactName} · WhatsApp · 09:40`)).toBeOnTheScreen();
+    expect(screen.queryByText(/waiting to send/)).toBeNull();
+    await fireEvent.press(note);
+    expect(await screen.findByText('Total to request')).toBeOnTheScreen();
+    expect(screen.getByRole('radio', { name: /Pick lines/ }).props.accessibilityState?.checked).toBe(true);
+
+    const sub = o.subOrders[1]!;
+    await api(`/v1/sub-orders/${sub.id}/trucks`, {
+      method: 'POST',
+      idempotencyKey: 'rv-assign-1',
+      body: { vehicleNo: 'CG 04 XY 1234', transporterId: null, driverName: 'Test Driver', driverPhone: '9826012345', lrNo: null, plan: [{ orderLineId: sub.lines[0]!.id, plannedKg: 30_000 }] },
+    });
+    await client.invalidateQueries();
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Vehicle requested/ })).toBeNull());
+  });
+
+  it('closing the sheet and tapping the note again reopens it prefilled', async () => {
+    const o = await orderNo('SO-2611-0142');
+    await wrap(<OrderDetailScreen id={o.id} />);
+    await fireEvent.press(await screen.findByRole('button', { name: /^Vehicle requested/ }));
+    expect(await screen.findByText('Total to request')).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+    await fireEvent.press(screen.getByRole('button', { name: /^Vehicle requested/ }));
+    expect(await screen.findByText('Total to request')).toBeOnTheScreen();
+    expect(screen.getByRole('radio', { name: /Pick lines/ }).props.accessibilityState?.checked).toBe(true);
+  });
+
+  it('a request still waiting on the phone is the newest note, "waiting to send", with the older one counted', async () => {
+    const o = await orderNo('SO-2611-0142');
+    const seeded = o.vehicleRequests[0]!;
+    await enqueueVehicleRequest(ids.users.rajesh, {
+      orderId: o.id,
+      key: 'queued-1',
+      queuedAt: new Date(NOW).toISOString(),
+      body: { partyId: seeded.partyId, contactName: seeded.contactName, number: seeded.number, channel: 'call', lines: [{ orderLineId: seeded.lines[0]!.orderLineId, kg: 10_000 }], totalKg: 10_000 },
+    });
+    await wrap(<OrderDetailScreen id={o.id} />);
+    expect(await screen.findByText(`${seeded.contactName} · Call · 10:00 · waiting to send`)).toBeOnTheScreen();
+    expect(screen.getByText('+1 earlier')).toBeOnTheScreen();
+  });
+
+  it('the activity sheet shows the request entry', async () => {
+    const o = await orderNo('SO-2611-0142');
+    const seeded = o.vehicleRequests[0]!;
+    await api(`/v1/orders/${o.id}/vehicle-requests`, {
+      method: 'POST',
+      idempotencyKey: 'rv-act-1',
+      body: { partyId: seeded.partyId, contactName: seeded.contactName, number: seeded.number, channel: 'call', lines: [{ orderLineId: seeded.lines[0]!.orderLineId, kg: 5_000 }], totalKg: 5_000 },
+    });
+    const entries = (await api(`/v1/orders/${o.id}/activity`, { schema: z.array(activityEntrySchema) })).filter((e) => e.action === 'order.vehicle_requested');
+    expect(entries).toHaveLength(1);
+    await wrap(<OrderDetailScreen id={o.id} />);
+    await fireEvent.press(await screen.findByRole('button', { name: 'More actions' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Activity history/ }));
+    expect(await screen.findByText(`Vehicle requested from ${seeded.contactName} via Call · 5.000 MT`)).toBeOnTheScreen();
+  });
+});
+
+describe('noteRequests', () => {
+  it('a request still on the phone is by the signed-in person, not the order\'s creator', async () => {
+    await signIn(ids.users.priya);
+    const o = await orderNo('SO-2611-0142');
+    expect(o.createdBy.id).not.toBe(ids.users.priya);
+    const seeded = o.vehicleRequests[0]!;
+    const queued = { partyId: seeded.partyId, contactName: seeded.contactName, number: seeded.number, channel: 'call' as const, lines: [{ orderLineId: seeded.lines[0]!.orderLineId, kg: 1_000 }], totalKg: 1_000, queuedAt: new Date(NOW).toISOString(), key: 'q-1' };
+    const [newest] = noteRequests(o, [queued], { id: ids.users.priya, name: 'Priya Sharma' });
+    expect(newest).toMatchObject({ waiting: true, request: { id: 'queued-q-1', requestedBy: { id: ids.users.priya, name: 'Priya Sharma' } } });
   });
 });
 

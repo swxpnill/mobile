@@ -8,10 +8,10 @@ export const PLANTS_KEY = ['plants'] as const;
 const plantsSchema = z.array(plantSchema);
 
 /** Plants in the user's scope. */
-export function usePlants() {
+export function usePlants(enabled = true) {
   return useQuery({
     queryKey: PLANTS_KEY,
-    enabled: useSignedIn(),
+    enabled: useSignedIn() && enabled,
     queryFn: () => api('/v1/plants', { schema: plantsSchema }),
   });
 }

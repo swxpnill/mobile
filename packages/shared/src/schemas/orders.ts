@@ -5,8 +5,8 @@ import {
   SHORT_CLOSE_REASONS,
   SUB_ORDER_STATUSES,
 } from '../rules/status.ts';
-import { idSchema, versionSchema } from './common.ts';
-import { commissionPerMtSchema, lengthSchema, ratePerMtSchema } from './masters.ts';
+import { idSchema, nameSchema, versionSchema } from './common.ts';
+import { commissionPerMtSchema, lengthSchema, phoneSchema, ratePerMtSchema } from './masters.ts';
 
 export const ORDER_TYPES = ['customer_broker', 'customer', 'broker_only'] as const;
 export const orderTypeSchema = z.enum(ORDER_TYPES);
@@ -208,6 +208,7 @@ export const subOrderSchema = z.object({
 export type SubOrder = z.infer<typeof subOrderSchema>;
 
 const partyRefSchema = z.object({ id: idSchema, name: z.string(), city: z.string() });
+export type PartyRef = z.infer<typeof partyRefSchema>;
 const addressRefSchema = z.object({ id: idSchema, label: z.string(), address: z.string() });
 
 export const brokerEarningEstimateSchema = z.object({
@@ -217,6 +218,37 @@ export const brokerEarningEstimateSchema = z.object({
   commissionKg: z.number().int(),
   overpriceKg: z.number().int(),
 });
+
+export const vehicleRequestChannelSchema = z.enum(['call', 'whatsapp']);
+export type VehicleRequestChannel = z.infer<typeof vehicleRequestChannelSchema>;
+
+export const vehicleRequestBodySchema = z
+  .object({
+    partyId: idSchema,
+    contactName: nameSchema,
+    number: phoneSchema,
+    channel: vehicleRequestChannelSchema,
+    lines: z.array(z.object({ orderLineId: idSchema, kg: z.number().int().positive() })).min(1).max(50),
+    totalKg: z.number().int().positive(),
+  })
+  .strict();
+export type VehicleRequestBody = z.infer<typeof vehicleRequestBodySchema>;
+
+export const vehicleRequestSchema = z
+  .object({
+    id: idSchema,
+    partyId: idSchema,
+    partyName: z.string(),
+    contactName: z.string(),
+    number: phoneSchema,
+    channel: vehicleRequestChannelSchema,
+    lines: z.array(z.object({ orderLineId: idSchema, subOrderId: idSchema, kg: z.number().int() })),
+    totalKg: z.number().int(),
+    requestedAt: z.string(),
+    requestedBy: z.object({ id: idSchema, name: z.string() }),
+  })
+  .strict();
+export type VehicleRequest = z.infer<typeof vehicleRequestSchema>;
 
 export const orderSchema = z.object({
   id: idSchema,
@@ -232,6 +264,8 @@ export const orderSchema = z.object({
   basicRate: z.number().int().nullable().optional(),
   notify: z.object({ customer: z.boolean(), broker: z.boolean() }),
   subOrders: z.array(subOrderSchema),
+  /** Open vehicle requests, newest first (Ruling 4). */
+  vehicleRequests: z.array(vehicleRequestSchema),
   totals: qtyTotalsSchema,
   estimatedValue: money,
   brokerEarningEstimate: brokerEarningEstimateSchema.optional(),

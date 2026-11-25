@@ -4,8 +4,10 @@ import {
   type OrderSummary,
   type QtyTotals,
   type SubOrder,
+  type VehicleRequest,
   billedRate,
   brokerEarningEstimate,
+  isRequestOpen,
   isTerminal,
   overToleranceKg,
   lineValue,
@@ -178,6 +180,7 @@ export function toOrder(c: OrderCtx, order: OrderRec): Order {
     basicRate: order.basicRate,
     notify: { ...order.notify },
     subOrders: subs.map((s) => toSubOrder(c, order, s)),
+    vehicleRequests: openVehicleRequests(c, order, subs),
     totals,
     estimatedValue: lines.reduce((sum, l) => sum + lineValueOf(l), 0),
     ...(order.brokerId !== null
@@ -189,6 +192,51 @@ export function toOrder(c: OrderCtx, order: OrderRec): Order {
     createdBy: { id: order.createdBy, name: c.userNameById.get(order.createdBy) ?? '' },
     version: order.version,
   };
+}
+
+/**
+ * The order's open vehicle requests, newest first (Ruling 4). A plant head sees those that touch
+ * one of their sub-orders, trimmed to those sub-orders' lines and their total (no money fields).
+ */
+export function openVehicleRequests(c: OrderCtx, order: OrderRec, visible: readonly SubOrderRec[]): VehicleRequest[] {
+  const visibleIds = new Set(visible.map((s) => s.id));
+  const subById = new Map(c.math.subOrdersOf(order.id).map((s) => [s.id, s]));
+  const lineById = new Map([...subById.keys()].flatMap((id) => c.math.linesOf(id)).map((l) => [l.id, l]));
+  const ctx = {
+    trucks: [...subById.keys()].flatMap((id) =>
+      c.math
+        .trucksOf(id)
+        .filter((t) => t.state !== 'cancelled') // a cancelled truck never came
+        .map((t) => ({ subOrderIds: [t.subOrderId], assignedAt: t.assignedAt })),
+    ),
+    subOrderClosed: (id: string) => {
+      const sub = subById.get(id);
+      return sub === undefined || isTerminal(c.math.subOrderStatus(sub));
+    },
+    linePendingKg: (id: string) => {
+      const line = lineById.get(id);
+      return line === undefined ? 0 : pending(c.math.lineQty(line));
+    },
+  };
+  return c.state.vehicleRequests
+    .filter((r) => r.orderId === order.id && r.lines.some((l) => visibleIds.has(l.subOrderId)) && isRequestOpen(r, ctx))
+    .reverse() // newest first also among requests made in the same instant
+    .sort((x, y) => fromIso(y.requestedAt) - fromIso(x.requestedAt))
+    .map((r) => {
+      const lines = r.lines.filter((l) => visibleIds.has(l.subOrderId));
+      return {
+        id: r.id,
+        partyId: r.partyId,
+        partyName: r.partyName,
+        contactName: r.contactName,
+        number: r.number,
+        channel: r.channel,
+        lines: lines.map((l) => ({ ...l })),
+        totalKg: lines.reduce((sum, l) => sum + l.kg, 0),
+        requestedAt: r.requestedAt,
+        requestedBy: { id: r.requestedBy, name: c.userNameById.get(r.requestedBy) ?? '' },
+      };
+    });
 }
 
 /** "TMT 12, 16 mm", "MS Billet", "TMT 16 mm · Angle": sizes in mm are merged per category. */

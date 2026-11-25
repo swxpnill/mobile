@@ -1,6 +1,6 @@
 import { type Order, type OrderSummary, type SubOrder, toDisplayQty } from '@tonnage/shared';
 import { useQueries } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { byCode, useCompanies } from '../../api/hooks/companies';
@@ -12,6 +12,7 @@ import { useTheme } from '../../theme/ThemeProvider';
 import { Button, EmptyState, Group, Header, Icon, Row, Screen, SearchField, Text, UnitTag, useDebouncedValue } from '../../ui';
 import { UnitSwitcherSheet } from '../UnitSwitcherSheet';
 import { assignHref } from '../orders/OrderTrucks';
+import { RequestVehicleSheet } from '../orders/RequestVehicleSheet';
 
 const LOADABLE = new Set<SubOrder['status']>(['open', 'partly_dispatched']);
 
@@ -38,6 +39,7 @@ const partyOf = (o: Order) => o.customer?.name ?? o.broker?.name ?? 'Customer no
  */
 export function LoadingPickerScreen() {
   const router = useRouter();
+  const request = useLocalSearchParams<{ mode?: string }>().mode === 'request';
   const { t } = useTheme();
   const basis = useDisplayBasis();
   const signedIn = useSignedIn();
@@ -45,6 +47,8 @@ export function LoadingPickerScreen() {
   const { data: companies } = useCompanies();
   const [search, setSearch] = useState('');
   const [switcher, setSwitcher] = useState(false);
+  const [pickedId, setPickedId] = useState<string | null>(null);
+  const [sheet, setSheet] = useState(false);
   const q = useDebouncedValue(search.trim(), 300);
 
   const open = useOrders({ status: 'open', q });
@@ -61,6 +65,10 @@ export function LoadingPickerScreen() {
   });
   const orders = details.flatMap((d) => (d.data ? [d.data] : []));
   const rows = loadableRows(orders, companyId);
+  // Request mode: one row per order with something pending in the chosen unit.
+  const orderRows = request ? ordersWithPending(rows) : [];
+  const empty = request ? orderRows.length === 0 : rows.length === 0;
+  const picked = orders.find((o) => o.id === pickedId);
 
   const all = useMemo(() => byCode(companies ?? []), [companies]);
   const slotOf = (code: string) => Math.max(0, all.findIndex((c) => c.code === code));
@@ -70,7 +78,7 @@ export function LoadingPickerScreen() {
 
   return (
     <Screen
-      title="Loading"
+      title={request ? 'Request vehicle · pick an order' : 'Loading'}
       header={
         <Header
           onBack={() => router.back()}
@@ -91,20 +99,65 @@ export function LoadingPickerScreen() {
         />
       }
     >
-      <Text variant="caption">Choose the open order to load a truck against.</Text>
+      <Text variant="caption">
+        {request ? 'Choose the order to ask a vehicle for.' : 'Choose the open order to load a truck against.'}
+      </Text>
       <SearchField value={search} onChangeText={setSearch} placeholder="Search order no., party" />
-      {rows.length === 0 && loading ? (
+      {empty && loading ? (
         <ActivityIndicator color={t.br} accessibilityLabel="Loading" />
-      ) : rows.length === 0 ? (
+      ) : empty ? (
         <EmptyState
           icon="truck"
-          title={q ? 'No open orders match' : 'No open orders'}
-          body={q ? `Nothing open matches “${q}”.` : 'Trucks are loaded against an open order. Book one first.'}
+          title={q ? 'No open orders match' : request ? 'Nothing pending' : 'No open orders'}
+          body={
+            q
+              ? `Nothing open matches “${q}”.`
+              : request
+                ? 'Every open order is fully dispatched or already closed.'
+                : 'Trucks are loaded against an open order. Book one first.'
+          }
           actions={[{ label: 'Create order', onPress: () => router.push('/order-form') }]}
         />
       ) : (
         <Group>
-          {rows.map(({ order, sub }) => {
+          {request
+            ? orderRows.map(({ order, subs, pendingKg }) => {
+                const party = partyOf(order);
+                const pending = toDisplayQty(pendingKg, basis, { withUnit: true });
+                return (
+                  <Row
+                    key={order.id}
+                    onPress={() => {
+                      setPickedId(order.id);
+                      setSheet(true);
+                    }}
+                    accessibilityLabel={`${order.number}, ${party}, ${pending} pending`}
+                  >
+                    <View style={styles.fill}>
+                      <View style={styles.line}>
+                        <Text weight="medium" numberOfLines={1} style={styles.shrink}>
+                          {order.number}
+                        </Text>
+                        {subs.map((s) => (
+                          <UnitTag key={s.id} code={s.companyCode} slot={slotOf(s.companyCode)} />
+                        ))}
+                      </View>
+                      <Text variant="caption" numberOfLines={1}>
+                        {party}
+                      </Text>
+                    </View>
+                    <View style={styles.right}>
+                      <Text numeric weight="medium">
+                        {pending}
+                      </Text>
+                      <Text variant="caption">pending</Text>
+                    </View>
+                    <Icon name="chevronRight" size={18} color={t.tx3} />
+                  </Row>
+                );
+              })
+            : null}
+          {request ? null : rows.map(({ order, sub }) => {
             const party = partyOf(order);
             const pending = toDisplayQty(sub.totals.pendingKg, basis, { withUnit: true });
             return (
@@ -148,14 +201,35 @@ export function LoadingPickerScreen() {
         </Button>
       ) : null}
       <UnitSwitcherSheet visible={switcher} onClose={() => setSwitcher(false)} />
+      {request && picked ? <RequestVehicleSheet order={picked} visible={sheet} onClose={() => setSheet(false)} /> : null}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   fill: { flex: 1, minWidth: 0, gap: 2 },
+  shrink: { flexShrink: 1 },
   line: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   right: { alignItems: 'flex-end' },
   small: { fontSize: 13 },
   pill: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 44, paddingHorizontal: 12, borderRadius: 22, borderWidth: 1, marginRight: 12 },
 });
+
+export interface OrderRow {
+  order: Order;
+  subs: SubOrder[];
+  pendingKg: number;
+}
+
+/** Request mode: the loadable rows grouped by order, only those with something pending. */
+export function ordersWithPending(rows: readonly LoadableRow[]): OrderRow[] {
+  const byOrder = new Map<string, OrderRow>();
+  for (const { order, sub } of rows) {
+    if (sub.totals.pendingKg <= 0) continue;
+    const row = byOrder.get(order.id) ?? { order, subs: [], pendingKg: 0 };
+    row.subs.push(sub);
+    row.pendingKg += sub.totals.pendingKg;
+    byOrder.set(order.id, row);
+  }
+  return [...byOrder.values()];
+}

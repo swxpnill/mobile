@@ -16,6 +16,7 @@ import { brokerRoutes } from './handlers/brokers.ts';
 import { reportRoutes } from './handlers/reports.ts';
 import { homeRoutes } from './handlers/home.ts';
 import { orderLifecycleRoutes } from './handlers/order-lifecycle.ts';
+import { vehicleRequestRoutes } from './handlers/vehicle-requests.ts';
 import { orderRoutes } from './handlers/orders.ts';
 import { partyRoutes } from './handlers/parties.ts';
 import { productRoutes } from './handlers/products.ts';
@@ -84,6 +85,7 @@ export const ALL_ROUTES = [
   ...draftRoutes,
   ...orderRoutes,
   ...orderLifecycleRoutes,
+  ...vehicleRequestRoutes,
   ...truckRoutes,
   ...supervisorRoutes,
   ...rejectionRoutes,
