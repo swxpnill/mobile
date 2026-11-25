@@ -44,6 +44,12 @@ const B2_ROUTES = [
   'GET /v1/orders',
   'GET /v1/orders/:id',
   'POST /v1/orders/:id/duplicate',
+  'GET /v1/orders/drafts',
+  'POST /v1/orders/drafts',
+  'GET /v1/orders/drafts/:id',
+  'PUT /v1/orders/drafts/:id',
+  'DELETE /v1/orders/drafts/:id',
+  'GET /v1/home',
 ] as const;
 
 interface Shape {

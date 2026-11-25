@@ -14,6 +14,8 @@ import { registerPipeline } from './http/route.ts';
 import { authRoutes } from './routes/auth.ts';
 import { companyRoutes } from './routes/companies.ts';
 import { meRoutes } from './routes/me.ts';
+import { draftRoutes } from './routes/drafts.ts';
+import { homeRoutes } from './routes/home.ts';
 import { orderRoutes } from './routes/orders.ts';
 import { metaRoutes } from './routes/meta.ts';
 import { partyRoutes } from './routes/parties.ts';
@@ -93,6 +95,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(userRoutes({ tokens }), { prefix: '/v1' });
   await app.register(partyRoutes, { prefix: '/v1' });
   await app.register(productRoutes, { prefix: '/v1' });
+  await app.register(draftRoutes, { prefix: '/v1' });
+  await app.register(homeRoutes, { prefix: '/v1' });
   await app.register(orderRoutes, { prefix: '/v1' });
   await app.register(authRoutes({ env, otp, tokens }), {
     prefix: '/v1/auth',
