@@ -1,10 +1,11 @@
 import type { PartyBody, PartyType, partyListQuerySchema } from '@tonnage/shared';
-import { and, asc, eq, inArray, notInArray, sql, type SQL, type SQLWrapper } from 'drizzle-orm';
+import { financialYear, istDateParts, isTerminal } from '@tonnage/shared';
+import { and, asc, desc, eq, inArray, ne, notInArray, or, sql, type SQL, type SQLWrapper } from 'drizzle-orm';
 import type { z } from 'zod';
 import { v7 as uuidv7 } from 'uuid';
 import type { Tx } from '../db/client.ts';
 import { pgError } from '../db/pg-error.ts';
-import { contactNumbers, parties, partyAddresses, partyContacts } from '../db/schema/index.ts';
+import { contactNumbers, orders, parties, partyAddresses, partyContacts, trucks } from '../db/schema/index.ts';
 import { AppError, type IssueDetail } from '../http/errors.ts';
 import {
   NO_STATS,
@@ -13,6 +14,8 @@ import {
   type PartyStats,
   type TransporterTrips,
 } from '../views/parties.ts';
+import { graphMath, truckNetKg } from '../views/orderGraph.ts';
+import { anyId, loadOrderGraph } from './orderGraph.ts';
 import { isId } from './org.ts';
 
 /** A party and its children in four sequential queries. Row-level security keeps it to the caller's tenant. */
@@ -130,21 +133,138 @@ export async function assertPartyRefs(tx: Tx, refs: PartyRefs): Promise<void> {
 }
 
 /**
- * Per-party order figures. Orders arrive with B2 Task 4, which computes them here; until then every
- * party has none (the mock's figures for a world without orders).
+ * Per-party order figures, as the mock's `statsFor`: for each order the party is on (customer or
+ * broker side), whether it has a sub-order still open, its pending kg on open sub-orders, and the
+ * net kg of its trucks dispatched in the current IST financial year. Every sub-order counts
+ * (masters are an office screen). Loaded through the order graph: two queries plus its six.
  */
-export async function partyStats(tx: Tx, partyIds: readonly string[]): Promise<Map<string, PartyStats>> {
-  void tx;
-  void partyIds;
-  return new Map();
+export async function partyStats(
+  tx: Tx,
+  partyIds: readonly string[],
+  now: number,
+): Promise<Map<string, PartyStats>> {
+  const wanted = new Set(partyIds.filter(isId));
+  const out = new Map<string, PartyStats>();
+  if (wanted.size === 0) return out;
+  const ids = [...wanted];
+  const rows = await tx
+    .select({ id: orders.id })
+    .from(orders)
+    .where(or(anyId(orders.customerId, ids), anyId(orders.brokerId, ids)));
+  const graphs = await loadOrderGraph(
+    tx,
+    rows.map((r) => r.id),
+  );
+  const fy = financialYear(now);
+  for (const g of graphs.values()) {
+    const m = graphMath(g);
+    let pendingKg = 0;
+    let open = false;
+    let fyKg = 0;
+    for (const s of g.subOrders) {
+      if (!isTerminal(m.subOrderStatus(s))) {
+        open = true;
+        pendingKg += m.subOrderTotals(s).pendingKg;
+      }
+      for (const t of s.trucks) {
+        const at = t.truck.dispatchedAt;
+        if (t.truck.state === 'dispatched' && at !== null && financialYear(at.getTime()) === fy) fyKg += truckNetKg(t);
+      }
+    }
+    for (const id of new Set([g.order.customerId, g.order.brokerId])) {
+      if (id === null || !wanted.has(id)) continue;
+      const st = out.get(id) ?? { ...NO_STATS };
+      if (open) st.openOrders += 1;
+      st.pendingKg += pendingKg;
+      st.fyDispatchedKg += fyKg;
+      out.set(id, st);
+    }
+  }
+  return out;
 }
 
-/** A transporter's trucks this IST month and vehicles seen; trucks arrive with Task 4 (none until then). */
+/** The mock's `vehicleKey`: one vehicle however its number is spaced or cased. */
+const vehicleKey = (vehicleNo: string): string => vehicleNo.replace(/\s+/g, '').toLowerCase();
+
+/**
+ * A transporter's figures (GET and PATCH only, as in the mock): its trucks (not cancelled)
+ * dispatched this IST month, distinct vehicles seen, and the latest five, newest assignment first.
+ */
 export async function transporterTrips(tx: Tx, p: PartyRow, now: number): Promise<TransporterTrips | undefined> {
-  void tx;
-  void now;
   if (p.type !== 'transporter') return undefined;
-  return { tripsThisMonth: 0, vehiclesSeen: 0, recentVehicles: [] };
+  const rows = await tx
+    .select({ vehicleNo: trucks.vehicleNo, state: trucks.state, dispatchedAt: trucks.dispatchedAt })
+    .from(trucks)
+    .where(and(eq(trucks.transporterId, p.id), ne(trucks.state, 'cancelled')))
+    .orderBy(desc(trucks.assignedAt), desc(trucks.id));
+  const month = istDateParts(now);
+  const tripsThisMonth = rows.filter((t) => {
+    if (t.state !== 'dispatched' || t.dispatchedAt === null) return false;
+    const d = istDateParts(t.dispatchedAt.getTime());
+    return d.year === month.year && d.month === month.month;
+  }).length;
+  const vehicles = new Map<string, string>();
+  for (const t of rows) {
+    if (!vehicles.has(vehicleKey(t.vehicleNo))) vehicles.set(vehicleKey(t.vehicleNo), t.vehicleNo);
+  }
+  return { tripsThisMonth, vehiclesSeen: vehicles.size, recentVehicles: [...vehicles.values()].slice(0, 5) };
+}
+
+/** The foreign keys from orders to the addresses they bill and ship to (never cascade). */
+export const ORDER_ADDRESS_FKS: ReadonlySet<string> = new Set(['orders_bill_to_fk', 'orders_ship_to_fk']);
+
+/**
+ * The first of these addresses (in the order given, as the mock finds it) that an order bills or
+ * ships to, or null. A PATCH that drops it is the mock's 409 PARTY_IN_USE.
+ */
+export async function addressInUse(
+  tx: Tx,
+  addresses: readonly { id: string; label: string }[],
+): Promise<{ addressId: string; label: string } | null> {
+  if (addresses.length === 0) return null;
+  const ids = addresses.map((a) => a.id);
+  const rows = await tx
+    .select({ billToId: orders.billToId, shipToId: orders.shipToId })
+    .from(orders)
+    .where(or(anyId(orders.billToId, ids), anyId(orders.shipToId, ids)));
+  const used = new Set(rows.flatMap((r) => [r.billToId, r.shipToId]));
+  const hit = addresses.find((a) => used.has(a.id));
+  return hit ? { addressId: hit.id, label: hit.label } : null;
+}
+
+/**
+ * Runs a party PATCH and turns an address delete refused by an order's foreign key (an order booked
+ * on it after `assertAddressesFree` looked) into the same 409 PARTY_IN_USE, naming the address.
+ */
+export async function withAddressGuard<T>(
+  tx: Tx,
+  existing: PartyGraph,
+  body: Pick<PartyBody, 'addresses'>,
+  write: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await write();
+  } catch (e) {
+    const pg = pgError(e);
+    if (pg?.code !== '23503' || pg.constraint === undefined || !ORDER_ADDRESS_FKS.has(pg.constraint)) throw e;
+    // The write ran in a savepoint, so the transaction can still look the order up.
+    await assertAddressesFree(tx, existing, body);
+    throw e;
+  }
+}
+
+/** 409 PARTY_IN_USE when an order uses one of the addresses the body leaves out. */
+export async function assertAddressesFree(
+  tx: Tx,
+  existing: PartyGraph,
+  body: Pick<PartyBody, 'addresses'>,
+): Promise<void> {
+  const kept = new Set(body.addresses.map((a) => a.id));
+  const used = await addressInUse(
+    tx,
+    existing.addresses.filter((a) => !kept.has(a.id)),
+  );
+  if (used) throw new AppError(409, 'PARTY_IN_USE', used);
 }
 
 export const statsOf = (stats: Map<string, PartyStats>, id: string): PartyStats => stats.get(id) ?? NO_STATS;

@@ -14,6 +14,7 @@ import {
   type TestApp,
 } from './helpers.ts';
 import { waitForLockWaiters } from './support/lockWait.ts';
+import { ownerInsertOrderLine } from './support/orders.ts';
 
 afterEach(closeTestApps);
 
@@ -282,9 +283,43 @@ describe('products', () => {
     expect((await del(p.id, owner)).statusCode).toBe(404);
   });
 
-  it('productInUse is false until order lines exist (Task 4 wires the real check and its 409 PRODUCT_IN_USE test)', async () => {
+  it('productInUse: false for an unused product, true once an order line uses it', async () => {
     const id = await ownerInsertProduct(t.ownerDb, tenantId, ownerId, [aip]);
     expect(await withTenant(t.db, tenantId, (tx) => productInUse(tx, id))).toBe(false);
+    await ownerInsertOrderLine(t.ownerDb.$client, { tenantId, createdBy: ownerId, companyId: aip, productId: id });
+    expect(await withTenant(t.db, tenantId, (tx) => productInUse(tx, id))).toBe(true);
+  });
+
+  it('DELETE a product an order line uses → 409 PRODUCT_IN_USE; the product and its links are unchanged', async () => {
+    const p = await create(tmt12());
+    await ownerInsertOrderLine(t.ownerDb.$client, { tenantId, createdBy: ownerId, companyId: aip, productId: p.id });
+    const res = await del(p.id, owner);
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ code: 'PRODUCT_IN_USE', message: expect.any(String) });
+    expect((await get(`/v1/products/${p.id}`, owner)).json()).toEqual(p);
+    expect(
+      await countRows(`select count(*)::int as n from activity_log where action = 'product.deleted'`),
+    ).toBe(0);
+  });
+
+  it('a line committed while the DELETE waits on the product row → the foreign key refuses it: 409 PRODUCT_IN_USE', async () => {
+    const p = await create(tmt12());
+    const client = await t.ownerDb.$client.connect();
+    try {
+      // The line's insert holds a key-share lock on the product row until it commits, so the
+      // DELETE (whose in-use check saw nothing yet) queues on it and then meets the foreign key.
+      await client.query('begin');
+      await ownerInsertOrderLine(client, { tenantId, createdBy: ownerId, companyId: aip, productId: p.id });
+      const pending = del(p.id, owner);
+      await waitForLockWaiters(t.ownerDb, 1);
+      await client.query('commit');
+      const res = await pending;
+      expect(res.statusCode, res.body).toBe(409);
+      expect(res.json().code).toBe('PRODUCT_IN_USE');
+    } finally {
+      client.release();
+    }
+    expect((await get(`/v1/products/${p.id}`, owner)).statusCode).toBe(200);
   });
 
   it("another tenant's product, a random id or a malformed id → identical 404 on GET, PATCH and DELETE", async () => {

@@ -17,6 +17,7 @@ import {
   assertCompanies,
   findProduct,
   listProducts,
+  PRODUCT_LINE_FK,
   productInUse,
   saveCompanies,
   withProductUniqueness,
@@ -114,8 +115,9 @@ export const productRoutes: FastifyPluginAsync = async (app) => {
         // A savepoint, so a refused delete leaves the request's transaction usable for the error.
         await tx.transaction((sp) => sp.delete(products).where(eq(products.id, p.id)));
       } catch (e) {
-        // A line added after the check above holds a foreign key to the product (Task 4).
-        if (pgError(e)?.code === '23503') throw new AppError(409, 'PRODUCT_IN_USE');
+        // A line committed after the check above: its foreign key refuses the delete.
+        const pg = pgError(e);
+        if (pg?.code === '23503' && pg.constraint === PRODUCT_LINE_FK) throw new AppError(409, 'PRODUCT_IN_USE');
         throw e;
       }
       await logActivity(tx, user, now, { entityType: 'product', entityId: p.id, action: 'product.deleted' });

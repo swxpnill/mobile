@@ -14,6 +14,7 @@ import { AppError } from '../http/errors.ts';
 import { defineRoute } from '../http/route.ts';
 import { logActivity } from '../services/activity.ts';
 import {
+  assertAddressesFree,
   findParty,
   listParties,
   loadParty,
@@ -21,6 +22,7 @@ import {
   saveChildren,
   statsOf,
   transporterTrips,
+  withAddressGuard,
   withPartyUniqueness,
 } from '../services/parties.ts';
 import { toParty, toPartySummary } from '../views/parties.ts';
@@ -31,11 +33,12 @@ export const partyRoutes: FastifyPluginAsync = async (app) => {
     action: 'masters.manage',
     query: partyListQuerySchema,
     response: { 200: z.array(partySummarySchema) },
-    handler: async ({ tx, query }) => {
+    handler: async ({ tx, query, now }) => {
       const rows = await listParties(tx, query);
       const stats = await partyStats(
         tx,
         rows.map((r) => r.party.id),
+        now,
       );
       return { body: rows.map((r) => toPartySummary(r.party, r, statsOf(stats, r.party.id))) };
     },
@@ -46,7 +49,7 @@ export const partyRoutes: FastifyPluginAsync = async (app) => {
     response: { 200: partySchema },
     handler: async ({ tx, params, now }) => {
       const g = await findParty(tx, params.id);
-      const stats = await partyStats(tx, [g.party.id]);
+      const stats = await partyStats(tx, [g.party.id], now);
       return { body: toParty(g, statsOf(stats, g.party.id), await transporterTrips(tx, g.party, now)) };
     },
   });
@@ -98,9 +101,8 @@ export const partyRoutes: FastifyPluginAsync = async (app) => {
       if (body.type !== p.type) {
         throw new AppError(422, 'VALIDATION', [{ path: ['type'], message: "A party's type can't change" }]);
       }
-      // The mock's PARTY_IN_USE (an address an order points at cannot be dropped) arrives with orders, Task 4.
       const at = new Date(now);
-      await withPartyUniqueness(tx, body, async (sp) => {
+      await withAddressGuard(tx, current, body, () => withPartyUniqueness(tx, body, async (sp) => {
         const [row] = await sp
           .update(parties)
           .set({
@@ -118,11 +120,13 @@ export const partyRoutes: FastifyPluginAsync = async (app) => {
           .returning();
         // Zero rows: a concurrent write bumped the version after the read above.
         if (!row) throw new AppError(409, 'STALE');
+        // After the update, so a GSTIN clash is reported first, as the mock checks it first.
+        await assertAddressesFree(sp, current, body);
         await saveChildren(sp, row, body, at, current);
-      });
+      }));
       await logActivity(tx, user, now, { entityType: 'party', entityId: p.id, action: 'party.updated' });
       const updated = await findParty(tx, p.id);
-      const stats = await partyStats(tx, [p.id]);
+      const stats = await partyStats(tx, [p.id], now);
       return { body: toParty(updated, statsOf(stats, p.id), await transporterTrips(tx, updated.party, now)) };
     },
   });

@@ -40,6 +40,10 @@ const B2_ROUTES = [
   'GET /v1/products/:id',
   'PATCH /v1/products/:id',
   'DELETE /v1/products/:id',
+  'POST /v1/orders',
+  'GET /v1/orders',
+  'GET /v1/orders/:id',
+  'POST /v1/orders/:id/duplicate',
 ] as const;
 
 interface Shape {

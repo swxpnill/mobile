@@ -3,7 +3,7 @@ import { and, asc, eq, exists, inArray, sql } from 'drizzle-orm';
 import type { z } from 'zod';
 import type { Tx } from '../db/client.ts';
 import { pgError } from '../db/pg-error.ts';
-import { companies, productCompanies, products } from '../db/schema/index.ts';
+import { companies, orderLines, productCompanies, products } from '../db/schema/index.ts';
 import { AppError } from '../http/errors.ts';
 import type { ProductGraph, ProductRow } from '../views/products.ts';
 import { isId } from './org.ts';
@@ -135,12 +135,17 @@ export async function withProductUniqueness<T>(tx: Tx, write: (sp: Tx) => Promis
 }
 
 /**
- * Whether an order line uses the product (the mock's `PRODUCT_IN_USE`). There are no order lines yet:
- * B2 Task 4 adds them and replaces this with a query on `order_lines.product_id`. Until then no
- * product is in use.
+ * The foreign key from order lines to products (never cascades): a delete that meets it, because a
+ * line was committed after `productInUse` looked, is the same refusal (409 PRODUCT_IN_USE).
  */
+export const PRODUCT_LINE_FK = 'order_lines_product_fk';
+
+/** Whether an order line uses the product (the mock's `PRODUCT_IN_USE`). */
 export async function productInUse(tx: Tx, productId: string): Promise<boolean> {
-  void tx;
-  void productId;
-  return false;
+  const [row] = await tx
+    .select({ one: sql<number>`1` })
+    .from(orderLines)
+    .where(eq(orderLines.productId, productId))
+    .limit(1);
+  return row !== undefined;
 }

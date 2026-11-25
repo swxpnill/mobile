@@ -1,9 +1,11 @@
-import { idSchema, type PlantScope } from '@tonnage/shared';
+import { idSchema, isTerminal, type PlantScope } from '@tonnage/shared';
 import { and, eq, exists, inArray, sql, type SQL } from 'drizzle-orm';
 import type { Tx } from '../db/client.ts';
-import { companies, plants } from '../db/schema/index.ts';
+import { companies, plants, subOrders } from '../db/schema/index.ts';
 import { pgError } from '../db/pg-error.ts';
 import { AppError } from '../http/errors.ts';
+import { graphMath } from '../views/orderGraph.ts';
+import { loadOrderGraph } from './orderGraph.ts';
 
 type CompanyRow = typeof companies.$inferSelect;
 type PlantRow = typeof plants.$inferSelect;
@@ -68,13 +70,26 @@ export async function findPlant(tx: Tx, scope: PlantScope, id: string | undefine
 }
 
 /**
- * Ruling 8: a company with open or partly dispatched sub-orders cannot be deactivated. There are no
- * sub-orders in B1, so this always resolves; B2 adds the `409 COMPANY_HAS_OPEN_ORDERS` check.
+ * Ruling 8 (spec §5.3): a company with open or partly dispatched sub-orders cannot be deactivated
+ * (409 COMPANY_HAS_OPEN_ORDERS with their count), as the mock's `assertCompanyDeactivatable`.
+ * Statuses are derived, so the company's sub-orders are loaded with their orders' graphs.
  */
 export async function assertCompanyDeactivatable(tx: Tx, companyId: string): Promise<void> {
-  void tx;
-  void companyId;
-  // Intentionally empty until B2.
+  const rows = await tx
+    .select({ orderId: subOrders.orderId })
+    .from(subOrders)
+    .where(eq(subOrders.companyId, companyId));
+  if (rows.length === 0) return;
+  const graphs = await loadOrderGraph(
+    tx,
+    rows.map((r) => r.orderId),
+  );
+  let open = 0;
+  for (const g of graphs.values()) {
+    const m = graphMath(g);
+    open += g.subOrders.filter((s) => s.sub.companyId === companyId && !isTerminal(m.subOrderStatus(s))).length;
+  }
+  if (open > 0) throw new AppError(409, 'COMPANY_HAS_OPEN_ORDERS', { openSubOrders: open });
 }
 
 /**

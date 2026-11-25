@@ -2,22 +2,14 @@ import { tenantSettingsSchema, type TenantSettings } from '@tonnage/shared';
 import { eq } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import type { Tx } from '../db/client.ts';
 import { tenants } from '../db/schema/index.ts';
 import { AppError, issueDetails } from '../http/errors.ts';
 import { defineRoute } from '../http/route.ts';
 import { logActivity } from '../services/activity.ts';
+import { loadSettings } from '../services/settings.ts';
 
 /** Any JSON object; it is merged over the current settings and the result validated. */
 const settingsPatchSchema = z.record(z.string(), z.unknown());
-
-/** The tenant's stored settings with defaults filled in; `forUpdate` locks the row for a read-modify-write. */
-async function loadSettings(tx: Tx, tenantId: string, forUpdate: boolean): Promise<TenantSettings> {
-  const query = tx.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId));
-  const [row] = await (forUpdate ? query.for('update') : query);
-  if (!row) throw new AppError(404, 'NOT_FOUND');
-  return tenantSettingsSchema.parse(row.settings);
-}
 
 /** `GET|PATCH /v1/settings`. The tenants table has no RLS, so every query names the tenant explicitly. */
 export const settingsRoutes: FastifyPluginAsync = async (app) => {
