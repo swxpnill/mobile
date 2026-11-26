@@ -2,7 +2,7 @@ import type { TruckState } from '@tonnage/shared';
 import { and, asc, eq } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import type { Db } from '../../src/db/client.ts';
-import { orders, plants, subOrders, truckAllocations, truckPlanLines, trucks } from '../../src/db/schema/index.ts';
+import { orderLines, orders, plants, subOrders, truckAllocations, truckPlanLines, trucks } from '../../src/db/schema/index.ts';
 
 /** The mock's `AddTruckInput`, less the demo-seed extras. */
 export interface TruckInput {
@@ -32,6 +32,28 @@ export async function ownerInsertTruck(ownerDb: Db, input: TruckInput, nowMs: nu
       .innerJoin(orders, and(eq(orders.tenantId, subOrders.tenantId), eq(orders.id, subOrders.orderId)))
       .where(eq(subOrders.id, input.subOrderId));
     if (!sub) throw new Error(`ownerInsertTruck: unknown sub-order ${input.subOrderId}`);
+    // The mock's refusals: inputs the real flow could never produce.
+    const lineIds = new Set(
+      (
+        await tx
+          .select({ id: orderLines.id })
+          .from(orderLines)
+          .where(and(eq(orderLines.tenantId, sub.sub.tenantId), eq(orderLines.subOrderId, sub.sub.id)))
+      ).map((l) => l.id),
+    );
+    for (const row of [...input.plan, ...(input.allocations ?? [])]) {
+      if (!lineIds.has(row.orderLineId)) {
+        throw new Error(`ownerInsertTruck: line ${row.orderLineId} is not on sub-order ${sub.sub.id}`);
+      }
+    }
+    const hasWeights = input.state === 'dispatched' || input.state === 'weighed';
+    const allocationCount = input.allocations?.length ?? 0;
+    if (hasWeights && (allocationCount === 0 || input.tareKg === undefined)) {
+      throw new Error(`ownerInsertTruck: a ${input.state} truck needs a tare and allocations`);
+    }
+    if (!hasWeights && allocationCount > 0) {
+      throw new Error('ownerInsertTruck: only a weighed or dispatched truck has allocations');
+    }
     const [plant] = await tx
       .select({ id: plants.id })
       .from(plants)
@@ -42,7 +64,6 @@ export async function ownerInsertTruck(ownerDb: Db, input: TruckInput, nowMs: nu
 
     const s = input.state;
     const allocations = input.allocations ?? [];
-    const hasWeights = s === 'dispatched' || s === 'weighed';
     const booked = sub.sub.createdAt.getTime();
     const stepAt = (before: number) => new Date(Math.max(booked, nowMs - before));
     const at = new Date(nowMs);

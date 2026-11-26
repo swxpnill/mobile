@@ -19,7 +19,7 @@ pnpm typecheck           # tsc --noEmit, every package
 pnpm test                # vitest (packages, apps/api) + jest (apps/mobile)
 pnpm dev:db              # embedded Postgres 16 for the API (port 54328); prints the .env URLs
 pnpm db:migrate          # schema, role tonnage_app, RLS (needs apps/api/.env, from .env.example)
-pnpm db:seed             # the sample world's org layer, same ids as the mock; idempotent
+pnpm db:seed             # the sample world's org layer and masters, same ids as the mock; idempotent
 pnpm dev:api             # Fastify on :3000
 ```
 
@@ -56,7 +56,7 @@ apps/api (Fastify + Drizzle on Postgres) ── the real backend, built to the s
 
 - **One seam.** The app talks to a backend only through `Transport` (`packages/shared/src/transport.ts`). Screens and hooks never know whether the mock or the real API is behind it. Switching to the real API must be a config change, not a screen change.
 - **The mock behaves like the real API.** `packages/mock-api` validates with the shared zod schemas, authorises with `policy.ts` + plant scope, redacts with `redactForRole`, returns the spec's error bodies `{ code, message, details? }`, honours `Idempotency-Key` and optimistic `version`, and simulates token expiry so refresh runs. Out-of-scope records are 404, never 403. Every route declares an `action` or `public: true`, or the router throws when it is built. The store persists to AsyncStorage.
-- **`apps/api` (B1):** Fastify + Drizzle on Postgres, M1 routes only (auth, me, companies, plants, users, settings). Tests run on embedded Postgres 16. Tenant isolation is RLS with the non-owner role `tonnage_app` (migrations and the seed use the owner URL). The M1 contract suite runs green against it (`packages/contract-tests` `M1_SUITES`, via `apps/api/test/contract.test.ts`).
+- **`apps/api` (B1, B2):** Fastify + Drizzle on Postgres, the M1 routes (auth, me, companies, plants, users, settings) and the M2 routes (parties, products, orders, drafts, Home, the order lifecycle; vehicle requests wait for B3). Tests run on embedded Postgres 16. Tenant isolation is RLS with the non-owner role `tonnage_app` (migrations and the seed use the owner URL). The seed holds the sample world's org layer and `SAMPLE_MASTERS` with the mock's ids (no demo orders). The M1 and M2 contract suites run green against it (`M1_SUITES` + `M2_SUITES`, via `apps/api/test/contract.test.ts`), with a generated permission matrix (`policy-matrix.test.ts`) and a money-leak check over every GET (`money-leak.test.ts`).
 - **The contract suite is the definition of done** for both backends (`packages/contract-tests`). It runs against the mock now and must run green against the Fastify app in the B milestones. A change to behaviour starts with a contract test.
 - `packages/shared` and `packages/mock-api` import nothing from React Native or Expo.
 - **Numbers.** Quantities are integer kg; money is integer rupees; rates are whole ₹ per MT. No floats in stored values or in arithmetic on them. Unit basis (`mt` | `kg`, per user, `preferences.unitBasis`) only changes display and input: MT shows 3 decimals, kg whole numbers. Use the formatters in `packages/shared/src/units.ts` / `format.ts`; never format quantities by hand. Business time zone is `Asia/Kolkata`.

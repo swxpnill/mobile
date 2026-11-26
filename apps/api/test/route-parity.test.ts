@@ -29,7 +29,7 @@ const M1_ROUTES = [
   'PATCH /v1/settings',
 ] as const;
 
-/** B2 routes, added task by task (plan Ruling 1). */
+/** The 26 B2 routes (plan Ruling 1). */
 const B2_ROUTES = [
   'GET /v1/parties',
   'POST /v1/parties',
@@ -86,14 +86,15 @@ const byRoute = (a: Shape, b: Shape) => a.route.localeCompare(b.route);
 
 afterAll(closeTestApps);
 
-describe('route parity with the mock (M1)', () => {
+describe('route parity with the mock (M1 + M2)', () => {
   it('the M1 list holds 22 distinct routes, every one of them in the mock', () => {
     expect(new Set(M1_ROUTES).size).toBe(22);
     const mock = new Set(ALL_ROUTES.map((r) => `${r.method} ${normalise(r.pattern)}`));
     expect(M1_ROUTES.filter((r) => !mock.has(r))).toEqual([]);
   });
 
-  it('every B2 route so far is in the mock', () => {
+  it('the B2 list holds 26 distinct routes, every one of them in the mock', () => {
+    expect(new Set(B2_ROUTES).size).toBe(26);
     const mock = new Set(ALL_ROUTES.map((r) => `${r.method} ${normalise(r.pattern)}`));
     expect(B2_ROUTES.filter((r) => !mock.has(r))).toEqual([]);
   });
@@ -108,6 +109,7 @@ describe('route parity with the mock (M1)', () => {
       .filter((r) => r.url.startsWith('/v1/'))
       .map((r) => shape({ ...r, path: r.url }))
       .sort(byRoute);
+    expect(api).toHaveLength(48);
     expect(api).toEqual(mock);
   });
 });

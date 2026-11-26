@@ -66,6 +66,8 @@ export interface RouteTableEntry {
   public?: true;
   action?: Action;
   idempotent?: true;
+  /** The route validates a request body (checked after the permission, before the handler). */
+  body?: true;
 }
 
 /** What every route needs from the app, plus the table of what `defineRoute` registered. */
@@ -202,6 +204,7 @@ export function defineRoute<B = unknown, Q = Record<string, string>>(
   if (config.public) entry.public = true;
   if (config.action) entry.action = config.action;
   if (config.idempotent) entry.idempotent = true;
+  if (config.body) entry.body = true;
   pipeline.routes.push(entry);
 
   const schema = config.response ? { response: config.response } : undefined;

@@ -144,7 +144,7 @@ describe('defineRoute', () => {
     });
     const table = routeTable(t.app);
     expect(table).toContainEqual({ method: 'GET', url: '/v1/meta', public: true });
-    expect(table).toContainEqual({ method: 'POST', url: '/v1/auth/verify', public: true });
+    expect(table).toContainEqual({ method: 'POST', url: '/v1/auth/verify', public: true, body: true });
     expect(table).toContainEqual({ method: 'POST', url: '/v1/test/x', action: 'companies.manage', idempotent: true });
     // Per app: another app does not see this one's throwaway route.
     const other = await buildTestApp();

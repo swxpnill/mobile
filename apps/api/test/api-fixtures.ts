@@ -5,6 +5,7 @@ import { v7 as uuidv7 } from 'uuid';
 import type { Clock } from '../src/clock.ts';
 import type { Db } from '../src/db/client.ts';
 import { companies, plants, tenants, users } from '../src/db/schema/index.ts';
+import { ownerInsertTruck } from './support/trucks.ts';
 
 /**
  * The contract's test-only hooks against Postgres (owner connection, bypassing RLS), mirroring the
@@ -71,9 +72,9 @@ export function apiFixtures(ownerDb: Db, clock: Clock): ContractFixtures {
         return { tenantId, ownerMobile, companyId, plantId };
       });
     },
-    // Ruling 3: trucks arrive in B3, and no M1 suite calls this.
-    addTruck() {
-      return Promise.reject(new Error('addTruck: available from B3'));
+    // Plan Ruling 9: plain inserts (trucks, plan lines, allocations), no weighments.
+    async addTruck(input) {
+      return { truckId: await ownerInsertTruck(ownerDb, input, clock.now()) };
     },
   };
 }
