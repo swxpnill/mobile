@@ -3,7 +3,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as effects from '../src/services/orderEffects.ts';
 import { closeTestApps } from './helpers.ts';
-import { waitForLockWaiters } from './support/lockWait.ts';
+import { waitForLockWaiters, withLockHolder } from './support/lockWait.ts';
 import { COMPANY, addressId, canvasOrder, createMasters, krmOrder, type Masters } from './support/masters.ts';
 import { normaliseIds } from './support/normalise.ts';
 import { buildParity, type Parity, type Res, type Side } from './support/parity.ts';
@@ -298,15 +298,163 @@ describe('edit (PATCH /v1/orders/:id) equals the mock', () => {
       await s.addTruck({ subOrderId: aip.id, state: 'cancelled', vehicleNo: 'CG 04 AA 2222', plan: [{ orderLineId: aip.lines[1]!.id, plannedKg: 5_000 }] });
     }
     orders = await refresh(orders);
+    const removedTruck = (await q<{ id: string; plant_id: string }>(`select id, plant_id from trucks where vehicle_no = 'CG 04 AA 1111'`))[0]!;
+    const spy = vi.spyOn(effects, 'afterTrucksRemoved');
     await patch(orders, (o) => {
       const b = editBody(o);
       // Drop KRM, and the AIP 6 m line.
       return { ...b, subOrders: [{ ...b.subOrders[0]!, lines: [b.subOrders[0]!.lines[0]!, b.subOrders[0]!.lines[2]!] }] };
     });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]?.[2]).toEqual({ orderId: of(orders, p.api).id, trucks: [{ id: removedTruck.id, plantId: removedTruck.plant_id }] });
     expect(await q('select vehicle_no from trucks order by vehicle_no')).toEqual([{ vehicle_no: 'CG 04 AA 2222' }]);
     expect(await q('select count(*)::int as n from truck_plan_lines')).toEqual([{ n: 0 }]);
     expect(await q('select suffix from sub_orders')).toEqual([{ suffix: 'A' }]);
     await refresh(orders);
+  });
+});
+
+describe('fix round 1 (R9, held lines) equal the mock', () => {
+  it('R9: an edit bumps the sub-orders whose lines it adds, removes or changes; an unchanged edit bumps none', async () => {
+    let orders = await bookBoth(canvasOrder);
+    const [, changed] = await patch(orders, (o) => withLine(editBody(o), 0, 0, { orderedKg: 26_000 }));
+    expect((changed.body as Order).subOrders.map((x) => x.version)).toEqual([2, 1]);
+    orders = await refresh(orders);
+    const [, added] = await patch(orders, (o, s) => {
+      const b = editBody(o);
+      b.subOrders[1]!.lines.push({ ...line(m(s).tmt12.id, { typedRate: null, overpricePerMt: 0 }), id: undefined });
+      return b;
+    });
+    expect((added.body as Order).subOrders.map((x) => x.version)).toEqual([2, 2]);
+    orders = await refresh(orders);
+    const [, removed] = await patch(orders, (o) => {
+      const b = editBody(o);
+      b.subOrders[0]!.lines.pop();
+      return b;
+    });
+    expect((removed.body as Order).subOrders.map((x) => x.version)).toEqual([3, 2]);
+    orders = await refresh(orders);
+    const [, same] = await patch(orders, (o) => editBody(o));
+    expect((same.body as Order).subOrders.map((x) => x.version)).toEqual([3, 2]);
+    // The pre-edit version no longer closes it.
+    await sameOn('POST', (s) => `/v1/sub-orders/${of(orders, s).subOrders[0]!.id}/short-close`, () => ({ body: shortCloseBody(2) }), 409);
+  });
+
+  it('a line a weighed truck carries but did not plan: edit removing it and move emptying it → 409 OPEN_TRUCKS, nothing written', async () => {
+    let orders = await bookBoth(patelOrder);
+    for (const s of [p.mock, p.api]) {
+      const sub = of(orders, s).subOrders[0]!;
+      const [l0, l1] = sub.lines;
+      await s.addTruck({
+        subOrderId: sub.id,
+        state: 'weighed',
+        vehicleNo: 'CG 04 MX 4410',
+        tareKg: 12_000,
+        plan: [{ orderLineId: l0!.id, plannedKg: 20_000 }],
+        allocations: [{ orderLineId: l0!.id, netKg: 19_000 }, { orderLineId: l1!.id, netKg: 1_500 }],
+      });
+    }
+    orders = await refresh(orders);
+    const before = await snapshot();
+    const allocations = await q('select order_line_id, net_kg from truck_allocations order by order_line_id');
+    const [, edit] = await patch(
+      orders,
+      (o) => {
+        const b = editBody(o);
+        b.subOrders[0]!.lines.splice(1, 1);
+        return b;
+      },
+      'rajesh',
+      409,
+    );
+    expect(edit.body).toMatchObject({ code: 'OPEN_TRUCKS', details: { lineId: of(orders, p.api).subOrders[0]!.lines[1]!.id } });
+    const [, move] = await sameOn(
+      'POST',
+      (s) => `/v1/orders/${of(orders, s).id}/move-quantity`,
+      (s) => ({ body: { fromLineId: of(orders, s).subOrders[0]!.lines[1]!.id, toCompanyId: COMPANY.AIP, kg: 50_000, version: of(orders, s).version } }),
+      409,
+    );
+    expect(move.body).toMatchObject({ code: 'OPEN_TRUCKS' });
+    expect(await snapshot()).toEqual(before);
+    expect(await q('select order_line_id, net_kg from truck_allocations order by order_line_id')).toEqual(allocations);
+    // Part of it still moves.
+    await sameOn(
+      'POST',
+      (s) => `/v1/orders/${of(orders, s).id}/move-quantity`,
+      (s) => ({ body: { fromLineId: of(orders, s).subOrders[0]!.lines[1]!.id, toCompanyId: COMPANY.AIP, kg: 10_000, version: of(orders, s).version } }),
+      200,
+    );
+  });
+
+  it('R10: reopen on a deactivated company → 409 COMPANY_INACTIVE; reactivated, it reopens (equal to the mock)', async () => {
+    let orders = await bookBoth(krmOrder);
+    const sub = (s: Side) => of(orders, s).subOrders[0]!;
+    await sameOn('POST', (s) => `/v1/sub-orders/${sub(s).id}/short-close`, (s) => ({ body: shortCloseBody(sub(s).version) }), 200);
+    orders = await refresh(orders);
+    const setActive = async (active: boolean) => {
+      for (const s of [p.mock, p.api]) {
+        const c = await s.call('GET', `/v1/companies/${COMPANY.KRM}`);
+        const res = await s.call('PATCH', `/v1/companies/${COMPANY.KRM}`, { body: { version: (c.body as { version: number }).version, active } });
+        expect(res.status, JSON.stringify(res.body)).toBe(200);
+      }
+    };
+    await setActive(false);
+    const reopen = (status: number) =>
+      sameOn('POST', (s) => `/v1/sub-orders/${sub(s).id}/reopen`, (s) => ({ body: { version: sub(s).version } }), status);
+    const [, refused] = await reopen(409);
+    expect(refused.body).toMatchObject({ code: 'COMPANY_INACTIVE' });
+    await setActive(true);
+    await reopen(200);
+  });
+});
+
+describe('R10: company deactivation racing a reopen on that company (staged on the company row)', () => {
+  /** A cancelled KRM sub-order, nothing else on KRM: the deactivation alone would be allowed. */
+  async function closedKrm(): Promise<Order> {
+    const orders = await bookBoth(krmOrder);
+    const o = of(orders, p.api);
+    const res = await p.api.call('POST', `/v1/sub-orders/${o.subOrders[0]!.id}/short-close`, { body: shortCloseBody(o.subOrders[0]!.version) });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    return res.body as Order;
+  }
+  const krmVersion = async () => (await q<{ version: number }>('select version from companies where id = $1', [COMPANY.KRM]))[0]!.version;
+  const krmActive = async () => (await q<{ active: boolean }>('select active from companies where id = $1', [COMPANY.KRM]))[0]!.active;
+
+  async function stagedOnKrm(steps: (() => Promise<Res>)[]): Promise<Res[]> {
+    return withLockHolder(p.t.ownerDb, async (holder, track) => {
+      await holder.query('select 1 from companies where id = $1 for update', [COMPANY.KRM]);
+      const pending: Promise<Res>[] = [];
+      for (const [i, step] of steps.entries()) {
+        pending.push(track(step()));
+        await waitForLockWaiters(p.t.ownerDb, i + 1);
+      }
+      await holder.query('commit');
+      return Promise.all(pending);
+    });
+  }
+
+  it('deactivation first: the reopen then sees the company inactive → 409 COMPANY_INACTIVE; still cancelled', async () => {
+    const closed = await closedKrm();
+    const sub = closed.subOrders[0]!;
+    const version = await krmVersion();
+    const [deactivate, reopen] = await stagedOnKrm([
+      () => p.api.call('PATCH', `/v1/companies/${COMPANY.KRM}`, { body: { version, active: false } }),
+      () => p.api.call('POST', `/v1/sub-orders/${sub.id}/reopen`, { body: { version: sub.version } }),
+    ]);
+    expect([deactivate!.status, reopen!.status, (reopen!.body as { code: string }).code]).toEqual([200, 409, 'COMPANY_INACTIVE']);
+    expect(await q('select close_kind from sub_orders where id = $1', [sub.id])).toEqual([{ close_kind: 'cancel' }]);
+  });
+
+  it('reopen first: the deactivation waits, then counts the reopened sub-order → 409 COMPANY_HAS_OPEN_ORDERS', async () => {
+    const closed = await closedKrm();
+    const sub = closed.subOrders[0]!;
+    const version = await krmVersion();
+    const [reopen, deactivate] = await stagedOnKrm([
+      () => p.api.call('POST', `/v1/sub-orders/${sub.id}/reopen`, { body: { version: sub.version } }),
+      () => p.api.call('PATCH', `/v1/companies/${COMPANY.KRM}`, { body: { version, active: false } }),
+    ]);
+    expect([reopen!.status, deactivate!.status, (deactivate!.body as { code: string }).code]).toEqual([200, 409, 'COMPANY_HAS_OPEN_ORDERS']);
+    expect(await krmActive()).toBe(true);
   });
 });
 
@@ -539,20 +687,16 @@ describe('activity', () => {
 describe('Review Focus 2: an edit racing a short close of the same sub-order', () => {
   /** Holds the order row on another connection, starts the requests one by one (each queued behind it), then lets go. */
   async function staged(orderId: string, steps: (() => Promise<Res>)[]): Promise<Res[]> {
-    const holder = await p.t.ownerDb.$client.connect();
-    try {
-      await holder.query('begin');
+    return withLockHolder(p.t.ownerDb, async (holder, track) => {
       await holder.query('select 1 from orders where id = $1 for update', [orderId]);
       const pending: Promise<Res>[] = [];
       for (const [i, step] of steps.entries()) {
-        pending.push(step());
+        pending.push(track(step()));
         await waitForLockWaiters(p.t.ownerDb, i + 1);
       }
       await holder.query('commit');
-      return await Promise.all(pending);
-    } finally {
-      holder.release();
-    }
+      return Promise.all(pending);
+    });
   }
 
   /** The smallest raw pending (ordered − dispatched − closed) of any line: never below 0. */
@@ -581,7 +725,7 @@ describe('Review Focus 2: an edit racing a short close of the same sub-order', (
     expect(await minPendingKg()).toBe(0);
   });
 
-  it('edit first: as on the mock, the short close (sub-order version unchanged by an edit) closes what the edit left; pending 0', async () => {
+  it('edit first (R9): the edit bumps the sub-order version, so the short close gets 409 STALE; as on the mock', async () => {
     const orders = await patelInProgress();
     const o = of(orders, p.api);
     const sub = o.subOrders[0]!;
@@ -589,17 +733,16 @@ describe('Review Focus 2: an edit racing a short close of the same sub-order', (
       () => p.api.call('PATCH', `/v1/orders/${o.id}`, { body: withLine(editBody(o), 0, 1, { orderedKg: 60_000 }) }),
       () => p.api.call('POST', `/v1/sub-orders/${sub.id}/short-close`, { body: shortCloseBody(sub.version, true) }),
     ]);
-    expect([edit!.status, close!.status]).toEqual([200, 200]);
+    expect([edit!.status, close!.status, (close!.body as { code: string }).code]).toEqual([200, 409, 'STALE']);
+    expect((edit!.body as Order).subOrders[0]!.version).toBe(sub.version + 1);
     // The same two calls, one after the other, on the mock.
     const mo = of(orders, p.mock);
-    await p.mock.call('PATCH', `/v1/orders/${mo.id}`, { body: withLine(editBody(mo), 0, 1, { orderedKg: 60_000 }) });
+    const mockEdit = await p.mock.call('PATCH', `/v1/orders/${mo.id}`, { body: withLine(editBody(mo), 0, 1, { orderedKg: 60_000 }) });
     const mockClose = await p.mock.call('POST', `/v1/sub-orders/${mo.subOrders[0]!.id}/short-close`, { body: shortCloseBody(mo.subOrders[0]!.version, true) });
+    expect(normaliseIds(edit)).toEqual(normaliseIds(mockEdit));
     expect(normaliseIds(close)).toEqual(normaliseIds(mockClose));
-    expect((close!.body as Order).subOrders[0]!.lines.map((l) => [l.orderedKg, l.closedKg, l.pendingKg])).toEqual([
-      [40_000, 11_600, 0],
-      [60_000, 60_000, 0],
-      [30_000, 30_000, 0],
-    ]);
-    expect(await minPendingKg()).toBe(0);
+    const now = (await p.api.call('GET', `/v1/orders/${o.id}`)).body as Order;
+    expect(now.subOrders[0]!.lines.map((l) => [l.orderedKg, l.pendingKg])).toEqual([[40_000, 11_600], [60_000, 60_000], [30_000, 30_000]]);
+    expect(await minPendingKg()).toBeGreaterThanOrEqual(0);
   });
 });

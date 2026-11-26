@@ -1,7 +1,8 @@
+import { linesHeldByTrucks } from '@tonnage/shared';
 import { and, asc, eq, sql, type SQLWrapper } from 'drizzle-orm';
 import type { Tx } from '../db/client.ts';
 import { companies, orderLines, orders, subOrders, truckAllocations, truckPlanLines, trucks } from '../db/schema/index.ts';
-import type { OrderGraph } from '../views/orderGraph.ts';
+import type { OrderGraph, SubOrderGraph } from '../views/orderGraph.ts';
 import { anyId, loadOrderGraph } from './orderGraph.ts';
 
 /**
@@ -63,6 +64,10 @@ export async function shareCompany(tx: Tx, companyId: string): Promise<{ id: str
     .for('share');
   return row;
 }
+
+/** Lines of these sub-orders a truck still plans or carries (shared `linesHeldByTrucks`): an edit or move may not remove them. */
+export const heldLines = (subs: readonly SubOrderGraph[]): Set<string> =>
+  linesHeldByTrucks(subs.flatMap((s) => s.trucks.map((t) => ({ state: t.truck.state, plan: t.plan, allocations: t.allocations }))));
 
 /** `version + 1` for an update's `set`. */
 export const bumped = (column: SQLWrapper) => sql<number>`${column} + 1`;

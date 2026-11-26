@@ -11,6 +11,7 @@ import {
   subOrderSuffix,
 } from '@tonnage/shared';
 import { eq } from 'drizzle-orm';
+import { anyId } from './orderGraph.ts';
 import type { Tx } from '../db/client.ts';
 import { orderLines, orders, subOrders } from '../db/schema/index.ts';
 import type { AuthedUser } from '../http/auth-hook.ts';
@@ -19,6 +20,7 @@ import { type LineRow, type SubOrderGraph, graphMath } from '../views/orderGraph
 import { logActivity } from './activity.ts';
 import { afterTrucksRemoved } from './orderEffects.ts';
 import { findOrder } from './orderGraph.ts';
+import { heldLines } from './orderTree.ts';
 import { bumped, lockOrderTree, pruneOrderTree } from './orderTree.ts';
 import { newLineRow, newSubOrderRow, validateOrderRefs, withLateReferenceCheck } from './orders.ts';
 
@@ -116,9 +118,10 @@ export async function editOrder(
     });
   });
 
-  // A line still planned on a truck at the plant cannot disappear from under that truck.
+  // A line a truck still plans or carries (not cancelled) cannot disappear from under that truck.
   const keptIds = new Set(desired.flatMap((d) => (d.lineId !== undefined ? [d.lineId] : [])));
-  const planned = existing.find((e) => !keptIds.has(e.lineId) && e.reservedKg > 0 && e.dispatchedKg === 0);
+  const held = heldLines(subs);
+  const planned = existing.find((e) => !keptIds.has(e.lineId) && held.has(e.lineId) && e.dispatchedKg === 0);
   if (planned) throw new AppError(409, 'OPEN_TRUCKS', { lineId: planned.lineId });
 
   const plan = planOrderEdit({ role: c.user.role, existing, desired });
@@ -132,6 +135,8 @@ export async function editOrder(
     let suffixesUsed = g.order.suffixesUsed;
     const keptLines = new Set<string>();
     const keptSubs = new Set<string>();
+    // Ruling R9: an existing sub-order whose lines this edit adds, removes or changes gets a new version.
+    const touched = new Set<string>();
     const newSubs: { si: number; row: ReturnType<typeof newSubOrderRow> }[] = [];
     body.subOrders.forEach((bs, si) => {
       if (targets[si]) return;
@@ -170,13 +175,22 @@ export async function editOrder(
         if (!prev) {
           inserts.push(newLineRow(body, products, sub, bl, position, at));
           position += 1;
+          touched.add(sub.id);
           continue;
         }
         keptLines.add(prev.id);
-        await updateLineIfChanged(sp, prev, body, bl, at);
+        if (await updateLineIfChanged(sp, prev, body, bl, at)) touched.add(sub.id);
       }
     }
     if (inserts.length > 0) await sp.insert(orderLines).values(inserts);
+    for (const s of subs) if (s.lines.some((l) => !keptLines.has(l.id))) touched.add(s.sub.id);
+    const bumpedSubs = subs.filter((s) => keptSubs.has(s.sub.id) && touched.has(s.sub.id)).map((s) => s.sub.id);
+    if (bumpedSubs.length > 0) {
+      await sp
+        .update(subOrders)
+        .set({ version: bumped(subOrders.version), updatedAt: at })
+        .where(anyId(subOrders.id, bumpedSubs));
+    }
     // Left out of the body: removable (the plan above refused anything that was not).
     return pruneOrderTree(sp, {
       lineIds: subs.flatMap((s) => s.lines.filter((l) => !keptLines.has(l.id)).map((l) => l.id)),
@@ -189,14 +203,17 @@ export async function editOrder(
   return { orderId: g.order.id, warnings: plan.warnings };
 }
 
-/** Re-prices a kept line from the body (with its own conversion snapshot); writes only when something changed. */
+/**
+ * Re-prices a kept line from the body (with its own conversion snapshot); writes only when
+ * something changed. True when it wrote.
+ */
 async function updateLineIfChanged(
   tx: Tx,
   prev: LineRow,
   body: UpdateOrderBody,
   bl: UpdateOrderBody['subOrders'][number]['lines'][number],
   at: Date,
-): Promise<void> {
+): Promise<boolean> {
   const { rate, rateEdited } = lineRate({
     method: body.pricingMethod,
     basicRate: body.basicRate,
@@ -212,7 +229,7 @@ async function updateLineIfChanged(
     prev.rateEdited !== rateEdited ||
     prev.overpricePerMt !== bl.overpricePerMt ||
     prev.basicRateSnapshot !== basicRateSnapshot;
-  if (!changed) return;
+  if (!changed) return false;
   await tx
     .update(orderLines)
     .set({
@@ -227,4 +244,5 @@ async function updateLineIfChanged(
       updatedAt: at,
     })
     .where(eq(orderLines.id, prev.id));
+  return true;
 }

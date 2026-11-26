@@ -6,6 +6,7 @@ import {
   deleteOrderBodySchema,
   isTerminal,
   lineRate,
+  linesHeldByTrucks,
   moveQuantityBodySchema,
   planOrderEdit,
   reopenBodySchema,
@@ -138,9 +139,10 @@ export const orderLifecycleRoutes: RouteDef[] = [
         });
       });
 
-      // A line still planned on a truck at the plant cannot disappear from under that truck.
+      // A line a truck still plans or carries (not cancelled) cannot disappear from under that truck.
       const keptIds = new Set(desired.flatMap((d) => (d.lineId !== undefined ? [d.lineId] : [])));
-      const planned = existing.find((e) => !keptIds.has(e.lineId) && e.reservedKg > 0 && e.dispatchedKg === 0);
+      const held = linesHeldByTrucks(subs.flatMap((s) => c.math.trucksOf(s.id)));
+      const planned = existing.find((e) => !keptIds.has(e.lineId) && held.has(e.lineId) && e.dispatchedKg === 0);
       if (planned) throw new ApiError(409, 'OPEN_TRUCKS', { lineId: planned.lineId });
 
       const plan = planOrderEdit({ role: a.user.role, existing, desired });
@@ -165,6 +167,8 @@ export const orderLifecycleRoutes: RouteDef[] = [
 
       const keptLines = new Set<string>();
       const keptSubs = new Set<string>();
+      // Ruling R9: an existing sub-order whose lines this edit adds, removes or changes gets a new version.
+      const touched = new Set<string>();
       body.subOrders.forEach((bs, si) => {
         let s = targets[si];
         if (!s) {
@@ -176,6 +180,7 @@ export const orderLifecycleRoutes: RouteDef[] = [
           const prev = bl.id !== undefined ? lineById.get(bl.id)?.l : undefined;
           if (!prev) {
             state.orderLines.push(newLineRec(state, body, s, bl, at));
+            touched.add(s.id);
             continue;
           }
           keptLines.add(prev.id);
@@ -200,10 +205,13 @@ export const orderLifecycleRoutes: RouteDef[] = [
           if (changed) {
             Object.assign(prev, next);
             bump(prev, at);
+            touched.add(s.id);
           }
         }
       });
       const removed = new Set(existingLines.filter(({ l }) => !keptLines.has(l.id)).map(({ l }) => l.id));
+      for (const { l, s } of existingLines) if (removed.has(l.id)) touched.add(s.id);
+      for (const s of subs) if (touched.has(s.id) && keptSubs.has(s.id)) bump(s, at);
       removeLines(state, removed);
       // A sub-order left out of the body (all its lines removable) goes; trucks never point at it.
       state.subOrders = state.subOrders.filter((s) => s.orderId !== order.id || keptSubs.has(s.id));
@@ -277,6 +285,9 @@ export const orderLifecycleRoutes: RouteDef[] = [
       const { sub, order } = findSubOrder(c, ctx.params.id);
       if (body.version !== sub.version) throw stale();
       if (sub.closeKind === null) throw new ApiError(409, 'NOT_CLOSED');
+      // Ruling R10: a company deactivated since the close takes no open sub-order back.
+      const company = state.companies.find((x) => x.id === sub.companyId);
+      if (!company?.active) throw new ApiError(409, 'COMPANY_INACTIVE');
       const at = toIso(now);
       for (const l of c.math.linesOf(sub.id)) {
         if (l.closedKg !== 0) {
@@ -323,6 +334,11 @@ export const orderLifecycleRoutes: RouteDef[] = [
       if (!product?.companyIds.includes(company.id)) throw new ApiError(409, 'PRODUCT_NOT_FOR_COMPANY');
       const availableKg = Math.max(0, assignable(c.math.lineQty(from)));
       if (body.kg > availableKg) throw new ApiError(409, 'MOVE_EXCEEDS_AVAILABLE', { availableKg });
+      // Moving all of a line removes it; one a truck still plans or carries (not cancelled) must stay.
+      const emptiesFrom = from.orderedKg === body.kg && c.math.lineQty(from).dispatchedKg === 0;
+      if (emptiesFrom && linesHeldByTrucks(c.math.trucksOf(fromSub.id)).has(from.id)) {
+        throw new ApiError(409, 'OPEN_TRUCKS', { lineId: from.id });
+      }
 
       const at = toIso(now);
       let toSub = subs.find((s) => s.companyId === company.id);

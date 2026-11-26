@@ -4,7 +4,7 @@
  *
  * LOCK ORDER (binding for every write in the API that touches orders; it avoids deadlocks):
  *   1. companies, FOR SHARE, sorted by id (`validateOrderRefs`, `shareCompany`): order create,
- *      edit, move. Company deactivation takes its company FOR UPDATE, then counts sub-orders.
+ *      edit, move, reopen. Company deactivation takes its company FOR UPDATE, then counts sub-orders.
  *   2. the order row: FOR NO KEY UPDATE (edit, move, short close, reopen), FOR UPDATE (hard delete).
  *   3. its sub-orders, by id (all of them, or the one being closed or reopened).
  *   4. their order lines, by id.
@@ -39,7 +39,7 @@ import { afterOrderDeleted, afterShortClose, afterTrucksRemoved } from './orderE
 import type { OrderWriteCtx } from './orderEdit.ts';
 import { productKey } from './orderEdit.ts';
 import { anyId, findOrder } from './orderGraph.ts';
-import { bumped, lockOrderTree, pruneOrderTree, shareCompany } from './orderTree.ts';
+import { bumped, heldLines, lockOrderTree, pruneOrderTree, shareCompany } from './orderTree.ts';
 import { newSubOrderRow } from './orders.ts';
 import { isId, visibleCompanies } from './org.ts';
 import { loadProducts } from './products.ts';
@@ -47,8 +47,12 @@ import { loadSettings } from './settings.ts';
 
 const SHORT_CLOSE_TRUCK_REASON = 'Order short closed';
 
-/** The sub-order's order, when the sub-order exists and the caller sees its company; 404 otherwise. */
-async function visibleSubOrderOrderId(tx: Tx, c: OrderWriteCtx, subOrderId: string | undefined): Promise<string> {
+/** The sub-order's order and company, when the sub-order exists and the caller sees its company; 404 otherwise. */
+async function visibleSubOrder(
+  tx: Tx,
+  c: OrderWriteCtx,
+  subOrderId: string | undefined,
+): Promise<{ orderId: string; companyId: string }> {
   if (!isId(subOrderId)) throw new AppError(404, 'NOT_FOUND');
   const [row] = await tx
     .select({ orderId: subOrders.orderId, companyId: subOrders.companyId })
@@ -57,20 +61,25 @@ async function visibleSubOrderOrderId(tx: Tx, c: OrderWriteCtx, subOrderId: stri
   if (!row) throw new AppError(404, 'NOT_FOUND');
   const visible = await visibleCompanies(tx, c.scope);
   if (!visible.some((x) => x.id === row.companyId)) throw new AppError(404, 'NOT_FOUND');
-  return row.orderId;
+  return row;
 }
 
-/** Locks the order and the one sub-order (with its lines and trucks); 404 when either is gone. */
+/**
+ * Locks the order and the one sub-order (with its lines and trucks); 404 when either is gone.
+ * With `shareCompany`, the sub-order's company is taken FOR SHARE first (the lock order) and returned.
+ */
 async function lockSubOrder(
   tx: Tx,
   c: OrderWriteCtx,
   subOrderId: string | undefined,
-): Promise<{ g: OrderGraph; s: SubOrderGraph }> {
-  const orderId = await visibleSubOrderOrderId(tx, c, subOrderId);
-  const g = await lockOrderTree(tx, orderId, { mode: 'no key update', subOrderId, trucks: true });
+  opts: { shareCompany?: boolean } = {},
+): Promise<{ g: OrderGraph; s: SubOrderGraph; company: { id: string; active: boolean } | undefined }> {
+  const head = await visibleSubOrder(tx, c, subOrderId);
+  const company = opts.shareCompany === true ? await shareCompany(tx, head.companyId) : undefined;
+  const g = await lockOrderTree(tx, head.orderId, { mode: 'no key update', subOrderId, trucks: true });
   const s = g?.subOrders.find((x) => x.sub.id === subOrderId);
   if (!g || !s) throw new AppError(404, 'NOT_FOUND');
-  return { g, s };
+  return { g, s, company };
 }
 
 const bumpOrder = (tx: Tx, orderId: string, at: Date) =>
@@ -148,16 +157,22 @@ export async function shortCloseSubOrder(
   return g.order.id;
 }
 
-/** `POST /v1/sub-orders/:id/reopen` (owner): pending comes back on every line. Returns the order id. */
+/**
+ * `POST /v1/sub-orders/:id/reopen` (owner): pending comes back on every line. Ruling R10: not on a
+ * company deactivated since the close (409 COMPANY_INACTIVE). The company is held FOR SHARE first,
+ * so a deactivation either committed before (and this refuses) or waits and counts the reopened
+ * sub-order (409 COMPANY_HAS_OPEN_ORDERS). Returns the order id.
+ */
 export async function reopenSubOrder(
   tx: Tx,
   c: OrderWriteCtx,
   subOrderId: string | undefined,
   version: number,
 ): Promise<string> {
-  const { g, s } = await lockSubOrder(tx, c, subOrderId);
+  const { g, s, company } = await lockSubOrder(tx, c, subOrderId, { shareCompany: true });
   if (version !== s.sub.version) throw new AppError(409, 'STALE');
   if (s.sub.closeKind === null) throw new AppError(409, 'NOT_CLOSED');
+  if (!company?.active) throw new AppError(409, 'COMPANY_INACTIVE');
   const at = new Date(c.now);
   for (const l of s.lines) {
     if (l.closedKg !== 0) await setClosedKg(tx, l, 0, at);
@@ -222,6 +237,9 @@ export async function moveQuantity(
   const fromQty = m.lineQty(from);
   const availableKg = Math.max(0, assignable(fromQty));
   if (body.kg > availableKg) throw new AppError(409, 'MOVE_EXCEEDS_AVAILABLE', { availableKg });
+  // Moving all of a line removes it; one a truck still plans or carries (not cancelled) must stay.
+  const removeFrom = from.orderedKg === body.kg && fromQty.dispatchedKg === 0;
+  if (removeFrom && heldLines([fromSub]).has(from.id)) throw new AppError(409, 'OPEN_TRUCKS', { lineId: from.id });
   const toSub = g.subOrders.find((s) => s.sub.companyId === company.id);
   if (toSub && terminal(toSub)) throw new AppError(409, 'ORDER_LOCKED', { subOrderId: toSub.sub.id });
 
@@ -267,7 +285,6 @@ export async function moveQuantity(
     });
   }
   const left = from.orderedKg - body.kg;
-  const removeFrom = left === 0 && fromQty.dispatchedKg === 0;
   if (!removeFrom) {
     await tx
       .update(orderLines)

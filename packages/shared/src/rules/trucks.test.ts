@@ -11,7 +11,8 @@ import {
   plausibility,
   splitProRata,
   toleranceCloseKg,
-  truckEarning, grossFromLines, lineDiff, checkLineWeights } from './trucks.ts';
+  truckEarning, grossFromLines, lineDiff, checkLineWeights, linesHeldByTrucks } from './trucks.ts';
+import type { TruckState } from '../schemas/orders.ts';
 
 describe('truckEarning', () => {
   it('canvas earning: 24.180 MT × (₹150 + ₹300) = ₹10,881', () => {
@@ -216,5 +217,25 @@ describe('checkLineWeights (TON-57: one weight per product, gross calculated)', 
   it('the calculated gross is a weighbridge reading: at most 100 MT', () => {
     expect(checkLineWeights(12_000, [88_000]).ok).toBe(true);
     expect(checkLineWeights(12_000, [88_001])).toEqual({ ok: false, reason: 'READING_TOO_HIGH' });
+  });
+});
+
+describe('linesHeldByTrucks', () => {
+  const t = (state: TruckState, plan: string[], allocations: string[] = []) => ({
+    state,
+    plan: plan.map((orderLineId) => ({ orderLineId })),
+    allocations: allocations.map((orderLineId) => ({ orderLineId })),
+  });
+
+  it('every line a truck plans or carries, including a line weighed at GROSS that was not on the plan', () => {
+    expect([...linesHeldByTrucks([t('weighed', ['l1'], ['l1', 'l2']), t('assigned', ['l3'])])].sort()).toEqual(['l1', 'l2', 'l3']);
+  });
+
+  it('a dispatched truck still holds its lines; a cancelled one holds none', () => {
+    expect([...linesHeldByTrucks([t('dispatched', ['l1'], ['l2']), t('cancelled', ['l3'])])].sort()).toEqual(['l1', 'l2']);
+  });
+
+  it('no trucks → no lines', () => {
+    expect(linesHeldByTrucks([]).size).toBe(0);
   });
 });
