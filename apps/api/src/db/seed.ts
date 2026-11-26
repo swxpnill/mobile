@@ -2,6 +2,7 @@ import { DEFAULT_TENANT_SETTINGS, SAMPLE_MASTERS, SAMPLE_WORLD } from '@tonnage/
 import { eq } from 'drizzle-orm';
 import type { Clock } from '../clock.ts';
 import type { Db, Tx } from './client.ts';
+import { pgError } from './pg-error.ts';
 import {
   companies,
   contactNumbers,
@@ -33,9 +34,32 @@ export async function seed(ownerDb: Db, clock: Clock): Promise<{ tenantId: strin
     // Checked on its own, so a database seeded before B2 (org layer only) gains the masters.
     const firstParty = SAMPLE_MASTERS.parties[0]?.id ?? '';
     const masters = await tx.select({ id: parties.id }).from(parties).where(eq(parties.id, firstParty));
-    if (masters.length === 0) await seedMasters(tx, tenantId, now);
+    if (masters.length === 0) {
+      try {
+        await seedMasters(tx, tenantId, now);
+      } catch (e) {
+        throw mastersClash(e) ?? e;
+      }
+    }
   });
   return { tenantId };
+}
+
+/**
+ * A unique violation while adding the masters means the database already holds a record the
+ * sample one collides with (a party with a sample GSTIN, a product with a sample name): say which,
+ * and how to get past it, instead of a raw driver error.
+ */
+function mastersClash(e: unknown): Error | null {
+  const pg = pgError(e);
+  if (pg?.code !== '23505') return null;
+  return new Error(
+    `seed: a sample master clashes with a record already in this database ` +
+      `(${pg.constraint ?? 'unique index'}: ${pg.detail ?? 'duplicate key'}). ` +
+      'Rename or delete that record, or start from an empty dev database ' +
+      '(stop `pnpm dev:db`, delete apps/api/.pgdata, then run db:migrate and db:seed again).',
+    { cause: e },
+  );
 }
 
 /** The org layer: tenant, companies, plants, users and their plants. */

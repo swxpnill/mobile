@@ -15,7 +15,7 @@ import {
   users,
 } from '../src/db/schema/index.ts';
 import { seed } from '../src/db/seed.ts';
-import { buildTestApp, closeTestApps, TEST_NOW, type TestApp } from './helpers.ts';
+import { buildTestApp, closeTestApps, ownerInsertParty, TEST_NOW, type TestApp } from './helpers.ts';
 
 afterEach(closeTestApps);
 
@@ -104,5 +104,28 @@ describe('seed', () => {
     expect(await t.ownerDb.select().from(parties)).toHaveLength(SAMPLE_MASTERS.parties.length);
     expect(await t.ownerDb.select().from(products)).toHaveLength(SAMPLE_MASTERS.products.length);
     expect(await t.ownerDb.select().from(users)).toHaveLength(SAMPLE_WORLD.users.length);
+  });
+
+  it('names the clashing record and the way out when a sample master collides with an existing one', async () => {
+    await seed(t.ownerDb, t.clock);
+    await t.ownerDb.$client.query('truncate parties, products cascade');
+    // A party the person added themselves, with a sample party's GSTIN.
+    const shubham = SAMPLE_MASTERS.parties.find((p) => p.gstin !== null)!;
+    await ownerInsertParty(t.ownerDb, SAMPLE_WORLD.tenant.id, SAMPLE_WORLD.ids.users.rajesh, {
+      type: 'customer',
+      name: 'Someone else',
+      gstin: shubham.gstin,
+    });
+    const err = await seed(t.ownerDb, t.clock).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(Error);
+    const message = (err as Error).message;
+    expect(message).toContain('parties_tenant_gstin_key');
+    expect(message).toContain(shubham.gstin!);
+    expect(message).toContain('apps/api/.pgdata');
+    // All or nothing: no sample master was added.
+    expect(await t.ownerDb.select().from(parties)).toHaveLength(1);
   });
 });

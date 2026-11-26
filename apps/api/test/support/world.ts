@@ -97,6 +97,12 @@ export interface World {
   otherScope(role: Role): Partial<Ids>;
   /** A second tenant's records: 404 for everyone. */
   otherTenant: Ids;
+  /**
+   * A valid body for each `:id` route that takes one, keyed `METHOD /v1/path`, built from the
+   * in-scope records (their versions, lines and number), so a call passes validation and reaches
+   * the record lookup: in scope it acts or refuses on business grounds, out of scope it is a 404.
+   */
+  bodies: Readonly<Record<string, unknown>>;
   /** Sends a request as the person playing `role`. */
   call(role: Role, method: HttpMethod, path: string, body?: unknown): Promise<{ status: number; body: unknown }>;
 }
@@ -105,8 +111,10 @@ export interface World {
  * Truncates and seeds (org layer + SAMPLE_MASTERS), then books two orders through the API as the
  * owner (one with a Siltara sub-order carrying a dispatched and a weighed truck, one on Borai only),
  * a draft each for Rajesh, Priya and Amit, and a second tenant with one record of every kind.
+ * With `history`, the canvas order also goes through an edit (a rate), a quantity move (Borai to
+ * Siltara) and a short close of its Siltara sub-order, so its activity holds each kind of entry.
  */
-export async function buildWorld(t: TestApp): Promise<World> {
+export async function buildWorld(t: TestApp, opts: { history?: boolean } = {}): Promise<World> {
   await t.reset();
   await seed(t.ownerDb, t.clock);
   const transport = fastifyTransport(t.app);
@@ -129,24 +137,59 @@ export async function buildWorld(t: TestApp): Promise<World> {
     return res.body as T;
   };
 
-  type OrderBody = { id: string; subOrders: { id: string; companyId: string; lines: { id: string }[] }[] };
-  const canvas = await created<OrderBody>(U.rajesh, '/v1/orders', CANVAS);
-  const krm = await created<OrderBody>(U.rajesh, '/v1/orders', KRM_ONLY);
-  const aip = canvas.subOrders.find((s) => s.companyId === C.AIP);
-  const krmSub = krm.subOrders[0];
-  if (!aip || !krmSub) throw new Error('world: the orders lack their sub-orders');
-  const [l0, l1] = aip.lines;
+  const canvasAtStart = await created<OrderView>(U.rajesh, '/v1/orders', CANVAS);
+  const krm = await created<OrderView>(U.rajesh, '/v1/orders', KRM_ONLY);
+  const subOf = (o: OrderView, companyId: string) => {
+    const sub = o.subOrders.find((x) => x.companyId === companyId);
+    if (!sub) throw new Error(`world: order ${o.number} has no sub-order for ${companyId}`);
+    return sub;
+  };
+  const krmSub = subOf(krm, C.KRM);
+  const aipAtStart = subOf(canvasAtStart, C.AIP);
+  const [l0, l1] = aipAtStart.lines;
   if (!l0 || !l1) throw new Error('world: the AIP sub-order lacks its lines');
+  const write = async (method: HttpMethod, path: string, body: unknown) => {
+    const res = await send(U.rajesh, method, path, body);
+    if (res.status !== 200) throw new Error(`world: ${method} ${path} ${res.status} ${JSON.stringify(res.body)}`);
+  };
+  const fetchCanvas = async () => (await send(U.rajesh, 'GET', `/v1/orders/${canvasAtStart.id}`)).body as OrderView;
+  if (opts.history === true) {
+    const edited = editBody(canvasAtStart);
+    const rated = edited.subOrders.find((x) => x.companyId === C.AIP)?.lines[1];
+    if (!rated) throw new Error('world: no AIP line to re-rate');
+    rated.typedRate = 46_400;
+    await write('PATCH', `/v1/orders/${canvasAtStart.id}`, edited);
+    const afterEdit = await fetchCanvas();
+    const krmLine = subOf(afterEdit, C.KRM).lines[0];
+    if (!krmLine) throw new Error('world: the canvas KRM sub-order has no line');
+    await write('POST', `/v1/orders/${canvasAtStart.id}/move-quantity`, {
+      fromLineId: krmLine.id,
+      toCompanyId: C.AIP,
+      kg: 5_000,
+      version: afterEdit.version,
+    });
+  }
   await ownerInsertTruck(
     t.ownerDb,
-    { subOrderId: aip.id, state: 'dispatched', vehicleNo: 'CG 04 MT 1001', tareKg: 9_000, plan: [{ orderLineId: l0.id, plannedKg: 12_000 }], allocations: [{ orderLineId: l0.id, netKg: 11_850 }] },
+    { subOrderId: aipAtStart.id, state: 'dispatched', vehicleNo: 'CG 04 MT 1001', tareKg: 9_000, plan: [{ orderLineId: l0.id, plannedKg: 12_000 }], allocations: [{ orderLineId: l0.id, netKg: 11_850 }] },
     t.clock.now(),
   );
   await ownerInsertTruck(
     t.ownerDb,
-    { subOrderId: aip.id, state: 'weighed', vehicleNo: 'CG 04 MT 1002', tareKg: 9_200, plan: [{ orderLineId: l1.id, plannedKg: 10_000 }], allocations: [{ orderLineId: l1.id, netKg: 10_040 }] },
+    { subOrderId: aipAtStart.id, state: 'weighed', vehicleNo: 'CG 04 MT 1002', tareKg: 9_200, plan: [{ orderLineId: l1.id, plannedKg: 10_000 }], allocations: [{ orderLineId: l1.id, netKg: 10_040 }] },
     t.clock.now(),
   );
+  if (opts.history === true) {
+    const aipNow = subOf(await fetchCanvas(), C.AIP);
+    await write('POST', `/v1/sub-orders/${aipNow.id}/short-close`, {
+      reason: 'Customer stopped lifting',
+      note: '',
+      cancelOpenTrucks: true,
+      version: aipNow.version,
+    });
+  }
+  const canvas = await fetchCanvas();
+  const aip = subOf(canvas, C.AIP);
   const draftOf = new Map<string, string>();
   for (const who of [U.rajesh, U.priya, U.amit]) {
     draftOf.set(who, (await created<{ id: string }>(who, '/v1/orders/drafts', { payload: { step: 1 } })).id);
@@ -199,6 +242,19 @@ export async function buildWorld(t: TestApp): Promise<World> {
       drafts: otherDraft,
       'sub-orders': otherOrder.subOrderId,
     },
+    bodies: {
+      'PATCH /v1/companies/:id': { version: 1 },
+      'PATCH /v1/plants/:id': { version: 1 },
+      'PATCH /v1/users/:id': { version: 1 },
+      'PATCH /v1/parties/:id': partyBody(P.shubham),
+      'PATCH /v1/products/:id': productBody(PR.tmt12),
+      'PUT /v1/orders/drafts/:id': { payload: { step: 2 }, version: 1 },
+      'PATCH /v1/orders/:id': editBody(canvas),
+      'POST /v1/sub-orders/:id/short-close': { reason: 'Other', note: '', cancelOpenTrucks: false, version: aip.version },
+      'POST /v1/sub-orders/:id/reopen': { version: aip.version },
+      'POST /v1/orders/:id/move-quantity': { fromLineId: l0.id, toCompanyId: C.KRM, kg: 1_000, version: canvas.version },
+      'DELETE /v1/orders/:id': { confirmNumber: canvas.number },
+    },
     call: (role, method, path, body) => send(PERSON_FOR[role], method, path, body),
   };
 }
@@ -209,4 +265,83 @@ export function pathFor(url: string, ids: Partial<Ids>): string | null {
   if (kind === null) return url;
   const id = ids[kind];
   return id === undefined ? null : url.replace(':id', id);
+}
+
+/** The order fields the world reads back (the API's `Order`, as far as an edit body needs it). */
+interface OrderView {
+  id: string;
+  number: string;
+  version: number;
+  type: string;
+  customer: { id: string } | null;
+  broker: { id: string } | null;
+  commissionPerMtSnapshot?: number | null;
+  billTo: { id: string } | null;
+  shipTo: { id: string } | null;
+  pricingMethod: string;
+  basicRate?: number | null;
+  notify: { customer: boolean; broker: boolean };
+  subOrders: {
+    id: string;
+    companyId: string;
+    version: number;
+    lines: {
+      id: string;
+      productId: string;
+      length: unknown;
+      orderedKg: number;
+      rate?: number | null;
+      rateEdited: boolean;
+      overpricePerMt?: number | null;
+    }[];
+  }[];
+}
+
+/** The order as a `PATCH /v1/orders/:id` body (as the lifecycle contract's `editBody`). */
+function editBody(o: OrderView) {
+  return {
+    type: o.type,
+    customerId: o.customer?.id ?? null,
+    brokerId: o.broker?.id ?? null,
+    commissionPerMt: o.commissionPerMtSnapshot ?? null,
+    billToId: o.billTo?.id ?? null,
+    shipToId: o.shipTo?.id ?? null,
+    pricingMethod: o.pricingMethod,
+    basicRate: o.basicRate ?? null,
+    notify: o.notify,
+    version: o.version,
+    subOrders: o.subOrders.map((s) => ({
+      id: s.id,
+      companyId: s.companyId,
+      lines: s.lines.map((l) => ({
+        id: l.id,
+        productId: l.productId,
+        length: l.length,
+        orderedKg: l.orderedKg,
+        typedRate: o.pricingMethod === 'direct' || l.rateEdited ? (l.rate ?? null) : null,
+        overpricePerMt: l.overpricePerMt ?? 0,
+      })),
+    })),
+  };
+}
+
+/** A seeded party as an unchanged `PATCH /v1/parties/:id` body. */
+function partyBody(id: string) {
+  const party = SAMPLE_MASTERS.parties.find((x) => x.id === id);
+  if (!party) throw new Error(`world: no sample party ${id}`);
+  const { type, name, gstin, city, defaultCommissionPerMt, paymentTermsText, isSelfTransporter, contacts, addresses } = party;
+  return { type, name, gstin, city, defaultCommissionPerMt, paymentTermsText, isSelfTransporter, contacts, addresses, version: 1, active: true };
+}
+
+/** A seeded product as an unchanged `PATCH /v1/products/:id` body. */
+function productBody(id: string) {
+  const product = SAMPLE_MASTERS.products.find((x) => x.id === id);
+  if (!product) throw new Error(`world: no sample product ${id}`);
+  const companyIds = product.companyCodes.map((code) => {
+    const company = SAMPLE_WORLD.companies.find((c) => c.code === code);
+    if (!company) throw new Error(`world: no company ${code}`);
+    return company.id;
+  });
+  const { category, grade, sizeLabel, conversionPerMt, standardLengths } = product;
+  return { category, grade, sizeLabel, conversionPerMt, standardLengths, companyIds, version: 1, active: true };
 }
