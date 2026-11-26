@@ -394,6 +394,55 @@ export function register(factory: TargetFactory): void {
       });
     });
 
+    describe('move quantity: sub-order versions (Ruling R9)', () => {
+      it('a move bumps the source and target sub-order versions; a short close with the older version → 409 STALE', async () => {
+        const t = target();
+        const rajesh = await tokenFor(t, PEOPLE.rajesh);
+        const billet = { productId: PR.billet, length: { value: 6, unit: 'm' }, orderedKg: 10_000, typedRate: null, overpricePerMt: 0 };
+        const o = expectOk(
+          await createOrder(t, rajesh, {
+            ...CANVAS_ORDER,
+            subOrders: [
+              { companyId: COMPANY.AIP, lines: [CANVAS_ORDER.subOrders[0]!.lines[0]!, billet] },
+              CANVAS_ORDER.subOrders[1]!,
+              { companyId: COMPANY.NAP, lines: [billet] },
+            ],
+          }),
+          orderSchema,
+          201,
+        );
+        const [aip, krm, nap] = o.subOrders;
+        const move = (fromLineId: string, toCompanyId: string, kg: number, version: number) =>
+          call(t, 'POST', `/v1/orders/${o.id}/move-quantity`, {
+            idempotencyKey: newKey(),
+            token: rajesh,
+            body: { fromLineId, toCompanyId, kg, version },
+          });
+        // 10 MT of AIP 12 mm into KRM's existing sub-order.
+        const first = expectOk(await move(aip!.lines[0]!.id, COMPANY.KRM, 10_000, o.version), orderSchema);
+        expect(first.subOrders.map((s) => [s.id, s.version])).toEqual([
+          [aip!.id, aip!.version + 1],
+          [krm!.id, krm!.version + 1],
+          [nap!.id, nap!.version],
+        ]);
+        // The office still shows AIP and KRM as they were before the move.
+        expectError(await shortClose(t, rajesh, aip!.id, aip!.version), 409, 'STALE');
+        expectError(await shortClose(t, rajesh, krm!.id, krm!.version), 409, 'STALE');
+        // 4 MT of AIP billet to VSL, which has no sub-order yet: a new one starts at version 1.
+        const second = expectOk(await move(aip!.lines[1]!.id, COMPANY.VSL, 4_000, first.version), orderSchema);
+        const vsl = second.subOrders.find((s) => s.companyId === COMPANY.VSL)!;
+        expect(vsl.version).toBe(1);
+        expect(second.subOrders.filter((s) => s.id !== vsl.id).map((s) => [s.id, s.version])).toEqual([
+          [aip!.id, aip!.version + 2],
+          [krm!.id, krm!.version + 1],
+          [nap!.id, nap!.version],
+        ]);
+        expectError(await shortClose(t, rajesh, aip!.id, first.subOrders[0]!.version), 409, 'STALE');
+        expectOk(await shortClose(t, rajesh, aip!.id, aip!.version + 2), orderSchema);
+        expectOk(await shortClose(t, rajesh, nap!.id, nap!.version), orderSchema);
+      });
+    });
+
     describe('move quantity: a line a weighed truck carries', () => {
       it('moving all of it away would remove it → 409 OPEN_TRUCKS; part of it moves', async () => {
         const t = target();

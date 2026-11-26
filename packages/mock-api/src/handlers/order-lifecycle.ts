@@ -343,7 +343,10 @@ export const orderLifecycleRoutes: RouteDef[] = [
       const at = toIso(now);
       let toSub = subs.find((s) => s.companyId === company.id);
       if (toSub && isTerminal(c.math.subOrderStatus(toSub))) throw new ApiError(409, 'ORDER_LOCKED', { subOrderId: toSub.id });
-      if (!toSub) {
+      if (toSub) {
+        // Ruling R9: the target sub-order's lines change, so a screen showing it is now stale.
+        bump(toSub, at);
+      } else {
         toSub = newSubOrderRec(order, company.id, nextSuffix(order), at);
         state.subOrders.push(toSub);
       }
@@ -361,6 +364,7 @@ export const orderLifecycleRoutes: RouteDef[] = [
       }
       from.orderedKg -= body.kg;
       bump(from, at);
+      bump(fromSub, at);
       if (from.orderedKg === 0 && c.math.lineQty(from).dispatchedKg === 0) removeLines(state, new Set([from.id]));
       if (!state.orderLines.some((l) => l.subOrderId === fromSub.id)) {
         state.subOrders = state.subOrders.filter((s) => s.id !== fromSub.id);

@@ -291,6 +291,12 @@ export async function moveQuantity(
       .set({ orderedKg: left, version: bumped(orderLines.version), updatedAt: at })
       .where(eq(orderLines.id, from.id));
   }
+  // Ruling R9: the source and an existing target sub-order change lines, so screens showing them are
+  // now stale (a short close with the older version is 409 STALE). A new target starts at version 1.
+  await tx
+    .update(subOrders)
+    .set({ version: bumped(subOrders.version), updatedAt: at })
+    .where(anyId(subOrders.id, toSub ? [fromSub.sub.id, toSub.sub.id] : [fromSub.sub.id]));
   const removedTrucks = await pruneOrderTree(tx, {
     lineIds: removeFrom ? [from.id] : [],
     subOrderIds: removeFrom && fromSub.lines.length === 1 ? [fromSub.sub.id] : [],

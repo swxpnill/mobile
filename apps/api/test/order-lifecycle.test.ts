@@ -557,6 +557,9 @@ describe('move quantity equals the mock', () => {
     orders = await refresh(orders);
     const [, merged] = await move((o) => ({ fromLineId: from(o).id, toCompanyId: COMPANY.AIP, kg: 4_000, version: o.version }));
     expect((merged.body as Order).subOrders.map((s) => s.lines.map((l) => [l.orderedKg, l.version]))).toEqual([[[10_000, 3]], [[14_000, 2]]]);
+    // Ruling R9: the source and the existing target sub-order get a new version (B started at 1).
+    expect((first.body as Order).subOrders.map((s) => s.version)).toEqual([2, 1]);
+    expect((merged.body as Order).subOrders.map((s) => s.version)).toEqual([3, 2]);
     orders = await refresh(orders);
     // All that is left on KRM: the line and the KRM sub-order go.
     const [, emptied] = await move((o) => ({ fromLineId: from(o).id, toCompanyId: COMPANY.AIP, kg: 10_000, version: o.version }));
