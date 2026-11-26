@@ -188,10 +188,15 @@ export const orderRoutes: RouteDef[] = [
       validateOrderRefs(state, a, body);
       const at = toIso(now);
       const seq = nextNumber(state, a.user.tenantId, 'order', now);
+      const number = formatOrderNumber(a.tenant.settings.orderNumberFormat, now, seq);
+      // A format without YYMM repeats last financial year's numbers (the API's unique key does the same).
+      if (state.orders.some((o) => o.tenantId === a.user.tenantId && o.number === number)) {
+        throw new ApiError(409, 'ORDER_NUMBER_TAKEN', { number });
+      }
       const order: OrderRec = {
         id: newId(),
         tenantId: a.user.tenantId,
-        number: formatOrderNumber(a.tenant.settings.orderNumberFormat, now, seq),
+        number,
         type: body.type,
         customerId: body.customerId,
         brokerId: body.brokerId,

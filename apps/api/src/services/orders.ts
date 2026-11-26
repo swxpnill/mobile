@@ -162,6 +162,22 @@ export async function withLateReferenceCheck<T>(tx: Tx, body: OrderInput, write:
 }
 
 /**
+ * A unique violation on (tenant_id, number) becomes 409 ORDER_NUMBER_TAKEN: a free-text
+ * `orderNumberFormat` without YYMM repeats last financial year's numbers once the series resets.
+ */
+async function withOrderNumberUniqueness<T>(number: string, write: () => Promise<T>): Promise<T> {
+  try {
+    return await write();
+  } catch (e) {
+    const pg = pgError(e);
+    if (pg?.code === '23505' && pg.constraint === 'orders_tenant_number_key') {
+      throw new AppError(409, 'ORDER_NUMBER_TAKEN', { number });
+    }
+    throw e;
+  }
+}
+
+/**
  * Books an order (`POST /v1/orders`; Task 5's draft submit uses it too): checks the references,
  * takes the next number of the IST financial year under the series row lock, writes the order,
  * its sub-orders (A, B, … in body order) and priced lines, consumes the draft, logs the activity.
@@ -182,7 +198,7 @@ export async function createOrder(
   const order = { id, tenantId: user.tenantId };
   const subs = body.subOrders.map((s, si) => ({ input: s, row: newSubOrderRow(order, s.companyId, subOrderSuffix(si), at) }));
   await withLateReferenceCheck(tx, body, async (sp) => {
-    await sp.insert(orders).values({
+    await withOrderNumberUniqueness(number, () => sp.insert(orders).values({
       id,
       tenantId: user.tenantId,
       number,
@@ -201,7 +217,7 @@ export async function createOrder(
       version: 1,
       createdAt: at,
       updatedAt: at,
-    });
+    }));
     await sp.insert(subOrders).values(subs.map((s) => s.row));
     await sp
       .insert(orderLines)
