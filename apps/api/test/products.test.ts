@@ -13,7 +13,7 @@ import {
   ownerInsertUser,
   type TestApp,
 } from './helpers.ts';
-import { waitForLockWaiters } from './support/lockWait.ts';
+import { waitForLockWaiters, withLockHolder } from './support/lockWait.ts';
 import { ownerInsertOrderLine } from './support/orders.ts';
 
 afterEach(closeTestApps);
@@ -245,19 +245,15 @@ describe('products', () => {
 
   it('two PATCHes with the same version queued on a row lock: one 200, one 409 STALE', async () => {
     const p = await create(tmt12());
-    const client = await t.ownerDb.$client.connect();
-    try {
-      await client.query('begin');
+    await withLockHolder(t.ownerDb, async (client, track) => {
       await client.query('select 1 from products where id = $1 for update', [p.id]);
-      const a = patch(p.id, owner, { ...editBody(p), conversionPerMt: 1 });
-      const b = patch(p.id, owner, { ...editBody(p), conversionPerMt: 2 });
+      const a = track(patch(p.id, owner, { ...editBody(p), conversionPerMt: 1 }));
+      const b = track(patch(p.id, owner, { ...editBody(p), conversionPerMt: 2 }));
       await waitForLockWaiters(t.ownerDb, 2);
       await client.query('commit');
       const codes = (await Promise.all([a, b])).map((r) => r.statusCode).sort();
       expect(codes).toEqual([200, 409]);
-    } finally {
-      client.release();
-    }
+    });
   });
 
   it('PATCH validates companies like create (422 at companyIds)', async () => {
@@ -304,21 +300,17 @@ describe('products', () => {
 
   it('a line committed while the DELETE waits on the product row → the foreign key refuses it: 409 PRODUCT_IN_USE', async () => {
     const p = await create(tmt12());
-    const client = await t.ownerDb.$client.connect();
-    try {
-      // The line's insert holds a key-share lock on the product row until it commits, so the
-      // DELETE (whose in-use check saw nothing yet) queues on it and then meets the foreign key.
-      await client.query('begin');
+    // The line's insert holds a key-share lock on the product row until it commits, so the
+    // DELETE (whose in-use check saw nothing yet) queues on it and then meets the foreign key.
+    await withLockHolder(t.ownerDb, async (client, track) => {
       await ownerInsertOrderLine(client, { tenantId, createdBy: ownerId, companyId: aip, productId: p.id });
-      const pending = del(p.id, owner);
+      const pending = track(del(p.id, owner));
       await waitForLockWaiters(t.ownerDb, 1);
       await client.query('commit');
       const res = await pending;
       expect(res.statusCode, res.body).toBe(409);
       expect(res.json().code).toBe('PRODUCT_IN_USE');
-    } finally {
-      client.release();
-    }
+    });
     expect((await get(`/v1/products/${p.id}`, owner)).statusCode).toBe(200);
   });
 

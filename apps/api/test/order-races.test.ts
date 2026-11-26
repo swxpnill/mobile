@@ -5,7 +5,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { seed } from '../src/db/seed.ts';
 import { bearerFor, buildTestApp, closeTestApps, TEST_NOW, type TestApp } from './helpers.ts';
-import { waitForLockWaiters } from './support/lockWait.ts';
+import { waitForLockWaiters, withLockHolder } from './support/lockWait.ts';
 import { COMPANY, addressId, canvasOrder, createMasters, krmOrder, type Masters } from './support/masters.ts';
 import { apiSide } from './support/parity.ts';
 
@@ -37,20 +37,16 @@ const count = async (table: string) =>
  * until it queues behind the lock (so their order of arrival is fixed), then lets go.
  */
 async function staged(lockSql: string, params: unknown[], steps: (() => Promise<LightMyRequestResponse>)[]) {
-  const holder = await t.ownerDb.$client.connect();
-  try {
-    await holder.query('begin');
+  return withLockHolder(t.ownerDb, async (holder, track) => {
     await holder.query(lockSql, params);
     const pending: Promise<LightMyRequestResponse>[] = [];
     for (const [i, step] of steps.entries()) {
-      pending.push(step());
+      pending.push(track(step()));
       await waitForLockWaiters(t.ownerDb, i + 1);
     }
     await holder.query('commit');
-    return await Promise.all(pending);
-  } finally {
-    holder.release();
-  }
+    return Promise.all(pending);
+  });
 }
 
 const LOCK_COMPANY = 'select 1 from companies where id = $1 for update';

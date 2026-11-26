@@ -12,7 +12,7 @@ import {
   ownerInsertUser,
   type TestApp,
 } from './helpers.ts';
-import { waitForLockWaiters } from './support/lockWait.ts';
+import { waitForLockWaiters, withLockHolder } from './support/lockWait.ts';
 
 afterEach(closeTestApps);
 
@@ -47,21 +47,17 @@ async function raceBehindRowLock<T>(
   params: unknown[],
   ...stages: (() => Promise<T>[])[]
 ): Promise<T[]> {
-  const holder = await t.ownerDb.$client.connect();
-  try {
-    await holder.query('begin');
+  return withLockHolder(t.ownerDb, async (holder, track) => {
     const locked = await holder.query(lockSql, params);
     expect(locked.rowCount).toBe(1);
     const inFlight: Promise<T>[] = [];
     for (const stage of stages) {
-      inFlight.push(...stage());
+      inFlight.push(...stage().map(track));
       await waitForLockWaiters(t.ownerDb, inFlight.length);
     }
     await holder.query('commit');
-    return await Promise.all(inFlight);
-  } finally {
-    holder.release();
-  }
+    return Promise.all(inFlight);
+  });
 }
 
 describe('auth under concurrency', () => {

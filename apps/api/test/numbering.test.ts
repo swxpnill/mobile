@@ -8,7 +8,7 @@ import { nextNumber } from '../src/services/numbering.ts';
 import { bearerFor, buildTestApp, closeTestApps, TEST_NOW, type TestApp } from './helpers.ts';
 import { createMasters, krmOrder, type Masters } from './support/masters.ts';
 import { apiSide } from './support/parity.ts';
-import { waitForLockWaiters } from './support/lockWait.ts';
+import { waitForLockWaiters, withLockHolder } from './support/lockWait.ts';
 
 afterEach(closeTestApps);
 
@@ -72,19 +72,15 @@ describe('numbering (Ruling 5)', () => {
   it('Review Focus 1, staged: fifty creates queued behind a held series row lock → 1..50 once each', async () => {
     // The series row exists (an earlier order), and a separate connection holds its lock.
     expect(numberOf(await book())).toBe('SO-2611-0001');
-    const holder = await t.ownerDb.$client.connect();
-    try {
-      await holder.query('begin');
+    await withLockHolder(t.ownerDb, async (holder, track) => {
       await holder.query(`select 1 from number_series where tenant_id = $1 for update`, [TENANT]);
-      const pending = Promise.all(Array.from({ length: 50 }, () => book()));
+      const pending = track(Promise.all(Array.from({ length: 50 }, () => book())));
       // The runtime pool has 10 connections: ten requests reach the upsert and wait on the lock.
       await waitForLockWaiters(t.ownerDb, 10);
       await holder.query('commit');
       const numbers = (await pending).map(numberOf).sort();
       expect(numbers).toEqual(seq(2, 51, 'SO-2611-'));
-    } finally {
-      holder.release();
-    }
+    });
   });
 
   it('the IST financial-year boundary: 2027-03-31T18:29:59Z is FY 2026-27 (2703), 18:30:00Z starts 2027-28 at 0001 (2704)', async () => {

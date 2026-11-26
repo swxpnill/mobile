@@ -13,7 +13,7 @@ import {
   TEST_NOW,
   type TestApp,
 } from './helpers.ts';
-import { waitForLockWaiters } from './support/lockWait.ts';
+import { waitForLockWaiters, withLockHolder } from './support/lockWait.ts';
 
 afterEach(closeTestApps);
 
@@ -370,9 +370,7 @@ describe('parties', () => {
   it('Review Focus 5: two concurrent creates with the same GSTIN → one 201 and one 409 GSTIN_EXISTS, never a 500', async () => {
     // Hold the GSTIN's unique-index slot in an uncommitted owner transaction, queue both requests
     // behind it, then roll it back: the two requests race for the slot for real.
-    const holder = await t.ownerDb.$client.connect();
-    try {
-      await holder.query('begin');
+    await withLockHolder(t.ownerDb, async (holder, track) => {
       const at = new Date(TEST_NOW).toISOString();
       const ownerId = (await holder.query<{ id: string }>(`select id from users where tenant_id = $1`, [tenantId]))
         .rows[0]?.id;
@@ -382,8 +380,8 @@ describe('parties', () => {
          values ($1, $2, 'broker', 'Holder', '22AABCS1429B1ZB', 'Raipur', null, '', false, true, 1, $3, $4, $4)`,
         [uuidv7(), tenantId, ownerId, at],
       );
-      const a = post(owner, broker);
-      const b = post(owner, { ...broker, name: 'Sharma Steel Brokers (2)' });
+      const a = track(post(owner, broker));
+      const b = track(post(owner, { ...broker, name: 'Sharma Steel Brokers (2)' }));
       await waitForLockWaiters(t.ownerDb, 2);
       await holder.query('rollback');
       const results = await Promise.all([a, b]);
@@ -397,10 +395,7 @@ describe('parties', () => {
         details: { partyId: won?.json<Party>().id, name: won?.json<Party>().name },
       });
       expect(await countRows(`select count(*)::int as n from parties`)).toBe(1);
-    } finally {
-      await holder.query('rollback'); // a no-op (a warning, not an error) once rolled back above
-      holder.release();
-    }
+    });
   });
 
   it("partyRefIssues: an order's party references, with the mock's paths and messages", async () => {
