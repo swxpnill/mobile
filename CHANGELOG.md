@@ -5,9 +5,16 @@ All notable changes to Tonnage are listed here, newest first. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Move quantity gives the source and target sub-orders a new version, so a short close from an older screen is 409 `STALE`.
+- A repeated order number (a format without `YYMM` after the financial year resets) is 409 `ORDER_NUMBER_TAKEN`, not 500.
+- An order edit that repeats a line id is 422 `VALIDATION`.
+
 ### Added
 
 - B2 (orders on Postgres): the M2 routes (parties, products, orders, drafts, Home and the order lifecycle) run on Postgres with RLS; the M1 and M2 contract suites are green against the API; a generated permission matrix and a money-leak check over every GET; the masters seed with the mock's ids; `apiVersion` in `GET /v1/meta`.
+- API database timeouts: every request transaction sets `lock_timeout` and `statement_timeout` (`DB_LOCK_TIMEOUT_MS`, default 5 s; `DB_STATEMENT_TIMEOUT_MS`, default 15 s); a deadlock, serialization failure or lock timeout answers 503 `BUSY` with `Retry-After`.
 - Delivery lifecycle: this changelog, a pull request template, Dependabot, and CI that cancels superseded runs and caches the pnpm store.
 
 ## 2026-11-25
