@@ -8,6 +8,7 @@ import {
   deletePreviewSchema,
   openTrucksDetailsSchema,
   orderSchema,
+  validationDetailsSchema,
 } from '@tonnage/shared';
 import {
   COMPANY,
@@ -255,6 +256,30 @@ export function register(factory: TargetFactory): void {
         expectError(await call(t, 'PATCH', `/v1/orders/${order.id}`, { idempotencyKey: newKey(), token: rajesh, body: stale }), 409, 'STALE');
         const after = expectOk(await call(t, 'GET', `/v1/orders/${order.id}`, { token: rajesh }), orderSchema);
         expect(after.subOrders[0]!.lines[1]!.orderedKg).toBe(50_000);
+      });
+
+      it('a line id repeated in the body → 422 VALIDATION at the repeat (same sub-order or another); nothing changes', async () => {
+        const t = target();
+        const rajesh = await tokenFor(t, PEOPLE.rajesh);
+        const o = expectOk(await createOrder(t, rajesh, CANVAS_ORDER), orderSchema, 201);
+        const b = editBody(o);
+        const [aip, krm] = b.subOrders;
+        const first = aip!.lines[0]!;
+        const cases: [EditBody, (string | number)[]][] = [
+          // The same line twice in AIP, the second time with another quantity.
+          [{ ...b, subOrders: [{ ...aip!, lines: [...aip!.lines, { ...first, orderedKg: 1_000 }] }, krm!] }, ['subOrders', 0, 'lines', 3, 'id']],
+          // AIP's line also sent under KRM.
+          [{ ...b, subOrders: [aip!, { ...krm!, lines: [...krm!.lines, { ...first }] }] }, ['subOrders', 1, 'lines', 1, 'id']],
+        ];
+        for (const [body, path] of cases) {
+          const res = await call(t, 'PATCH', `/v1/orders/${o.id}`, { idempotencyKey: newKey(), token: rajesh, body });
+          expectError(res, 422, 'VALIDATION');
+          const details = validationDetailsSchema.parse((res.body as { details: unknown }).details);
+          expect(details.map((d) => d.path), path.join('.')).toEqual([path]);
+        }
+        const after = expectOk(await call(t, 'GET', `/v1/orders/${o.id}`, { token: rajesh }), orderSchema);
+        expect(after.version).toBe(o.version);
+        expect(after.totals.orderedKg).toBe(o.totals.orderedKg);
       });
     });
 

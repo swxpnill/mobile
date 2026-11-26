@@ -106,9 +106,28 @@ export const createOrderBodySchema = z
   .superRefine(orderRules);
 export type CreateOrderBody = z.infer<typeof createOrderBodySchema>;
 
+/**
+ * An edit names each existing line by its `id` once in the whole order: a repeat would let two
+ * entries overwrite one line (the last wins) and drop the other's quantity. The repeat is named at
+ * its `id`.
+ */
+function uniqueLineIds(o: { subOrders: { lines: { id?: string | undefined }[] }[] }, ctx: z.RefinementCtx): void {
+  const seen = new Set<string>();
+  o.subOrders.forEach((s, si) => {
+    s.lines.forEach((l, li) => {
+      if (l.id === undefined) return;
+      if (seen.has(l.id)) {
+        ctx.addIssue({ code: 'custom', path: ['subOrders', si, 'lines', li, 'id'], message: 'This line is already in this order' });
+      }
+      seen.add(l.id);
+    });
+  });
+}
+
 export const updateOrderBodySchema = z
   .object({ ...orderFields, version: versionSchema })
-  .superRefine(orderRules);
+  .superRefine(orderRules)
+  .superRefine(uniqueLineIds);
 export type UpdateOrderBody = z.infer<typeof updateOrderBodySchema>;
 
 const DRAFT_MAX_CHARS = 64 * 1024;
