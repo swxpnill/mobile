@@ -52,6 +52,9 @@ export const M1_SUITES: readonly ((factory: TargetFactory) => void)[] = [
   settings,
 ];
 
+/** The M2 suites (B2): customers, brokers, transporters and products; orders; the order lifecycle. */
+export const M2_SUITES: readonly ((factory: TargetFactory) => void)[] = [masters, orders, lifecycle];
+
 /** Declares the given suites against the target the factory builds. */
 export function registerSuites(
   suites: readonly ((factory: TargetFactory) => void)[],

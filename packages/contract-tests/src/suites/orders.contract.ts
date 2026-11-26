@@ -197,6 +197,26 @@ export function register(factory: TargetFactory): void {
         token = await tokenFor(t, PEOPLE.rajesh);
         expect(expectOk(await createOrder(t, token, krmOnly), orderSchema, 201).number).toBe('SO-2704-0001');
       });
+
+      it('a format without YYMM repeats last year’s number → 409 ORDER_NUMBER_TAKEN, nothing booked', async () => {
+        const t = target();
+        t.clock.advance(Date.parse('2027-03-31T18:20:00Z') - t.clock.now());
+        let token = await tokenFor(t, PEOPLE.rajesh);
+        const fmt = (orderNumberFormat: string) =>
+          call(t, 'PATCH', '/v1/settings', { token, body: { orderNumberFormat } });
+        expect((await fmt('ORD-0001')).status).toBe(200);
+        expect(expectOk(await createOrder(t, token, krmOnly), orderSchema, 201).number).toBe('ORD-0001');
+        // 1 April: a new financial year, so the series starts at 1 again and the number repeats.
+        t.clock.advance(20 * 60_000);
+        token = await tokenFor(t, PEOPLE.rajesh);
+        const err = expectError(await createOrder(t, token, krmOnly), 409, 'ORDER_NUMBER_TAKEN');
+        expect(err.message).toMatch(/order number format in Settings/);
+        const list = expectOk(await call(t, 'GET', '/v1/orders', { token }), orderListSchema);
+        expect(list.items.map((o) => o.number)).toEqual(['ORD-0001']);
+        // The owner adds the year to the format; the refused take rolled back, so 0001 is used.
+        expect((await fmt('ORD-YYMM-0001')).status).toBe(200);
+        expect(expectOk(await createOrder(t, token, krmOnly), orderSchema, 201).number).toBe('ORD-2704-0001');
+      });
     });
 
     describe('scope and money', () => {

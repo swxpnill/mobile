@@ -8,13 +8,27 @@ import { migrate } from '../src/db/migrate.ts';
  */
 const RLS_EXEMPT = ['refresh_tokens'];
 
-/** The M1 tenant tables, so the catalog check below can never pass vacuously. */
+/** The tenant tables so far, so the catalog check below can never pass vacuously. */
 const TENANT_TABLES = [
   'activity_log',
   'companies',
+  'contact_numbers',
   'devices',
+  'drafts',
   'idempotency_keys',
+  'number_series',
+  'order_lines',
+  'orders',
+  'parties',
+  'party_addresses',
+  'party_contacts',
   'plants',
+  'product_companies',
+  'products',
+  'sub_orders',
+  'truck_allocations',
+  'truck_plan_lines',
+  'trucks',
   'user_plants',
   'users',
 ];
@@ -86,6 +100,52 @@ describe('migrate', () => {
     });
   });
 
+  it('tonnage_app may read tenants and update only settings and updated_at; never insert or delete', async () => {
+    const check = () =>
+      withOwner(async (client) => {
+        const r = await client.query<{ privilege: string; granted: boolean }>(
+          `select p as privilege, has_table_privilege('tonnage_app', 'public.tenants', p) as granted
+             from unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) p
+           union all
+           select 'UPDATE(' || a.attname || ')', has_column_privilege('tonnage_app', 'public.tenants', a.attname, 'UPDATE')
+             from pg_attribute a
+            where a.attrelid = 'public.tenants'::regclass and a.attnum > 0 and not a.attisdropped`,
+        );
+        return Object.fromEntries(r.rows.map((row) => [row.privilege, row.granted]));
+      });
+    const expected = {
+      SELECT: true,
+      INSERT: false,
+      UPDATE: false,
+      DELETE: false,
+      TRUNCATE: false,
+      'UPDATE(id)': false,
+      'UPDATE(name)': false,
+      'UPDATE(settings)': true,
+      'UPDATE(created_at)': false,
+      'UPDATE(updated_at)': true,
+    };
+    expect(await check()).toEqual(expected);
+    // rls.sql re-grants DML on every table each run, then narrows tenants again: still the same.
+    await migrate(inject('ownerDatabaseUrl'), inject('appDatabaseUrl'));
+    expect(await check()).toEqual(expected);
+
+    // And as the app role itself.
+    const app = new pg.Client({ connectionString: inject('appDatabaseUrl') });
+    await app.connect();
+    try {
+      for (const stmt of [
+        `insert into tenants (id, name, settings, created_at, updated_at) values (gen_random_uuid(), 'X', '{}', now(), now())`,
+        `delete from tenants`,
+        `update tenants set name = 'X'`,
+      ]) {
+        await expect(app.query(stmt), stmt).rejects.toMatchObject({ code: '42501' });
+      }
+      await expect(app.query(`update tenants set settings = settings, updated_at = updated_at`)).resolves.toBeDefined();
+    } finally {
+      await app.end();
+    }
+  });
 
   it('running migrate twice is a no-op and leaves one tenant_isolation policy per table', async () => {
     // Global setup has already migrated once; run it twice more.

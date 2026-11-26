@@ -4,9 +4,11 @@ import {
   type Order,
   SAMPLE_MASTERS,
   activityEntrySchema,
+  companySchema,
   deletePreviewSchema,
   openTrucksDetailsSchema,
   orderSchema,
+  validationDetailsSchema,
 } from '@tonnage/shared';
 import {
   COMPANY,
@@ -110,6 +112,34 @@ async function patelInProgress(t: ContractTarget) {
   return { order: fresh, rajesh };
 }
 
+/** Sets a company active or inactive (owner). */
+async function setCompanyActive(t: ContractTarget, token: string, companyId: string, active: boolean) {
+  const path = `/v1/companies/${companyId}`;
+  const c = expectOk(await call(t, 'GET', path, { token }), companySchema);
+  expectOk(await call(t, 'PATCH', path, { token, body: { version: c.version, active } }), companySchema);
+}
+
+/** Patel order with a weighed truck (awaiting approval) planned on 16 mm that also carries 1.5 MT of 20 mm, a line not on its plan. */
+async function patelWeighedOffPlan(t: ContractTarget) {
+  const rajesh = await tokenFor(t, PEOPLE.rajesh);
+  const o = expectOk(await createOrder(t, rajesh, PATEL), orderSchema, 201);
+  const sub = o.subOrders[0]!;
+  const [l16, l20] = sub.lines;
+  await t.fixtures.addTruck({
+    subOrderId: sub.id,
+    state: 'weighed',
+    vehicleNo: 'CG 04 MX 4410',
+    tareKg: 12_000,
+    plan: [{ orderLineId: l16!.id, plannedKg: 20_000 }],
+    allocations: [
+      { orderLineId: l16!.id, netKg: 19_000 },
+      { orderLineId: l20!.id, netKg: 1_500 },
+    ],
+  });
+  const fresh = expectOk(await call(t, 'GET', `/v1/orders/${o.id}`, { token: rajesh }), orderSchema);
+  return { order: fresh, rajesh };
+}
+
 const shortClose = (t: ContractTarget, token: string, subId: string, version: number, cancelOpenTrucks = false) =>
   call(t, 'POST', `/v1/sub-orders/${subId}/short-close`, {
     idempotencyKey: newKey(),
@@ -177,6 +207,46 @@ export function register(factory: TargetFactory): void {
         expect(ok.warnings).toEqual([{ lineId: order.subOrders[0]!.lines[0]!.id, code: 'BELOW_RESERVED' }]);
       });
 
+      it('an edit bumps the version of each sub-order whose lines it changed; a short close with the older one → 409 STALE', async () => {
+        const t = target();
+        const rajesh = await tokenFor(t, PEOPLE.rajesh);
+        const o = expectOk(await createOrder(t, rajesh, CANVAS_ORDER), orderSchema, 201);
+        const [aip, krm] = o.subOrders;
+        const edited = expectOk(
+          await call(t, 'PATCH', `/v1/orders/${o.id}`, { idempotencyKey: newKey(), token: rajesh, body: withLine(editBody(o), 0, { orderedKg: 26_000 }) }),
+          orderSchema,
+        );
+        expect(edited.subOrders.map((s) => s.version)).toEqual([aip!.version + 1, krm!.version]);
+        // The office still shows the sub-order as it was before the edit.
+        expectError(await shortClose(t, rajesh, aip!.id, aip!.version), 409, 'STALE');
+        expectOk(await shortClose(t, rajesh, aip!.id, edited.subOrders[0]!.version), orderSchema);
+        // An edit that leaves the lines as they are bumps no sub-order.
+        const now = expectOk(await call(t, 'GET', `/v1/orders/${o.id}`, { token: rajesh }), orderSchema);
+        const same = expectOk(
+          await call(t, 'PATCH', `/v1/orders/${o.id}`, { idempotencyKey: newKey(), token: rajesh, body: editBody(now) }),
+          orderSchema,
+        );
+        expect(same.subOrders.map((s) => s.version)).toEqual(now.subOrders.map((s) => s.version));
+      });
+
+      it('a line a weighed truck carries but did not plan cannot be removed: 409 OPEN_TRUCKS, nothing changes', async () => {
+        const t = target();
+        const { order, rajesh } = await patelWeighedOffPlan(t);
+        const l20 = order.subOrders[0]!.lines[1]!;
+        expect([l20.reservedKg, l20.dispatchedKg]).toEqual([0, 0]);
+        const base = editBody(order);
+        const without = { ...base, subOrders: [{ ...base.subOrders[0]!, lines: base.subOrders[0]!.lines.filter((l) => l.id !== l20.id) }] };
+        const err = expectError(
+          await call(t, 'PATCH', `/v1/orders/${order.id}`, { idempotencyKey: newKey(), token: rajesh, body: without }),
+          409,
+          'OPEN_TRUCKS',
+        );
+        expect(err.details).toEqual({ lineId: l20.id });
+        const after = expectOk(await call(t, 'GET', `/v1/orders/${order.id}`, { token: rajesh }), orderSchema);
+        expect(after.subOrders[0]!.lines.map((l) => l.id)).toEqual(order.subOrders[0]!.lines.map((l) => l.id));
+        expect(after.version).toBe(order.version);
+      });
+
       it('a stale version → 409 STALE and nothing changes', async () => {
         const t = target();
         const { order, rajesh } = await patelInProgress(t);
@@ -186,6 +256,30 @@ export function register(factory: TargetFactory): void {
         expectError(await call(t, 'PATCH', `/v1/orders/${order.id}`, { idempotencyKey: newKey(), token: rajesh, body: stale }), 409, 'STALE');
         const after = expectOk(await call(t, 'GET', `/v1/orders/${order.id}`, { token: rajesh }), orderSchema);
         expect(after.subOrders[0]!.lines[1]!.orderedKg).toBe(50_000);
+      });
+
+      it('a line id repeated in the body → 422 VALIDATION at the repeat (same sub-order or another); nothing changes', async () => {
+        const t = target();
+        const rajesh = await tokenFor(t, PEOPLE.rajesh);
+        const o = expectOk(await createOrder(t, rajesh, CANVAS_ORDER), orderSchema, 201);
+        const b = editBody(o);
+        const [aip, krm] = b.subOrders;
+        const first = aip!.lines[0]!;
+        const cases: [EditBody, (string | number)[]][] = [
+          // The same line twice in AIP, the second time with another quantity.
+          [{ ...b, subOrders: [{ ...aip!, lines: [...aip!.lines, { ...first, orderedKg: 1_000 }] }, krm!] }, ['subOrders', 0, 'lines', 3, 'id']],
+          // AIP's line also sent under KRM.
+          [{ ...b, subOrders: [aip!, { ...krm!, lines: [...krm!.lines, { ...first }] }] }, ['subOrders', 1, 'lines', 1, 'id']],
+        ];
+        for (const [body, path] of cases) {
+          const res = await call(t, 'PATCH', `/v1/orders/${o.id}`, { idempotencyKey: newKey(), token: rajesh, body });
+          expectError(res, 422, 'VALIDATION');
+          const details = validationDetailsSchema.parse((res.body as { details: unknown }).details);
+          expect(details.map((d) => d.path), path.join('.')).toEqual([path]);
+        }
+        const after = expectOk(await call(t, 'GET', `/v1/orders/${o.id}`, { token: rajesh }), orderSchema);
+        expect(after.version).toBe(o.version);
+        expect(after.totals.orderedKg).toBe(o.totals.orderedKg);
       });
     });
 
@@ -252,6 +346,22 @@ export function register(factory: TargetFactory): void {
         expectError(await reopen(rajesh, back.subOrders[0]!.version), 409, 'NOT_CLOSED');
       });
 
+      it('reopen on a company deactivated since the close → 409 COMPANY_INACTIVE; reactivated, it reopens', async () => {
+        const t = target();
+        const rajesh = await tokenFor(t, PEOPLE.rajesh);
+        const o = expectOk(await createOrder(t, rajesh, PATEL), orderSchema, 201);
+        const sub = o.subOrders[0]!;
+        const closed = expectOk(await shortClose(t, rajesh, sub.id, sub.version), orderSchema).subOrders[0]!;
+        await setCompanyActive(t, rajesh, COMPANY.KRM, false);
+        const reopen = () =>
+          call(t, 'POST', `/v1/sub-orders/${sub.id}/reopen`, { idempotencyKey: newKey(), token: rajesh, body: { version: closed.version } });
+        expectError(await reopen(), 409, 'COMPANY_INACTIVE');
+        const still = expectOk(await call(t, 'GET', `/v1/orders/${o.id}`, { token: rajesh }), orderSchema);
+        expect([still.subOrders[0]!.status, still.subOrders[0]!.version]).toEqual(['cancelled', closed.version]);
+        await setCompanyActive(t, rajesh, COMPANY.KRM, true);
+        expect(expectOk(await reopen(), orderSchema).subOrders[0]!.status).toBe('open');
+      });
+
       it('a closed sub-order cannot be edited until reopened (ORDER_LOCKED)', async () => {
         const t = target();
         const { order, rajesh } = await patelInProgress(t);
@@ -306,6 +416,73 @@ export function register(factory: TargetFactory): void {
         expectError(await move(1_000, COMPANY.NAP), 409, 'PRODUCT_NOT_FOR_COMPANY');
         const ok = expectOk(await move(5_600, COMPANY.AIP), orderSchema);
         expect(ok.subOrders.map((s) => [s.suffix, s.companyCode])).toEqual([['A', 'KRM'], ['B', 'AIP']]);
+      });
+    });
+
+    describe('move quantity: sub-order versions (Ruling R9)', () => {
+      it('a move bumps the source and target sub-order versions; a short close with the older version → 409 STALE', async () => {
+        const t = target();
+        const rajesh = await tokenFor(t, PEOPLE.rajesh);
+        const billet = { productId: PR.billet, length: { value: 6, unit: 'm' }, orderedKg: 10_000, typedRate: null, overpricePerMt: 0 };
+        const o = expectOk(
+          await createOrder(t, rajesh, {
+            ...CANVAS_ORDER,
+            subOrders: [
+              { companyId: COMPANY.AIP, lines: [CANVAS_ORDER.subOrders[0]!.lines[0]!, billet] },
+              CANVAS_ORDER.subOrders[1]!,
+              { companyId: COMPANY.NAP, lines: [billet] },
+            ],
+          }),
+          orderSchema,
+          201,
+        );
+        const [aip, krm, nap] = o.subOrders;
+        const move = (fromLineId: string, toCompanyId: string, kg: number, version: number) =>
+          call(t, 'POST', `/v1/orders/${o.id}/move-quantity`, {
+            idempotencyKey: newKey(),
+            token: rajesh,
+            body: { fromLineId, toCompanyId, kg, version },
+          });
+        // 10 MT of AIP 12 mm into KRM's existing sub-order.
+        const first = expectOk(await move(aip!.lines[0]!.id, COMPANY.KRM, 10_000, o.version), orderSchema);
+        expect(first.subOrders.map((s) => [s.id, s.version])).toEqual([
+          [aip!.id, aip!.version + 1],
+          [krm!.id, krm!.version + 1],
+          [nap!.id, nap!.version],
+        ]);
+        // The office still shows AIP and KRM as they were before the move.
+        expectError(await shortClose(t, rajesh, aip!.id, aip!.version), 409, 'STALE');
+        expectError(await shortClose(t, rajesh, krm!.id, krm!.version), 409, 'STALE');
+        // 4 MT of AIP billet to VSL, which has no sub-order yet: a new one starts at version 1.
+        const second = expectOk(await move(aip!.lines[1]!.id, COMPANY.VSL, 4_000, first.version), orderSchema);
+        const vsl = second.subOrders.find((s) => s.companyId === COMPANY.VSL)!;
+        expect(vsl.version).toBe(1);
+        expect(second.subOrders.filter((s) => s.id !== vsl.id).map((s) => [s.id, s.version])).toEqual([
+          [aip!.id, aip!.version + 2],
+          [krm!.id, krm!.version + 1],
+          [nap!.id, nap!.version],
+        ]);
+        expectError(await shortClose(t, rajesh, aip!.id, first.subOrders[0]!.version), 409, 'STALE');
+        expectOk(await shortClose(t, rajesh, aip!.id, aip!.version + 2), orderSchema);
+        expectOk(await shortClose(t, rajesh, nap!.id, nap!.version), orderSchema);
+      });
+    });
+
+    describe('move quantity: a line a weighed truck carries', () => {
+      it('moving all of it away would remove it → 409 OPEN_TRUCKS; part of it moves', async () => {
+        const t = target();
+        const { order, rajesh } = await patelWeighedOffPlan(t);
+        const l20 = order.subOrders[0]!.lines[1]!; // 50 MT ordered, nothing reserved or dispatched
+        const move = (kg: number, version: number) =>
+          call(t, 'POST', `/v1/orders/${order.id}/move-quantity`, {
+            idempotencyKey: newKey(),
+            token: rajesh,
+            body: { fromLineId: l20.id, toCompanyId: COMPANY.AIP, kg, version },
+          });
+        const err = expectError(await move(50_000, order.version), 409, 'OPEN_TRUCKS');
+        expect(err.details).toEqual({ lineId: l20.id });
+        const ok = expectOk(await move(10_000, order.version), orderSchema);
+        expect(ok.subOrders[0]!.lines[1]).toMatchObject({ id: l20.id, orderedKg: 40_000 });
       });
     });
 

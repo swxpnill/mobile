@@ -5,6 +5,7 @@ import {
   type QtyTotals,
   type SubOrder,
   type VehicleRequest,
+  orderAgeDays,
   billedRate,
   brokerEarningEstimate,
   isRequestOpen,
@@ -15,10 +16,11 @@ import {
   pending,
   over,
   productDisplayName,
+  productsLabel as sharedProductsLabel,
   subOrderNumber,
   totalsOf,
 } from '@tonnage/shared';
-import { DAY, fromIso } from './clock.ts';
+import { fromIso } from './clock.ts';
 import { notFound } from './errors.ts';
 import { type OrderMath, orderMath } from './orders-math.ts';
 import type { MockState, OrderLineRec, OrderRec, SubOrderRec } from './store.ts';
@@ -78,10 +80,8 @@ export function findOrder(c: OrderCtx, id: string | undefined): OrderRec {
 
 const lineValueOf = (l: OrderLineRec) => lineValue(l.orderedKg, billedRate(l.rate, l.overpricePerMt));
 
-/** Days since booking, by elapsed time (the aged badge counts full days). */
-export function ageDays(order: OrderRec, now: number): number {
-  return Math.max(0, Math.floor((now - fromIso(order.createdAt)) / DAY));
-}
+/** Days since booking (shared rule). */
+export const ageDays = (order: OrderRec, now: number): number => orderAgeDays(fromIso(order.createdAt), now);
 
 /** Status of the order as the caller sees it (only visible sub-orders count). */
 export function visibleStatus(c: OrderCtx, subs: readonly SubOrderRec[]): OrderStatus {
@@ -241,24 +241,7 @@ export function openVehicleRequests(c: OrderCtx, order: OrderRec, visible: reado
 
 /** "TMT 12, 16 mm", "MS Billet", "TMT 16 mm · Angle": sizes in mm are merged per category. */
 export function productsLabel(c: OrderCtx, lines: readonly OrderLineRec[]): string {
-  const byCategory = new Map<string, string[]>();
-  for (const l of lines) {
-    const p = c.productNameById.get(l.productId);
-    if (!p) continue;
-    const sizes = byCategory.get(p.category) ?? [];
-    if (!sizes.includes(p.sizeLabel)) sizes.push(p.sizeLabel);
-    byCategory.set(p.category, sizes);
-  }
-  const collator = new Intl.Collator('en', { numeric: true });
-  return [...byCategory.entries()]
-    .map(([category, sizes]) => {
-      if (sizes.every((s) => /^\d+(\.\d+)?\s*mm$/.test(s))) {
-        const nums = sizes.map((s) => s.replace(/\s*mm$/, '')).sort(collator.compare);
-        return `${category} ${nums.join(', ')} mm`;
-      }
-      return category;
-    })
-    .join(' · ');
+  return sharedProductsLabel(lines.flatMap((l) => c.productNameById.get(l.productId) ?? []));
 }
 
 /** List row; with a company filter the figures cover that company's sub-order only. */

@@ -33,6 +33,30 @@ export function nextTruckState(state: TruckState, event: TruckEvent): TruckState
   }
 }
 
+/** What `linesHeldByTrucks` needs of a truck. */
+export interface TruckLineRefs {
+  state: TruckState;
+  plan: readonly { orderLineId: string }[];
+  allocations: readonly { orderLineId: string }[];
+}
+
+/**
+ * The order lines trucks still hold: every line a truck plans or carries, unless the truck is
+ * cancelled. Allocations count as well as the plan: at GROSS the supervisor may weigh a line of
+ * the sub-order that was not planned, so a weighed truck can carry a line with nothing reserved.
+ * An edit or a move quantity may not remove a held line (409 OPEN_TRUCKS): the truck's rows on it
+ * would go with it.
+ */
+export function linesHeldByTrucks(trucks: Iterable<TruckLineRefs>): Set<string> {
+  const held = new Set<string>();
+  for (const t of trucks) {
+    if (t.state === 'cancelled') continue;
+    for (const p of t.plan) held.add(p.orderLineId);
+    for (const a of t.allocations) held.add(a.orderLineId);
+  }
+  return held;
+}
+
 export function netKg(grossKg: number, tareKg: number): number {
   return grossKg - tareKg;
 }

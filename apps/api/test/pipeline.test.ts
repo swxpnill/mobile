@@ -1,12 +1,14 @@
 import { Writable } from 'node:stream';
 import { createFakeClock } from '@tonnage/mock-api';
-import { ERROR_MESSAGES, MONEY_KEYS, type Role } from '@tonnage/shared';
-import { eq } from 'drizzle-orm';
+import { ERROR_MESSAGES, IDEMPOTENCY_KEY_MESSAGE, MONEY_KEYS, type Role } from '@tonnage/shared';
+import { eq, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { activityLog, companies, idempotencyKeys, plants, userPlants, users } from '../src/db/schema/index.ts';
+import { withTenant, type Tx } from '../src/db/client.ts';
 import { AppError } from '../src/http/errors.ts';
+import { claimKey, storeResult } from '../src/http/idempotency.ts';
 import { defineRoute, routeTable, type RouteCtx } from '../src/http/route.ts';
 import { logActivity } from '../src/services/activity.ts';
 import {
@@ -19,6 +21,8 @@ import {
   TEST_NOW,
   type TestApp,
 } from './helpers.ts';
+import { gate } from './support/gate.ts';
+import { waitForLockWaiters } from './support/lockWait.ts';
 
 afterEach(closeTestApps);
 
@@ -140,7 +144,7 @@ describe('defineRoute', () => {
     });
     const table = routeTable(t.app);
     expect(table).toContainEqual({ method: 'GET', url: '/v1/meta', public: true });
-    expect(table).toContainEqual({ method: 'POST', url: '/v1/auth/verify', public: true });
+    expect(table).toContainEqual({ method: 'POST', url: '/v1/auth/verify', public: true, body: true });
     expect(table).toContainEqual({ method: 'POST', url: '/v1/test/x', action: 'companies.manage', idempotent: true });
     // Per app: another app does not see this one's throwaway route.
     const other = await buildTestApp();
@@ -188,6 +192,20 @@ describe('order of checks (Ruling 10)', () => {
     const keyless = await t.app.inject({ method: 'POST', url: '/v1/test/ordered', headers: owner, payload: { n: 1 } });
     expect(keyless.statusCode).toBe(400);
     expect(keyless.json().code).toBe('IDEMPOTENCY_KEY_REQUIRED');
+  });
+
+  it('a malformed key → 422 at idempotency-key, after the body check; the handler never runs', async () => {
+    const owner = await bearer(t, w, w.ownerId);
+    const send = (key: string, payload: object) =>
+      t.app.inject({ method: 'POST', url: '/v1/test/ordered', headers: { ...owner, 'idempotency-key': key }, payload });
+    expect((await send('has a space', { n: 'x' })).json().details[0].path).toEqual(['n']);
+    for (const key of ['k'.repeat(129), 'has a space', 'ключ', 'a/b']) {
+      const res = await send(key, { n: 1 });
+      expect(res.statusCode, key).toBe(422);
+      expect(res.json().details).toEqual([{ path: ['idempotency-key'], message: IDEMPOTENCY_KEY_MESSAGE }]);
+    }
+    expect(await t.ownerDb.select().from(idempotencyKeys)).toEqual([]);
+    for (const key of ['k'.repeat(128), 'a', 'A-z_0.9:x']) expect((await send(key, { n: 1 })).statusCode, key).toBe(201);
   });
 
   it('the handler gets the user and plant scope loaded from the database', async () => {
@@ -422,6 +440,85 @@ describe('idempotency', () => {
     expect(fresh.json()).toEqual({ run: 3, orderValue: 900 });
     // The other expired key of this user went too; the reused key's row is the new one.
     expect(await keyRows()).toMatchObject([{ key: 'k7', body: { run: 3 }, createdAt: new Date(TEST_NOW + DAY) }]);
+  });
+
+  /** Claims `key` for the owner in a transaction of its own, held open until `finish` settles it. */
+  function heldClaim(key: string) {
+    const claimed = gate();
+    const finish = gate<'commit' | 'rollback'>();
+    const done = withTenant(t.db, w.tenantId, async (tx) => {
+      const slot = { tenantId: w.tenantId, userId: w.ownerId, key, route: 'POST /v1/test/idem' };
+      const claim = await claimKey(tx, slot, t.clock.now());
+      expect(claim.kind).toBe('run');
+      claimed.open();
+      if ((await finish.wait) === 'rollback') throw new Error('rolled back on purpose');
+      await storeResult(tx, slot, 201, { run: 'held' }, t.clock.now());
+    });
+    return { claimed: claimed.wait, finish: finish.open, done };
+  }
+
+  it('an expired key re-claimed by a request that rolls back is never replayed; the next one runs', async () => {
+    const clock = t.clock as ReturnType<typeof createFakeClock>;
+    await post('k8');
+    clock.advance(DAY);
+    const held = heldClaim('k8');
+    await held.claimed;
+    const second = post('k8');
+    await waitForLockWaiters(t.ownerDb, 1);
+    held.finish('rollback');
+    await expect(held.done).rejects.toThrow('rolled back on purpose');
+    const res = await second;
+    expect(res.statusCode).toBe(201);
+    expect(res.headers['idempotent-replay']).toBeUndefined();
+    expect(res.json()).toEqual({ run: 2, orderValue: 900 });
+    expect(runs).toBe(2);
+    expect(await keyRows()).toMatchObject([
+      { key: 'k8', route: 'POST /v1/test/idem', body: { run: 2 }, createdAt: new Date(TEST_NOW + DAY) },
+    ]);
+  });
+
+  it('two re-claims of one expired key: the second waits and replays the first; one run', async () => {
+    const clock = t.clock as ReturnType<typeof createFakeClock>;
+    await post('k9');
+    clock.advance(DAY + 1);
+    const held = heldClaim('k9');
+    await held.claimed;
+    const second = post('k9');
+    await waitForLockWaiters(t.ownerDb, 1);
+    held.finish('commit');
+    await held.done;
+    const res = await second;
+    expect(res.statusCode).toBe(201);
+    expect(res.headers['idempotent-replay']).toBe('true');
+    expect(res.json()).toEqual({ run: 'held' });
+    expect(runs).toBe(1);
+  });
+});
+
+describe('withTenant given a transaction', () => {
+  const setting = async (tx: Tx) =>
+    (await tx.execute<{ v: string | null }>(sql`select current_setting('app.tenant_id', true) as v`)).rows[0]?.v ?? '';
+  const A = uuidv7();
+  const B = uuidv7();
+
+  it('puts the previous app.tenant_id back afterwards: unset, set, and after a throw', async () => {
+    const t = await buildTestApp();
+    await t.db.transaction(async (tx) => {
+      expect(await setting(tx)).toBe('');
+      await withTenant(tx, A, async (inner) => expect(await setting(inner)).toBe(A));
+      expect(await setting(tx)).toBe('');
+
+      await tx.execute(sql`select set_config('app.tenant_id', ${B}, true)`);
+      expect(await withTenant(tx, A, async (inner) => setting(inner))).toBe(A);
+      expect(await setting(tx)).toBe(B);
+
+      await expect(
+        withTenant(tx, A, async () => {
+          throw new Error('inner failure');
+        }),
+      ).rejects.toThrow('inner failure');
+      expect(await setting(tx)).toBe(B);
+    });
   });
 });
 

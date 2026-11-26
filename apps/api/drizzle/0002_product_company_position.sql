@@ -1,0 +1,2 @@
+ALTER TABLE "product_companies" ADD COLUMN "position" integer NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "products_tenant_display_name_key" ON "products" USING btree ("tenant_id",lower(btrim("category" || ' ' || "grade")),lower("size_label"));

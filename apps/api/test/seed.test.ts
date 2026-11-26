@@ -1,9 +1,21 @@
-import { SAMPLE_WORLD } from '@tonnage/shared';
-import { eq } from 'drizzle-orm';
+import { SAMPLE_MASTERS, SAMPLE_WORLD } from '@tonnage/shared';
+import { asc, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { companies, plants, tenants, userPlants, users } from '../src/db/schema/index.ts';
+import {
+  companies,
+  contactNumbers,
+  parties,
+  partyAddresses,
+  partyContacts,
+  plants,
+  productCompanies,
+  products,
+  tenants,
+  userPlants,
+  users,
+} from '../src/db/schema/index.ts';
 import { seed } from '../src/db/seed.ts';
-import { buildTestApp, closeTestApps, TEST_NOW, type TestApp } from './helpers.ts';
+import { buildTestApp, closeTestApps, ownerInsertParty, TEST_NOW, type TestApp } from './helpers.ts';
 
 afterEach(closeTestApps);
 
@@ -57,5 +69,63 @@ describe('seed', () => {
         expect(row.lastSeenAt?.getTime()).toBe(TEST_NOW);
       }
     }
+  });
+
+  it('inserts SAMPLE_MASTERS with the mock ids, children and company order, once', async () => {
+    await seed(t.ownerDb, t.clock);
+    await seed(t.ownerDb, t.clock);
+    const m = SAMPLE_MASTERS;
+    const partyRows = await t.ownerDb.select().from(parties).orderBy(asc(parties.id));
+    expect(partyRows.map((p) => p.id)).toEqual(m.parties.map((p) => p.id).sort());
+    expect(partyRows.every((p) => p.createdBy === SAMPLE_WORLD.ids.users.rajesh)).toBe(true);
+    const contactCount = m.parties.reduce((n, p) => n + p.contacts.length, 0);
+    const numberCount = m.parties.reduce((n, p) => n + p.contacts.reduce((k, c) => k + c.numbers.length, 0), 0);
+    const addressCount = m.parties.reduce((n, p) => n + p.addresses.length, 0);
+    expect(await t.ownerDb.select().from(partyContacts)).toHaveLength(contactCount);
+    expect(await t.ownerDb.select().from(contactNumbers)).toHaveLength(numberCount);
+    expect(await t.ownerDb.select().from(partyAddresses)).toHaveLength(addressCount);
+
+    expect((await t.ownerDb.select().from(products)).map((p) => p.id).sort()).toEqual(m.products.map((p) => p.id).sort());
+    const codeById = new Map(SAMPLE_WORLD.companies.map((c) => [c.id, c.code]));
+    const links = await t.ownerDb
+      .select()
+      .from(productCompanies)
+      .orderBy(asc(productCompanies.productId), asc(productCompanies.position));
+    for (const p of m.products) {
+      const codes = links.filter((l) => l.productId === p.id).map((l) => codeById.get(l.companyId));
+      expect(codes, p.id).toEqual(p.companyCodes);
+    }
+  });
+
+  it('adds the masters to a database seeded before them (org layer only)', async () => {
+    await seed(t.ownerDb, t.clock);
+    await t.ownerDb.$client.query('truncate parties, products cascade');
+    await seed(t.ownerDb, t.clock);
+    expect(await t.ownerDb.select().from(parties)).toHaveLength(SAMPLE_MASTERS.parties.length);
+    expect(await t.ownerDb.select().from(products)).toHaveLength(SAMPLE_MASTERS.products.length);
+    expect(await t.ownerDb.select().from(users)).toHaveLength(SAMPLE_WORLD.users.length);
+  });
+
+  it('names the clashing record and the way out when a sample master collides with an existing one', async () => {
+    await seed(t.ownerDb, t.clock);
+    await t.ownerDb.$client.query('truncate parties, products cascade');
+    // A party the person added themselves, with a sample party's GSTIN.
+    const shubham = SAMPLE_MASTERS.parties.find((p) => p.gstin !== null)!;
+    await ownerInsertParty(t.ownerDb, SAMPLE_WORLD.tenant.id, SAMPLE_WORLD.ids.users.rajesh, {
+      type: 'customer',
+      name: 'Someone else',
+      gstin: shubham.gstin,
+    });
+    const err = await seed(t.ownerDb, t.clock).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(Error);
+    const message = (err as Error).message;
+    expect(message).toContain('parties_tenant_gstin_key');
+    expect(message).toContain(shubham.gstin!);
+    expect(message).toContain('apps/api/.pgdata');
+    // All or nothing: no sample master was added.
+    expect(await t.ownerDb.select().from(parties)).toHaveLength(1);
   });
 });

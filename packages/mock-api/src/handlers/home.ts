@@ -1,4 +1,4 @@
-import { type Home, billedRate, homeQuerySchema, isTerminal, istDateParts, lineValue } from '@tonnage/shared';
+import { type Home, billedRate, homeQuerySchema, isTerminal, istDayStart, istWeekStart, lineValue } from '@tonnage/shared';
 import { DAY } from '../clock.ts';
 import { notFound } from '../errors.ts';
 import { ageDays, orderCtx, visibleSubOrders } from '../order-views.ts';
@@ -6,21 +6,6 @@ import { isOpenTruck, orderMath } from '../orders-math.ts';
 import { route, type RouteDef } from '../router.ts';
 import { boardOrder } from '../truck-views.ts';
 import { authed, plantInScope } from '../views.ts';
-
-const IST_OFFSET_MS = (5 * 60 + 30) * 60_000;
-
-/** Start of the IST calendar day containing `ms`, as epoch ms. */
-function istDayStart(ms: number): number {
-  const { year, month, day } = istDateParts(ms);
-  return Date.UTC(year, month - 1, day) - IST_OFFSET_MS;
-}
-
-/** Monday 00:00 IST of the week containing `ms`. */
-function istWeekStart(ms: number): number {
-  const dayStart = istDayStart(ms);
-  const weekday = new Date(dayStart + IST_OFFSET_MS).getUTCDay(); // 0 = Sunday
-  return dayStart - ((weekday + 6) % 7) * DAY;
-}
 
 export const homeRoutes: RouteDef[] = [
   route('GET', '/v1/home', {

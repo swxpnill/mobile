@@ -16,6 +16,7 @@ import {
   TEST_NOW,
   type TestApp,
 } from './helpers.ts';
+import { waitForLockWaiters, withLockHolder } from './support/lockWait.ts';
 
 afterEach(closeTestApps);
 
@@ -96,17 +97,6 @@ const activity = (action: string) => t.ownerDb.select().from(activityLog).where(
 const plantsOf = async (userId: string) =>
   (await t.ownerDb.select().from(userPlants).where(eq(userPlants.userId, userId))).map((r) => r.plantId);
 
-/** How many of the API's transactions are waiting on a lock (polled on the owner connection). */
-async function waitForLockWaiters(count: number): Promise<void> {
-  for (let attempt = 0; ; attempt++) {
-    const res = await t.ownerDb.$client.query<{ n: number }>(
-      `select count(*)::int as n from pg_stat_activity where usename = 'tonnage_app' and wait_event_type = 'Lock'`,
-    );
-    if ((res.rows[0]?.n ?? 0) >= count) return;
-    if (attempt > 2000) throw new Error(`only ${res.rows[0]?.n ?? 0} of ${count} requests reached a lock`);
-  }
-}
-
 describe('invite', () => {
   it('201 with status invited, version 1, invited_at from the clock; logged; idempotent', async () => {
     const key = uuidv7();
@@ -164,17 +154,15 @@ describe('invite', () => {
     // An uncommitted row with the mobile is held open on its own connection, so neither request can
     // see it in its existence check; both then wait on the unique index. Rolling it back lets one
     // insert win, and the other gets the unique violation, which must surface as MOBILE_EXISTS.
-    const holder = await t.ownerDb.$client.connect();
-    try {
-      await holder.query('begin');
+    await withLockHolder(t.ownerDb, async (holder, track) => {
       await holder.query(
         `insert into users (id, tenant_id, name, mobile, role, invited_at, created_at, updated_at)
          values ($1, $2, 'Holder', '+919826100077', 'city_staff', now(), now(), now())`,
         [uuidv7(), w.tenantId],
       );
       const body = { name: 'Race', mobile: '9826100077', role: 'city_staff', plantIds: [] };
-      const inFlight = [invite(w.owner, body), invite(w.owner, body)];
-      await waitForLockWaiters(2);
+      const inFlight = [track(invite(w.owner, body)), track(invite(w.owner, body))];
+      await waitForLockWaiters(t.ownerDb, 2);
       await holder.query('rollback');
       const results = await Promise.all(inFlight);
       expect(results.map((r) => r.statusCode).sort()).toEqual([201, 409]);
@@ -184,9 +172,7 @@ describe('invite', () => {
         .from(users)
         .where(and(eq(users.tenantId, w.tenantId), eq(users.mobile, '+919826100077')));
       expect(rows).toHaveLength(1);
-    } finally {
-      holder.release();
-    }
+    });
   });
 });
 
@@ -251,15 +237,13 @@ describe('last owner', () => {
 
   it('Review Focus 2: the only two owners deactivate each other concurrently → one 200, one 409 LAST_OWNER; one active owner remains', async () => {
     // Hold one owner row so both requests queue on the owners lock in `assertNotLastOwner`.
-    const holder = await t.ownerDb.$client.connect();
-    try {
-      await holder.query('begin');
+    await withLockHolder(t.ownerDb, async (holder, track) => {
       expect((await holder.query('select id from users where id = $1 for update', [w.ownerId])).rowCount).toBe(1);
       const inFlight = [
-        post(`/v1/users/${w.owner2Id}/deactivate`, w.owner),
-        post(`/v1/users/${w.ownerId}/deactivate`, w.owner2),
+        track(post(`/v1/users/${w.owner2Id}/deactivate`, w.owner)),
+        track(post(`/v1/users/${w.ownerId}/deactivate`, w.owner2)),
       ];
-      await waitForLockWaiters(2);
+      await waitForLockWaiters(t.ownerDb, 2);
       await holder.query('commit');
       const results = await Promise.all(inFlight);
       expect(results.map((r) => r.statusCode).sort()).toEqual([200, 409]);
@@ -269,9 +253,7 @@ describe('last owner', () => {
         .from(users)
         .where(and(eq(users.tenantId, w.tenantId), eq(users.role, 'owner'), eq(users.active, true)));
       expect(active).toHaveLength(1);
-    } finally {
-      holder.release();
-    }
+    });
   });
 });
 
@@ -317,20 +299,16 @@ describe('deactivate and reactivate', () => {
     // nothing of the target yet); the reactivate then locks the target and queues behind it. Released,
     // an implementation that lets the reactivate hold the target while the deactivate holds the owners
     // deadlocks (40P01 -> 500); with one lock order both finish.
-    const holder = await t.ownerDb.$client.connect();
-    try {
-      await holder.query('begin');
+    await withLockHolder(t.ownerDb, async (holder, track) => {
       expect((await holder.query('select id from users where id = $1 for update', [w.ownerId])).rowCount).toBe(1);
-      const deactivate = post(`/v1/users/${w.staffId}/deactivate`, w.owner2);
-      await waitForLockWaiters(1);
-      const reactivate = post(`/v1/users/${w.staffId}/reactivate`, w.owner);
-      await waitForLockWaiters(2);
+      const deactivate = track(post(`/v1/users/${w.staffId}/deactivate`, w.owner2));
+      await waitForLockWaiters(t.ownerDb, 1);
+      const reactivate = track(post(`/v1/users/${w.staffId}/reactivate`, w.owner));
+      await waitForLockWaiters(t.ownerDb, 2);
       await holder.query('commit');
       const results = await Promise.all([deactivate, reactivate]);
       expect(results.map((r) => r.statusCode)).toEqual([200, 200]);
-    } finally {
-      holder.release();
-    }
+    });
   });
 
   it('unknown or foreign user → 404', async () => {

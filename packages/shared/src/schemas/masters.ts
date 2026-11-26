@@ -84,14 +84,50 @@ const partyFields = {
 type PartyShape = {
   type: PartyType;
   defaultCommissionPerMt: number | null;
-  addresses: { kind: 'bill_to' | 'ship_to'; isDefault: boolean }[];
+  contacts: { id?: string | undefined; numbers: { id?: string | undefined }[] }[];
+  addresses: { id?: string | undefined; kind: 'bill_to' | 'ship_to'; isDefault: boolean }[];
 };
 
-/** Customers need one bill-to and ship-to sites with exactly one default; only brokers earn commission. */
+/**
+ * Ids sent back for children must be distinct: contacts among contacts, numbers across every contact,
+ * addresses among addresses. The repeat is named at its `id`.
+ */
+function distinctChildIds(p: PartyShape, ctx: z.RefinementCtx): void {
+  const check = (seen: Set<string>, id: string | undefined, path: (string | number)[]) => {
+    if (id === undefined) return;
+    if (seen.has(id)) ctx.addIssue({ code: 'custom', path, message: 'This id is already used in this party' });
+    seen.add(id);
+  };
+  const contacts = new Set<string>();
+  p.contacts.forEach((c, i) => check(contacts, c.id, ['contacts', i, 'id']));
+  const numbers = new Set<string>();
+  p.contacts.forEach((c, i) => c.numbers.forEach((n, j) => check(numbers, n.id, ['contacts', i, 'numbers', j, 'id'])));
+  const addresses = new Set<string>();
+  p.addresses.forEach((a, i) => check(addresses, a.id, ['addresses', i, 'id']));
+}
+
+/**
+ * Customers need one bill-to and ship-to sites with exactly one default; no party has two default
+ * bill-to addresses; child ids are not repeated; only brokers earn commission.
+ */
 function partyRules(p: PartyShape, ctx: z.RefinementCtx): void {
+  distinctChildIds(p, ctx);
   if (p.type !== 'broker' && p.defaultCommissionPerMt !== null) {
     ctx.addIssue({ code: 'custom', path: ['defaultCommissionPerMt'], message: 'Only brokers have a commission' });
   }
+  // Any party: at most one default bill-to (the API backs this with a partial unique index).
+  let defaultBill = false;
+  p.addresses.forEach((a, i) => {
+    if (a.kind !== 'bill_to' || !a.isDefault) return;
+    if (defaultBill) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['addresses', i, 'isDefault'],
+        message: 'Only one bill-to address can be the default',
+      });
+    }
+    defaultBill = true;
+  });
   if (p.type === 'customer') {
     const bill = p.addresses.filter((a) => a.kind === 'bill_to');
     const ship = p.addresses.filter((a) => a.kind === 'ship_to');

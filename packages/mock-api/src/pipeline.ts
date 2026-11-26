@@ -1,5 +1,7 @@
 import {
+  IDEMPOTENCY_KEY_MESSAGE,
   can,
+  isIdempotencyKey,
   plantScope,
   redactForRole,
   type PlantScope,
@@ -118,6 +120,9 @@ export function createPipeline(deps: { router: Router; store: Store; clock: Cloc
     if (r.idempotent && user) {
       const key = headers['idempotency-key'];
       if (!key) throw new ApiError(400, 'IDEMPOTENCY_KEY_REQUIRED');
+      if (!isIdempotencyKey(key)) {
+        throw validationError([{ path: ['idempotency-key'], message: IDEMPOTENCY_KEY_MESSAGE }]);
+      }
       purgeIdempotency(state, user.id, now);
       idemSlot = `${user.id}:${key}`;
       const stored = state.idempotency[idemSlot];

@@ -48,10 +48,10 @@ describe('response schemas', () => {
     });
     expect(requestCodeResponseSchema.safeParse({ resendAfterSeconds: -1 }).success).toBe(false);
     expect(
-      metaSchema.parse({ minSupportedVersion: '1.0.0', serverTime: '2026-11-03T04:30:00.000Z' }),
+      metaSchema.parse({ minSupportedVersion: '1.0.0', serverTime: '2026-11-03T04:30:00.000Z', apiVersion: '0.2.0' }),
     ).toMatchObject({ minSupportedVersion: '1.0.0' });
     expect(
-      metaSchema.safeParse({ minSupportedVersion: 'one', serverTime: '2026-11-03T04:30:00.000Z' })
+      metaSchema.safeParse({ minSupportedVersion: 'one', serverTime: '2026-11-03T04:30:00.000Z', apiVersion: '0.2.0' })
         .success,
     ).toBe(false);
   });

@@ -1,0 +1,23 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    # Expo packages, and the versions the Expo SDK pins, move only with an Expo SDK upgrade.
+    ignore:
+      - dependency-name: "expo"
+      - dependency-name: "expo-*"
+      - dependency-name: "react-native"
+      - dependency-name: "@expo/*"
+      - dependency-name: "react"
+      - dependency-name: "react-dom"
+      - dependency-name: "jest-expo"
+      - dependency-name: "@types/react"
+    groups:
+      dev-dependencies:
+        dependency-type: development
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

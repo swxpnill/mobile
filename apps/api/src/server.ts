@@ -6,7 +6,7 @@ import { DevOtpProvider, type OtpProvider } from './auth/otp-provider.ts';
 import { createOtpService } from './auth/otp.service.ts';
 import { createTokens } from './auth/tokens.ts';
 import type { Clock } from './clock.ts';
-import type { Db } from './db/client.ts';
+import { configureTimeouts, type Db } from './db/client.ts';
 import type { Env } from './env.ts';
 import { registerBodyParsers } from './http/body-parser.ts';
 import { registerErrorHandling, zodValidatorCompiler } from './http/errors.ts';
@@ -14,7 +14,13 @@ import { registerPipeline } from './http/route.ts';
 import { authRoutes } from './routes/auth.ts';
 import { companyRoutes } from './routes/companies.ts';
 import { meRoutes } from './routes/me.ts';
+import { draftRoutes } from './routes/drafts.ts';
+import { homeRoutes } from './routes/home.ts';
+import { orderLifecycleRoutes } from './routes/orderLifecycle.ts';
+import { orderRoutes } from './routes/orders.ts';
 import { metaRoutes } from './routes/meta.ts';
+import { partyRoutes } from './routes/parties.ts';
+import { productRoutes } from './routes/products.ts';
 import { plantRoutes } from './routes/plants.ts';
 import { settingsRoutes } from './routes/settings.ts';
 import { userRoutes } from './routes/users.ts';
@@ -73,6 +79,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     );
   });
 
+  configureTimeouts(deps.db, { lockTimeoutMs: env.DB_LOCK_TIMEOUT_MS, statementTimeoutMs: env.DB_STATEMENT_TIMEOUT_MS });
   const tokens = createTokens(env.JWT_SECRET);
   registerPipeline(app, { db: deps.db, clock: deps.clock, tokens });
   const otp = createOtpService({
@@ -88,6 +95,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(settingsRoutes, { prefix: '/v1' });
   await app.register(meRoutes, { prefix: '/v1' });
   await app.register(userRoutes({ tokens }), { prefix: '/v1' });
+  await app.register(partyRoutes, { prefix: '/v1' });
+  await app.register(productRoutes, { prefix: '/v1' });
+  await app.register(draftRoutes, { prefix: '/v1' });
+  await app.register(homeRoutes, { prefix: '/v1' });
+  await app.register(orderRoutes, { prefix: '/v1' });
+  await app.register(orderLifecycleRoutes, { prefix: '/v1' });
   await app.register(authRoutes({ env, otp, tokens }), {
     prefix: '/v1/auth',
   });

@@ -1,9 +1,14 @@
 name: CI
 on:
-  push:
   pull_request:
+  push:
+    branches: [main]
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   verify:
+    name: verify
     runs-on: ubuntu-latest
     services:
       # The API tests (apps/api) run against this instead of embedded Postgres.
@@ -20,13 +25,26 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - run: corepack enable
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: corepack enable
+          cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
+      # The migrations agree with each other, and the schema files have no change that lacks one.
+      - name: Drizzle migrations are consistent
+        run: pnpm --filter @tonnage/api exec drizzle-kit check
+      - name: Drizzle schema has no ungenerated changes
+        shell: bash
+        run: |
+          pnpm --filter @tonnage/api db:generate
+          if [ -n "$(git status --porcelain apps/api/drizzle)" ]; then
+            echo "::error::db:generate changed apps/api/drizzle: run 'pnpm --filter @tonnage/api db:generate' and commit the migration."
+            git status --porcelain apps/api/drizzle
+            exit 1
+          fi
       - run: pnpm test
         env:
           TEST_DATABASE_ADMIN_URL: postgres://postgres:postgres@localhost:5432/postgres

@@ -39,7 +39,7 @@ pnpm dev:db
 
 # terminal 2
 pnpm db:migrate    # schema, role tonnage_app, RLS
-pnpm db:seed       # the sample world (Agrawal Group: 4 companies, 4 plants, 8 people); safe to repeat
+pnpm db:seed       # the sample world (Agrawal Group: 4 companies, 4 plants, 8 people, the sample customers, brokers, transporters and products); safe to repeat
 pnpm dev:api       # http://localhost:3000
 ```
 

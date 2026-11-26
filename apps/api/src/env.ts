@@ -14,6 +14,10 @@ const envSchema = z.object({
   MIN_SUPPORTED_APP_VERSION: z.string().default('1.0.0'),
   RATE_LIMIT: z.enum(['on', 'off']).default('on'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  /** How long a request's transaction waits for a row lock before giving up (503 BUSY). */
+  DB_LOCK_TIMEOUT_MS: z.coerce.number().int().min(1).default(5_000),
+  /** The longest any one statement of a request's transaction may run. */
+  DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(1).default(15_000),
 });
 
 export type Env = z.infer<typeof envSchema>;

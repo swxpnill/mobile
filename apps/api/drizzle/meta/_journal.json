@@ -8,6 +8,27 @@
       "when": 1795241695006,
       "tag": "0000_m1_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1795587721950,
+      "tag": "0001_masters",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795589199449,
+      "tag": "0002_product_company_position",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1795589942749,
+      "tag": "0003_orders",
+      "breakpoints": true
     }
   ]
 }

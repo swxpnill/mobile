@@ -71,6 +71,43 @@ describe('partyBodySchema', () => {
     expect(paths(partyBodySchema.safeParse(twoDefaults))).toContainEqual(['addresses']);
   });
 
+  it('any party: at most one bill-to is the default; the second default is named at its isDefault', () => {
+    const bill = { kind: 'bill_to', label: 'Bill to', address: 'Raipur', isDefault: true };
+    const broker = { ...shubham, type: 'broker', defaultCommissionPerMt: 150, addresses: [bill, { ...bill, label: 'Head office' }] };
+    const r = partyBodySchema.safeParse(broker);
+    expect(r.error?.issues.map((i) => ({ path: i.path, message: i.message }))).toEqual([
+      { path: ['addresses', 1, 'isDefault'], message: 'Only one bill-to address can be the default' },
+    ]);
+    expect(partyBodySchema.safeParse({ ...broker, addresses: [bill, { ...bill, isDefault: false }] }).success).toBe(true);
+  });
+
+  it('a repeated contact, number (within or across contacts) or address id → at the repeat', () => {
+    const id = (n: number) => `019a4c00-0009-7000-8000-${String(n).padStart(12, '0')}`;
+    const [c0] = shubham.contacts;
+    if (!c0) throw new Error('contact expected');
+    const n0 = { ...c0.numbers[0], id: id(1) };
+    const body = {
+      ...shubham,
+      contacts: [
+        { ...c0, id: id(2), numbers: [n0, { ...c0.numbers[1], id: id(3) }, n0] },
+        { ...c0, id: id(2), numbers: [{ ...c0.numbers[1], id: id(3) }] },
+      ],
+      addresses: [
+        { ...shubham.addresses[0], id: id(4) },
+        { ...shubham.addresses[1], id: id(5) },
+        { ...shubham.addresses[2], id: id(5) },
+      ],
+    };
+    expect(paths(partyBodySchema.safeParse(body))).toEqual([
+      ['contacts', 1, 'id'],
+      ['contacts', 0, 'numbers', 2, 'id'],
+      ['contacts', 1, 'numbers', 0, 'id'],
+      ['addresses', 2, 'id'],
+    ]);
+    const issue = partyBodySchema.safeParse(body).error?.issues[0];
+    expect(issue?.message).toBe('This id is already used in this party');
+  });
+
   it('only brokers carry a default commission', () => {
     expect(paths(partyBodySchema.safeParse({ ...shubham, defaultCommissionPerMt: 150 }))).toContainEqual([
       'defaultCommissionPerMt',

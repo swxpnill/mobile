@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SAMPLE_WORLD,
   meSchema,
+  metaSchema,
   requestCodeResponseSchema,
   tenantChoiceDetailsSchema,
   tokenPairSchema,
@@ -38,6 +39,14 @@ const refresh = (t: ContractTarget, refreshToken: string, deviceId = DEVICE_A) =
 export function register(factory: TargetFactory): void {
   describe('contract: auth', () => {
     const target = useTarget(factory);
+
+    describe('meta', () => {
+      it('GET /v1/meta is public and reports a non-empty apiVersion string', async () => {
+        const meta = expectOk(await call(target(), 'GET', '/v1/meta'), metaSchema);
+        expect(typeof meta.apiVersion).toBe('string');
+        expect(meta.apiVersion.length).toBeGreaterThan(0);
+      });
+    });
 
     describe('request-code', () => {
       it('same 200 { resendAfterSeconds: 30 } for known and unknown numbers', async () => {

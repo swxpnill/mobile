@@ -24,6 +24,14 @@ grant usage on schema public to tonnage_app;
 grant select, insert, update, delete on all tables in schema public to tonnage_app;
 alter default privileges in schema public grant select, insert, update, delete on tables to tonnage_app;
 
+-- 2b. `tenants` is the one table without RLS, so the runtime role gets only what it needs: read, and
+-- update of the settings (PATCH /v1/settings). Tenants are created and removed by the owner role
+-- (seed, provisioning), never by the API. Revoking table-level UPDATE also drops column grants, so
+-- the column grant follows it; re-running after step 2 lands in the same state.
+revoke insert, delete on public.tenants from tonnage_app;
+revoke update on public.tenants from tonnage_app;
+grant update (settings, updated_at) on public.tenants to tonnage_app;
+
 -- 3. Tenant isolation, on every public table with a tenant_id column, so a table a later migration
 -- adds is covered without anyone listing it. Exempt (keep in step with test/migrate.test.ts):
 --   refresh_tokens: looked up by token hash before the tenant is known (refresh carries no tenant).
