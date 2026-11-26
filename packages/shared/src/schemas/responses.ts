@@ -36,5 +36,7 @@ export type RequestCodeResponse = z.infer<typeof requestCodeResponseSchema>;
 export const metaSchema = z.object({
   minSupportedVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
   serverTime: z.iso.datetime(),
+  /** The server build's version (the API's package.json; the mock reports its own). */
+  apiVersion: z.string().min(1),
 });
 export type Meta = z.infer<typeof metaSchema>;

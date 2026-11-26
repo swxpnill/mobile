@@ -442,6 +442,7 @@ describe('me, meta, settings, redaction', () => {
     expect(res.body).toEqual({
       minSupportedVersion: '1.0.0',
       serverTime: '2026-11-03T04:30:00.000Z',
+      apiVersion: '0.0.0-mock',
     });
   });
 

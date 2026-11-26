@@ -1,9 +1,14 @@
 name: CI
 on:
-  push:
   pull_request:
+  push:
+    branches: [main]
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   verify:
+    name: verify
     runs-on: ubuntu-latest
     services:
       # The API tests (apps/api) run against this instead of embedded Postgres.
@@ -20,10 +25,11 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - run: corepack enable
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: corepack enable
+          cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck

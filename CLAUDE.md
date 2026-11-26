@@ -124,6 +124,7 @@ More → Demo tools. Shown only in mock mode in dev builds, or when a client dem
 
 ## Conventions
 
+- Delivery: work on a branch, merge through a pull request with green CI (`verify`), update CHANGELOG.md, and tag each milestone on its merge commit.
 - Commits: Conventional Commits with scope, e.g. `feat(mobile): …`, `fix(mock-api): …`.
 - Tests first: a failing test before the fix or feature. CI (`.github/workflows`) runs lint, typecheck and test.
 - Scripts must work in both Git Bash and PowerShell: no `rm -rf`, no `export X=`.
