@@ -9,7 +9,7 @@ export const ERROR_CODES = [
   'PLANT_REQUIRED', 'PLANT_INACTIVE', 'CUSTOMER_REQUIRED', 'TRUCK_LOCKED', 'TRUCK_CANCELLED', 'ALREADY_RESOLVED', 'ARRIVAL_REQUIRED',
   'PLANT_SCOPE', 'TARE_CONFLICT', 'INVALID_WEIGHT', 'ALLOC_MISMATCH', 'LINE_REMOVED', 'TARE_REQUIRED',
   'ALREADY_DISPATCHED', 'INVALID_STATE', 'NOT_REVERSIBLE', 'ALREADY_REVERSED',
-  'ALREADY_WEIGHED', 'NOT_AWAITING_APPROVAL', 'RATE_LIMITED', 'ORDER_NUMBER_TAKEN',
+  'ALREADY_WEIGHED', 'NOT_AWAITING_APPROVAL', 'RATE_LIMITED', 'ORDER_NUMBER_TAKEN', 'BUSY',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -71,6 +71,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   RATE_LIMITED: 'Too many attempts. Try again in a minute',
   ORDER_NUMBER_TAKEN:
     'This order number is already used. Add the year (YYMM) to the order number format in Settings',
+  BUSY: 'The server is busy. Try again in a moment',
 };
 
 export interface ApiErrorBody {

@@ -1,6 +1,7 @@
 import { ERROR_MESSAGES, type ApiErrorBody, type ErrorCode } from '@tonnage/shared';
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { RETRYABLE_PG_CODES, pgCode } from '../db/pg-error.ts';
 import { badBodyReason } from './body-parser.ts';
 
 /** Thrown by handlers; turned into `{ code, message, details? }` (same signature as the mock's `ApiError`). */
@@ -60,6 +61,9 @@ export const zodValidatorCompiler = ({ schema }: { schema: unknown }) => {
   };
 };
 
+/** Seconds a client is asked to wait before sending a BUSY request again. */
+const BUSY_RETRY_AFTER_S = '1';
+
 function clientErrorFor(status: number): AppError {
   switch (status) {
     case 401:
@@ -95,6 +99,9 @@ function toAppError(error: unknown): AppError {
   if (fe && typeof fe.statusCode === 'number' && fe.statusCode >= 400 && fe.statusCode < 500) {
     return clientErrorFor(fe.statusCode);
   }
+  // Lock contention (deadlock, serialization failure, lock timeout): the client may send it again.
+  const code = pgCode(error);
+  if (code !== null && RETRYABLE_PG_CODES.has(code)) return new AppError(503, 'BUSY');
   return new AppError(500, 'INTERNAL');
 }
 
@@ -102,7 +109,11 @@ function toAppError(error: unknown): AppError {
 export function registerErrorHandling(app: FastifyInstance): void {
   app.setErrorHandler((error: unknown, request: FastifyRequest, reply: FastifyReply) => {
     const appError = toAppError(error);
-    if (appError.status >= 500) {
+    if (appError.code === 'BUSY') {
+      // Expected under contention: a warning with the SQLSTATE, and a hint to send it again shortly.
+      request.log.warn({ pgCode: pgCode(error), requestId: request.id }, 'database busy');
+      void reply.header('retry-after', BUSY_RETRY_AFTER_S);
+    } else if (appError.status >= 500) {
       // The stack goes to the log (with the request id), never to the client.
       request.log.error({ err: error, requestId: request.id }, 'unhandled error');
     }

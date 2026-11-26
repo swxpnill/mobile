@@ -6,7 +6,7 @@ import { DevOtpProvider, type OtpProvider } from './auth/otp-provider.ts';
 import { createOtpService } from './auth/otp.service.ts';
 import { createTokens } from './auth/tokens.ts';
 import type { Clock } from './clock.ts';
-import type { Db } from './db/client.ts';
+import { configureTimeouts, type Db } from './db/client.ts';
 import type { Env } from './env.ts';
 import { registerBodyParsers } from './http/body-parser.ts';
 import { registerErrorHandling, zodValidatorCompiler } from './http/errors.ts';
@@ -79,6 +79,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     );
   });
 
+  configureTimeouts(deps.db, { lockTimeoutMs: env.DB_LOCK_TIMEOUT_MS, statementTimeoutMs: env.DB_STATEMENT_TIMEOUT_MS });
   const tokens = createTokens(env.JWT_SECRET);
   registerPipeline(app, { db: deps.db, clock: deps.clock, tokens });
   const otp = createOtpService({

@@ -41,6 +41,22 @@ export function createDb(
   return { db, close: () => pool.end() };
 }
 
+/** Per-transaction limits: how long to wait for a lock, and how long one statement may run (ms). */
+export interface DbTimeouts {
+  lockTimeoutMs: number;
+  statementTimeoutMs: number;
+}
+
+/** The env defaults; a database the app did not configure (scripts, tests) uses these. */
+export const DEFAULT_DB_TIMEOUTS: DbTimeouts = { lockTimeoutMs: 5_000, statementTimeoutMs: 15_000 };
+
+const configuredTimeouts = new WeakMap<object, DbTimeouts>();
+
+/** Sets the timeouts every `withTenant` transaction on `db` starts with (the API passes its env). */
+export function configureTimeouts(db: Db, timeouts: DbTimeouts): void {
+  configuredTimeouts.set(db, timeouts);
+}
+
 /**
  * Runs `fn` in a transaction scoped to one tenant: `app.tenant_id` is set transaction-locally
  * (`set_config(..., true)`), so RLS sees only that tenant's rows and the setting is gone at commit
@@ -52,9 +68,22 @@ export function createDb(
  * goes on as another tenant by accident.
  */
 export async function withTenant<T>(db: Db | Tx, tenantId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
+  if (!(db instanceof PgTransaction)) {
+    // A new transaction also gets its lock and statement timeouts (as SET LOCAL), so a request never
+    // waits on a lock or a runaway statement for ever; the pooled connection keeps its own settings.
+    const { lockTimeoutMs, statementTimeoutMs } = configuredTimeouts.get(db) ?? DEFAULT_DB_TIMEOUTS;
+    return db.transaction((tx) =>
+      tx
+        .execute(
+          sql`select set_config('app.tenant_id', ${tenantId}, true),
+                     set_config('lock_timeout', ${`${lockTimeoutMs}ms`}, true),
+                     set_config('statement_timeout', ${`${statementTimeoutMs}ms`}, true)`,
+        )
+        .then(() => fn(tx)),
+    );
+  }
   const run = (tx: Tx): Promise<T> =>
     tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`).then(() => fn(tx));
-  if (!(db instanceof PgTransaction)) return db.transaction(run);
 
   const current = await db.execute<{ v: string | null }>(
     sql`select current_setting('app.tenant_id', true) as v`,
