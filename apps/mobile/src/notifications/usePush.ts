@@ -10,6 +10,7 @@ import { onSignOut, useSession } from '../auth/session';
 import { requestSync } from '../offline/useSync';
 import { localData, showLocal } from './localNotify';
 import { openNotificationLink } from './openLink';
+import { dismissWelcome } from '../onboarding/tourStore';
 import { ensurePermission } from './permission';
 import { getPushChannel } from './pushChannel';
 
@@ -83,6 +84,7 @@ export function usePush(): void {
       void api(`/v1/notifications/${d.notificationId}/read`, { method: 'POST' })
         .then(() => refreshNotifications(qc))
         .catch(() => undefined);
+      dismissWelcome(); // the link opens now, not behind the greeting
       openNotificationLink(router, d.deepLink);
     };
     const sub = Notifications.addNotificationResponseReceivedListener(open);

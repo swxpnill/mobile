@@ -147,6 +147,7 @@ export function MoreScreen() {
             onPress={() => router.push('/demo-tools')}
           />
         ) : null}
+        <MenuRow icon="info" tone="bl" label="Help & tour" onPress={() => router.push('/help')} />
         <MenuRow
           icon="info"
           tone="gr"

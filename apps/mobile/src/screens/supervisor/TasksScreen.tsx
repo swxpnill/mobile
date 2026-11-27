@@ -23,6 +23,7 @@ import {
 import { SyncBanner } from './SyncBanner';
 import { useMarkArrived } from './useMarkArrived';
 import { usePlantTitle } from './usePlantTitle';
+import { TourTarget } from '../../onboarding/TourTarget';
 
 /** Supervisor's My tasks (canvas 11): this plant's trucks, what to weigh next, sync state. */
 export function TasksScreen() {
@@ -37,6 +38,14 @@ export function TasksScreen() {
   const needTare = shown.filter((x) => x.state === 'assigned' || x.state === 'at_gate').length;
   const needGross = shown.filter((x) => x.state === 'loading').length;
   const doneCount = snap ? doneRows(snap).rows.length : 0;
+  // The tour points at one card per step: the first truck that shows that step.
+  const firstAssigned = shown.find((x) => x.state === 'assigned')?.truckId;
+  const pointers: TaskPointers = {
+    arrived: firstAssigned,
+    // A tare button that works now (an arrived truck) teaches more than the locked step.
+    tare: shown.find((x) => x.state === 'at_gate')?.truckId ?? firstAssigned,
+    weigh: shown.find((x) => x.state === 'loading')?.truckId,
+  };
 
   return (
     <Screen
@@ -73,11 +82,13 @@ export function TasksScreen() {
 
       <SyncBanner />
 
-      <View style={styles.counts}>
-        <Count label="Need tare" value={needTare} color="vi" />
-        <Count label="Need gross" value={needGross} color="wnt" />
-        <Count label="Done today" value={doneCount} color="okt" />
-      </View>
+      <TourTarget id="tasks.counts">
+        <View style={styles.counts}>
+          <Count label="Need tare" value={needTare} color="vi" />
+          <Count label="Need gross" value={needGross} color="wnt" />
+          <Count label="Done today" value={doneCount} color="okt" />
+        </View>
+      </TourTarget>
 
       <SectionLabel>My tasks · trucks assigned by sales</SectionLabel>
       {snap === null ? (
@@ -93,6 +104,7 @@ export function TasksScreen() {
           <TaskCard
             key={task.truckId}
             task={task}
+            pointers={pointers}
             onWeigh={() => router.push(`/weigh/${task.truckId}`)}
           />
         ))
@@ -153,7 +165,15 @@ const STATE_LOOK: Record<
   loading: { icon: 'scales', tile: 'wns', fg: 'wnt' },
 };
 
-function TaskCard({ task, onWeigh }: { task: DisplayTask; onWeigh(): void }) {
+/** Which card's buttons the supervisor tour highlights (by truck id). */
+interface TaskPointers {
+  arrived?: string;
+  tare?: string;
+  weigh?: string;
+}
+
+function TaskCard({ task, onWeigh, pointers }: { task: DisplayTask; onWeigh(): void; pointers: TaskPointers }) {
+  const mine = (k: keyof TaskPointers) => (pointers[k] === task.truckId ? (`tasks.${k}` as const) : undefined);
   const { t } = useTheme();
   const basis = useDisplayBasis();
   const arrival = useMarkArrived();
@@ -213,19 +233,27 @@ function TaskCard({ task, onWeigh }: { task: DisplayTask; onWeigh(): void }) {
       </View>
 
       {task.state === 'loading' ? (
-        <Button onPress={onWeigh}>Capture gross weight</Button>
+        <TourTarget id={mine('weigh')}>
+          <Button onPress={onWeigh}>Capture gross weight</Button>
+        </TourTarget>
       ) : task.state === 'assigned' ? (
         // TON-57: the vehicle is marked arrived first; its tare waits until then.
         <>
-          <Button variant="violet" loading={arrival.busy === task.truckId} onPress={() => void arrival.mark(task.truckId)}>
-            Vehicle arrived
-          </Button>
-          <LockedStep title="Capture tare weight" hint="Unlocks when the vehicle arrives" />
+          <TourTarget id={mine('arrived')}>
+            <Button variant="violet" loading={arrival.busy === task.truckId} onPress={() => void arrival.mark(task.truckId)}>
+              Vehicle arrived
+            </Button>
+          </TourTarget>
+          <TourTarget id={mine('tare')}>
+            <LockedStep title="Capture tare weight" hint="Unlocks when the vehicle arrives" />
+          </TourTarget>
         </>
       ) : (
-        <Button variant="violet" onPress={onWeigh}>
-          Capture tare weight
-        </Button>
+        <TourTarget id={mine('tare')}>
+          <Button variant="violet" onPress={onWeigh}>
+            Capture tare weight
+          </Button>
+        </TourTarget>
       )}
     </View>
   );

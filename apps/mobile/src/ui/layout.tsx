@@ -15,8 +15,11 @@ import { useTheme } from '../theme/ThemeProvider';
 import { MIN_TOUCH, radius } from '../theme/tokens';
 import { Icon } from './Icon';
 import { Text } from './Text';
+import { targetsStore } from '../onboarding/targets';
 
 /** A full screen: safe area, background, status bar colour, and (by default) scrolling content. */
+const bumpTargets = () => targetsStore.getState().bump();
+
 export function Screen({
   children,
   title,
@@ -59,6 +62,9 @@ export function Screen({
   const content = scroll ? (
     <ScrollView
       testID="screen-scroll"
+      // Tour and tip targets move with the content: they measure again where the scroll stops.
+      onScrollEndDrag={bumpTargets}
+      onMomentumScrollEnd={bumpTargets}
       contentContainerStyle={body}
       keyboardShouldPersistTaps="handled"
       refreshControl={

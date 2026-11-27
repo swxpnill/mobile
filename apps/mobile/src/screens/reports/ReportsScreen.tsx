@@ -20,6 +20,8 @@ import { ReportTiles } from './ReportTiles';
 import { FILTER_ALL, FILTER_PARAM, REPORT_META, type ReportFilterKey } from './reportMeta';
 import { type DateRange, presetRange, rangeLabel } from './ranges';
 import { shareSummary } from './reportView';
+import { TourTarget } from '../../onboarding/TourTarget';
+import { useFirstTip } from '../../onboarding/useFirstTip';
 
 const FILTER_TITLE: Record<ReportFilterKey, string> = {
   customer: 'Customer',
@@ -30,6 +32,7 @@ const FILTER_TITLE: Record<ReportFilterKey, string> = {
 
 /** Board 23: pick a report, range, unit and the report's own filter; preview, then share. */
 export function ReportsScreen() {
+  useFirstTip('reports.firstTile');
   const basis = useDisplayBasis();
   const today = istDateOf(Date.now());
   const [kind, setKind] = useState<ReportKind>('dispatch-register');
@@ -94,7 +97,9 @@ export function ReportsScreen() {
         ) : null}
       </View>
 
-      <ReportTiles selected={kind} onSelect={setKind} />
+      <TourTarget id="reports.firstTile">
+        <ReportTiles selected={kind} onSelect={setKind} />
+      </TourTarget>
 
       <ReportPreview
         key={kind}

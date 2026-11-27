@@ -5,6 +5,7 @@ import { useVehicleRequestFlusher } from '../../src/api/hooks/vehicleRequests';
 import { usePush } from '../../src/notifications/usePush';
 import { useBackgroundSync } from '../../src/offline/backgroundSync';
 import { useSync } from '../../src/offline/useSync';
+import { TourProvider } from '../../src/onboarding/TourProvider';
 import { ToastHost } from '../../src/ui';
 
 /**
@@ -20,7 +21,10 @@ export default function AppLayout() {
   if (status === 'signedOut') return <Redirect href="/sign-in" />;
   return (
     <View style={styles.fill}>
-      <Stack screenOptions={{ headerShown: false }} />
+      {/* Welcome, intro, tours and tips (canvas 41–46) over everything signed in; toasts stay on top. */}
+      <TourProvider>
+        <Stack screenOptions={{ headerShown: false }} />
+      </TourProvider>
       <ToastHost />
     </View>
   );

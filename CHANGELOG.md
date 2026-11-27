@@ -13,6 +13,8 @@ All notable changes to Tonnage are listed here, newest first. The format follows
 
 ### Added
 
+- Seamless launch: a branded splash (the T glyph on the welcome background, light and dark) held until Welcome back has drawn the same logo in the same place; Welcome back then animates the logo into its tile and brings the words in, holds 1.5 s and fades into the app. Home shows a skeleton of its layout instead of a spinner while it loads (reusable `Skeleton` in `src/ui`).
+- Welcome, role tours and first-visit tips (canvas 41–46): Welcome back when the app is reopened or unlocked, a first sign-in intro, spotlight tours over the real screens for owner, city staff, plant head and supervisor, one-time tips on nine screens, and More / Profile → Help & tour (replay, the team's tours, How do I…, tips on or off). Progress is per person on the phone; Demo tools → Replay first sign-in shows it again.
 - B2 (orders on Postgres): the M2 routes (parties, products, orders, drafts, Home and the order lifecycle) run on Postgres with RLS; the M1 and M2 contract suites are green against the API; a generated permission matrix and a money-leak check over every GET; the masters seed with the mock's ids; `apiVersion` in `GET /v1/meta`.
 - API database timeouts: every request transaction sets `lock_timeout` and `statement_timeout` (`DB_LOCK_TIMEOUT_MS`, default 5 s; `DB_STATEMENT_TIMEOUT_MS`, default 15 s); a deadlock, serialization failure or lock timeout answers 503 `BUSY` with `Retry-After`.
 - Delivery lifecycle: this changelog, a pull request template, Dependabot, and CI that cancels superseded runs and caches the pnpm store.

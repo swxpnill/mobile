@@ -18,6 +18,10 @@ import { HomeScreen } from '../src/screens/home/HomeScreen';
 import { MoreScreen } from '../src/screens/MoreScreen';
 import { NotificationsScreen } from '../src/screens/notifications/NotificationsScreen';
 import { OrdersScreen } from '../src/screens/orders/OrdersScreen';
+import { CoachCard } from '../src/onboarding/CoachCard';
+import { stepsFor } from '../src/onboarding/tours';
+import { WelcomeScreen } from '../src/onboarding/WelcomeScreen';
+import { HelpTourScreen } from '../src/screens/help/HelpTourScreen';
 import { ProfileScreen } from '../src/screens/ProfileScreen';
 import { SettingsScreen } from '../src/screens/SettingsScreen';
 import { ThemeProvider } from '../src/theme/ThemeProvider';
@@ -89,6 +93,16 @@ const SCREENS: { name: string; user: string; ui: () => ReactElement; ready: stri
   { name: 'Notifications', user: ids.users.rajesh, ui: () => <NotificationsScreen />, ready: 'Notifications' },
   { name: 'Create sheet', user: ids.users.rajesh, ui: () => <CreateSheet visible onClose={jest.fn()} />, ready: 'Create new' },
   { name: 'Profile (supervisor)', user: ids.users.ravi, ui: () => <ProfileScreen />, ready: 'Notifications' },
+  { name: 'Help & tour', user: ids.users.rajesh, ui: () => <HelpTourScreen />, ready: 'What your team sees' },
+  { name: 'Welcome back', user: ids.users.ravi, ui: () => <WelcomeScreen />, ready: 'Welcome back' },
+  {
+    name: 'Tour coach card',
+    user: ids.users.rajesh,
+    ui: () => (
+      <CoachCard step={stepsFor('owner', 'Rajesh')[1]!} index={1} total={8} lastLabel="Start using Tonnage" onBack={jest.fn()} onNext={jest.fn()} onLayoutHeight={jest.fn()} />
+    ),
+    ready: 'What still has to go out',
+  },
 ];
 
 describe.each(['dark', 'light'] as const)('%s theme: only palette colours', (scheme) => {

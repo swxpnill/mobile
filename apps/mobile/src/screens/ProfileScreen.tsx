@@ -89,6 +89,7 @@ export function ProfileScreen() {
           onPress={() => router.push('/notifications')}
         />
         <PermissionRow />
+        <MenuRow icon="info" tone="gr" label="Help & tour" onPress={() => router.push('/help')} />
         {demoToolsEnabled() ? (
           <MenuRow
             icon="grid"

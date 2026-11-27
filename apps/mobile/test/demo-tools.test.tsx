@@ -12,6 +12,8 @@ import { UnitBasisProvider } from '../src/api/hooks/me';
 import { useNetStatus } from '../src/api/netStatus';
 import { setMockApi, setTransport } from '../src/api/transport';
 import { resetSessionForTests, useSession } from '../src/auth/session';
+import { onboardingStore } from '../src/onboarding/store';
+import { tourStore } from '../src/onboarding/tourStore';
 import { atGate, page, task } from '../src/offline/deviceStoreContract';
 import { openDeviceStore, resetDeviceStoresForTests } from '../src/offline/sqliteDeviceStore';
 import { CompaniesScreen } from '../src/screens/admin/CompaniesScreen';
@@ -24,7 +26,7 @@ import { ThemeProvider } from '../src/theme/ThemeProvider';
 import { Sheet } from '../src/ui/Sheet';
 import { WakingBanner } from '../src/ui/WakingBanner';
 
-const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), canGoBack: () => true };
+const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true };
 // The signed-in stack Demo tools sits in: (tabs) underneath, demo-tools on top.
 const mockNavigation = {
   getState: () => ({
@@ -277,6 +279,12 @@ describe('Reset demo data', () => {
     expect((await AsyncStorage.getAllKeys()).filter((k) => k.startsWith('tonnage-vehicle-requests-'))).toEqual([]);
   });
 
+  it('Reset demo data clears welcome, tour and tip progress for everyone', async () => {
+    onboardingStore.getState().update(ids.users.rajesh, { introSeen: true, tourDone: true });
+    await demo.resetDemoData();
+    expect(onboardingStore.getState().byUser).toEqual({});
+  });
+
   it('Cancel keeps everything', async () => {
     await wrap(<DemoToolsScreen />);
     await fireEvent.press(await screen.findByRole('button', { name: 'Reset demo data' }));
@@ -472,5 +480,19 @@ describe('F1.11 back stack', () => {
     await fireEvent.press(await screen.findByRole('button', { name: /^Ravi Verma/ }));
     await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/tasks'));
     expect(mockNavigation.dispatch).not.toHaveBeenCalled();
+  });
+});
+
+describe('Replay first sign-in', () => {
+  it('clears only this person’s progress and shows the welcome, then the intro, on their first tab', async () => {
+    await signIn(ids.users.rajesh);
+    onboardingStore.getState().update(ids.users.rajesh, { introSeen: true, tourDone: true, tipsSeen: ['a'] });
+    onboardingStore.getState().update(ids.users.priya, { introSeen: true });
+    await wrap(<DemoToolsScreen />);
+    await fireEvent.press(await screen.findByRole('button', { name: 'Replay first sign-in' }));
+    expect(onboardingStore.getState().byUser[ids.users.rajesh]).toBeUndefined();
+    expect(onboardingStore.getState().byUser[ids.users.priya]?.introSeen).toBe(true);
+    expect(tourStore.getState().welcome).toBe(true);
+    expect(mockRouter.navigate).toHaveBeenCalledWith('/home');
   });
 });

@@ -2,7 +2,7 @@ import { formatRupeesShort, toDisplayQty, unitLabel } from '@tonnage/shared';
 import { Bell } from '../notifications/Bell';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { byCode, useCompanies } from '../../api/hooks/companies';
 import { useDisplayBasis, useMe } from '../../api/hooks/me';
 import { useHome } from '../../api/hooks/orders';
@@ -13,7 +13,9 @@ import { unitBarColor } from '../../theme/tokens';
 import { Avatar, Badge, Button, Group, Icon, Screen, Text, UnitTag } from '../../ui';
 import { messageFor } from '../messages';
 import { UnitSwitcherSheet } from '../UnitSwitcherSheet';
+import { HomeSkeleton } from './HomeSkeleton';
 import { InPlantSection } from './InPlantSection';
+import { TourTarget } from '../../onboarding/TourTarget';
 
 const short = (name: string) => name.split(/\s+/)[0] ?? name;
 
@@ -39,6 +41,7 @@ export function HomeScreen() {
   return (
     <Screen edges={['top']} refresh={{ refreshing: home.isRefetching, onRefresh: () => void home.refetch() }}>
       <View style={styles.top}>
+        <TourTarget id="home.units">
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Switch unit — ${chosen ? chosen.name : 'All units'}`}
@@ -55,8 +58,11 @@ export function HomeScreen() {
           <Text weight="medium">{chosen ? short(chosen.name) : 'All units'}</Text>
           <Icon name="chevronDown" size={16} color={t.tx3} />
         </Pressable>
+        </TourTarget>
         <View style={styles.fill} />
-        <Bell />
+        <TourTarget id="home.bell">
+          <Bell />
+        </TourTarget>
         {me ? <Avatar name={me.name} tone="br" /> : null}
       </View>
 
@@ -80,10 +86,11 @@ export function HomeScreen() {
             </Button>
           </View>
         ) : (
-          <ActivityIndicator color={t.br} accessibilityLabel="Loading" />
+          <HomeSkeleton />
         )
       ) : (
         <>
+          <TourTarget id="home.pending">
           <Group>
             <View style={styles.card} accessibilityLabel={`Pending dispatch, ${qty(h.pendingKg)} ${unit}`}>
               <View style={styles.row}>
@@ -145,6 +152,7 @@ export function HomeScreen() {
               ) : null}
             </View>
           </Group>
+          </TourTarget>
 
           <View style={styles.tiles}>
             <Tile
@@ -161,7 +169,9 @@ export function HomeScreen() {
               detail={`${h.dispatchedToday.trucks} ${h.dispatchedToday.trucks === 1 ? 'truck' : 'trucks'}`}
             />
           </View>
-          <InPlantSection trucks={h.inPlant} slotOf={(code) => Math.max(0, all.findIndex((c) => c.code === code))} />
+          <TourTarget id="home.inPlant">
+            <InPlantSection trucks={h.inPlant} slotOf={(code) => Math.max(0, all.findIndex((c) => c.code === code))} />
+          </TourTarget>
         </>
       )}
       <UnitSwitcherSheet visible={switcher} onClose={() => setSwitcher(false)} />

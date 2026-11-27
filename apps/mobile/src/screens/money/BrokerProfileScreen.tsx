@@ -13,6 +13,8 @@ import { DueCard } from './DueCard';
 import { LedgerEntrySheet } from './LedgerEntrySheet';
 import { LedgerList } from './LedgerList';
 import { RecordPaymentSheet } from './RecordPaymentSheet';
+import { TourTarget } from '../../onboarding/TourTarget';
+import { useFirstTip } from '../../onboarding/useFirstTip';
 
 const VIEWS: readonly { value: LedgerView; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -27,6 +29,7 @@ const EMPTY: Record<LedgerView, string> = {
 
 /** Board 06: a broker's header and contacts (as board 05), what is due, and the ledger. */
 export function BrokerProfileScreen({ party }: { party: Party }) {
+  useFirstTip('ledger.recordPayment');
   const router = useRouter();
   const { t } = useTheme();
   const basis = useDisplayBasis();
@@ -119,9 +122,11 @@ export function BrokerProfileScreen({ party }: { party: Party }) {
       }
       footer={
         canPay ? (
-          <Button disabled={!summary} onPress={() => setPaying(true)}>
-            Record payment
-          </Button>
+          <TourTarget id="ledger.recordPayment">
+            <Button disabled={!summary} onPress={() => setPaying(true)}>
+              Record payment
+            </Button>
+          </TourTarget>
         ) : undefined
       }
     >

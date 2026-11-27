@@ -18,11 +18,14 @@ import { CorrectWeightSheet } from './CorrectWeightSheet';
 import { SupervisorCard } from './SupervisorCard';
 import { Progress, Weighments } from './TruckTimeline';
 import { TRUCK_STATE_META, isOpenState, planLabel, shownPhone } from './truckStateMeta';
+import { TourTarget } from '../../onboarding/TourTarget';
+import { useFirstTip } from '../../onboarding/useFirstTip';
 
 const first = (name: string) => name.split(/\s+/)[0] ?? name;
 
 /** Canvas board 09: one truck, its weights, plan, progress, people and the actions this role has. */
 export function TruckDetailScreen({ id }: { id: string }) {
+  useFirstTip('truck.supervisors');
   const { t } = useTheme();
   const truck = useTruck(id);
   if (!truck.data) {
@@ -202,7 +205,9 @@ function Detail({ x, refreshing, refetch }: { x: Truck; refreshing: boolean; ref
       <Progress x={x} />
       <Weighments x={x} />
 
-      <SupervisorCard truck={x} />
+      <TourTarget id="truck.supervisors">
+        <SupervisorCard truck={x} />
+      </TourTarget>
 
       <Text variant="heading">Driver & transporter</Text>
       <Group>

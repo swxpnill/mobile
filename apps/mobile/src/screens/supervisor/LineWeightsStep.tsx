@@ -16,6 +16,8 @@ import { useTheme } from '../../theme/ThemeProvider';
 import { MIN_TOUCH, type Tokens, radius } from '../../theme/tokens';
 import { Button, Group, Icon, Keypad, Row, Text } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
+import { TourTarget } from '../../onboarding/TourTarget';
+import { useFirstTip } from '../../onboarding/useFirstTip';
 
 /** One product row on the truck: from its plan, or added from the sub-order (no plan). */
 interface WeighLine {
@@ -65,6 +67,7 @@ export function LineWeightsStep({
   saving: boolean;
   onSave(result: LineWeightsResult): void;
 }) {
+  useFirstTip('weigh.lines');
   const { t } = useTheme();
   const [lines, setLines] = useState<WeighLine[]>(() =>
     task.plan.map((p) => ({ orderLineId: p.orderLineId, name: p.productName, plannedKg: p.plannedKg, text: '' })),
@@ -116,6 +119,7 @@ export function LineWeightsStep({
         </Text>
       </View>
 
+      <TourTarget id="weigh.lines">
       <View style={styles.lines} accessibilityRole="radiogroup" accessibilityLabel="Products on this truck">
         {lines.map((line, i) => (
           <LineRow
@@ -130,6 +134,7 @@ export function LineWeightsStep({
           />
         ))}
       </View>
+      </TourTarget>
 
       {addable.length > 0 ? (
         <Pressable

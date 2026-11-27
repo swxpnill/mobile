@@ -10,6 +10,8 @@ import { BackHeader } from '../admin/parts';
 import { messageFor } from '../messages';
 import { EVENT_LABEL, rejectionReason, resolutionLine, sentLine } from './describe';
 import { RejectionDetailSheet } from './RejectionDetailSheet';
+import { TourTarget } from '../../onboarding/TourTarget';
+import { useFirstTip } from '../../onboarding/useFirstTip';
 
 const FILTERS: readonly { value: RejectionFilter; label: string }[] = [
   { value: 'open', label: 'Open' },
@@ -21,6 +23,7 @@ const FILTERS: readonly { value: RejectionFilter; label: string }[] = [
  * Each opens a sheet to restore it (re-run through the same dispatch code) or dismiss it.
  */
 export function NeedsAttentionScreen() {
+  useFirstTip('attention.first');
   const { t } = useTheme();
   const [filter, setFilter] = useState<RejectionFilter>('open');
   const [openId, setOpenId] = useState<string | null>(null);
@@ -51,8 +54,10 @@ export function NeedsAttentionScreen() {
   else
     body = (
       <Group>
-        {items.map((r) => (
-          <RejectionRow key={r.id} r={r} onPress={r.status === 'open' ? () => setOpenId(r.id) : undefined} />
+        {items.map((r, i) => (
+          <TourTarget key={r.id} id={i === 0 ? 'attention.first' : undefined}>
+            <RejectionRow r={r} onPress={r.status === 'open' ? () => setOpenId(r.id) : undefined} />
+          </TourTarget>
         ))}
       </Group>
     );

@@ -37,6 +37,7 @@ import { ThemeProvider } from '../src/theme/ThemeProvider';
 import { WeightReadout, showToast } from '../src/ui';
 import { Sheet } from '../src/ui/Sheet';
 import { auditA11y } from './a11y/audit';
+import { HelpTourScreen } from '../src/screens/help/HelpTourScreen';
 
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true, setParams: jest.fn() };
 jest.mock('expo-router', () => {
@@ -147,6 +148,7 @@ const OWNER: [string, () => Promise<ReactElement>][] = [
   ['Needs attention', async () => <NeedsAttentionScreen />],
   ['Notifications', async () => <NotificationsScreen />],
   ['Loading picker', async () => <LoadingPickerScreen />],
+  ['Help & tour', async () => <HelpTourScreen />],
 ];
 
 describe('owner screens', () => {

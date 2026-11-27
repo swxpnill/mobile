@@ -53,6 +53,13 @@ export interface Tokens {
   wa: string;
   /** Switch knob. */
   thumb: string;
+  /** Tour spotlight: the dimmed screen around the hole, and the ring around it (canvas 43–44). */
+  dim: string;
+  spotRing: string;
+  /** First-visit tip bubble (canvas 45): inverted surface and its text. */
+  tipBg: string;
+  tipTx: string;
+  tipTx2: string;
 }
 
 export const lightTokens: Tokens = {
@@ -94,6 +101,11 @@ export const lightTokens: Tokens = {
   onDanger: '#FFFFFF',
   wa: '#15803D',
   thumb: '#FFFFFF',
+  dim: 'rgba(11,13,18,.64)',
+  spotRing: 'rgba(255,255,255,.95)',
+  tipBg: '#111318',
+  tipTx: '#F4F3EF',
+  tipTx2: 'rgba(244,243,239,.8)',
 };
 
 export const darkTokens: Tokens = {
@@ -136,6 +148,11 @@ export const darkTokens: Tokens = {
   onDanger: '#FFFFFF',
   wa: '#15803D',
   thumb: '#FFFFFF',
+  dim: 'rgba(0,0,0,.72)',
+  spotRing: 'rgba(255,255,255,.95)',
+  tipBg: '#F4F3EF',
+  tipTx: '#111318',
+  tipTx2: 'rgba(17,19,24,.78)',
 };
 
 export type ColorScheme = 'light' | 'dark';

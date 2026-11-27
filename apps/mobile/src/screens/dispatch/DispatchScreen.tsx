@@ -12,6 +12,8 @@ import { messageFor } from '../messages';
 import { UnitSwitcherSheet } from '../UnitSwitcherSheet';
 import { ApproveSheet } from './ApproveSheet';
 import { TruckCard } from './TruckCard';
+import { TourTarget } from '../../onboarding/TourTarget';
+import { useFirstTip } from '../../onboarding/useFirstTip';
 
 const FILTERS: { value: DispatchState; label: string }[] = [
   { value: 'open', label: 'Open' },
@@ -25,6 +27,7 @@ const FILTERS: { value: DispatchState; label: string }[] = [
 
 /** Canvas board 08: trucks across the plants in scope; plant heads only read. */
 export function DispatchScreen() {
+  useFirstTip('dispatch.toApprove');
   const router = useRouter();
   const { t } = useTheme();
   const basis = useDisplayBasis();
@@ -80,7 +83,9 @@ export function DispatchScreen() {
       <SearchField value={search} onChangeText={setSearch} placeholder="Vehicle, order no, customer" label="Search trucks" />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
         {FILTERS.map((f) => (
-          <Chip key={f.value} label={f.label} count={countOf(f.value)} selected={state === f.value} onPress={() => setState(f.value)} />
+          <TourTarget key={f.value} id={f.value === 'weighed' ? 'dispatch.toApprove' : undefined}>
+            <Chip label={f.label} count={countOf(f.value)} selected={state === f.value} onPress={() => setState(f.value)} />
+          </TourTarget>
         ))}
       </ScrollView>
       {sentKg !== null && items.length > 0 ? (

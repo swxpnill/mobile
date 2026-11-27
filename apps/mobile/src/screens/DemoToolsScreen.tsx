@@ -11,12 +11,15 @@ import {
   resetDemoData,
   simulateActivity,
 } from '../api/demo';
+import { type Href, useRouter } from 'expo-router';
+import { useMe } from '../api/hooks/me';
 import { useTheme } from '../theme/ThemeProvider';
 import {
   Button,
   ChoiceRow,
   Group,
   Icon,
+  MenuRow,
   Row,
   Screen,
   SectionLabel,
@@ -31,6 +34,7 @@ import { DemoPeopleList } from './DemoPeopleList';
 import { messageFor } from './messages';
 import { SignOutGuardSheet } from './supervisor/SignOutGuardSheet';
 import { notSent, useSyncStatus } from '../offline/useSync';
+import { replayFirstSignIn } from '../onboarding/replay';
 
 const LATENCY_OPTIONS = [
   { value: '0', label: 'Off' },
@@ -51,6 +55,8 @@ export function DemoToolsScreen() {
   const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
   const [simulating, setSimulating] = useState(false);
   const [bgSyncing, setBgSyncing] = useState(false);
+  const router = useRouter();
+  const { data: me } = useMe();
 
   const refresh = useCallback((c: MockControls) => {
     setSim((prev) => {
@@ -145,6 +151,21 @@ export function DemoToolsScreen() {
           go?.();
         }}
       />
+
+      <SectionLabel>Welcome & tour</SectionLabel>
+      <Group>
+        <MenuRow
+          icon="info"
+          tone="bl"
+          label="Replay first sign-in"
+          value="Welcome, intro, tour, tips"
+          onPress={() => {
+            if (!me) return;
+            replayFirstSignIn(me, { navigate: (href) => router.navigate(href as Href) });
+            showToast('First sign-in will show again');
+          }}
+        />
+      </Group>
 
       <SectionLabel>Network</SectionLabel>
       <Group>

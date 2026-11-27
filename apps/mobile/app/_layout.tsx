@@ -18,6 +18,8 @@ import { api, needsForceUpdate } from '../src/api/client';
 import { UnitBasisProvider } from '../src/api/hooks/me';
 import { useIdleLock } from '../src/auth/lock';
 import { useSession } from '../src/auth/session';
+import { holdSplash, shouldHoldSplash } from '../src/onboarding/splashGate';
+import { WelcomeHost } from '../src/onboarding/WelcomeHost';
 import { LockScreen } from '../src/screens/LockScreen';
 import { UpdateRequiredScreen } from '../src/screens/UpdateRequiredScreen';
 import { ThemeProvider, useTheme } from '../src/theme/ThemeProvider';
@@ -61,6 +63,8 @@ function AppShell({ updateRequired }: { updateRequired: boolean }) {
         />
         <WakingBanner />
       </View>
+      {/* Above the router so its slide-in never moves it; below the lock screen. */}
+      <WelcomeHost />
       {locked ? <LockScreen /> : null}
     </View>
   );
@@ -96,7 +100,11 @@ export default function RootLayout() {
   useEffect(() => {
     // Keep the splash until fonts, the stored theme and the session are all known: no flash of
     // the wrong theme and no flash of the sign-in screen for a signed-in user.
-    if (ready) void SplashScreen.hideAsync();
+    if (!ready) return;
+    // A reopened, signed-in app keeps the splash until Welcome back has drawn its first frame
+    // (the same logo in the same place), so the hand-off cannot be seen. Capped in splashGate.
+    if (shouldHoldSplash(useSession.getState())) holdSplash(() => SplashScreen.hideAsync());
+    else void SplashScreen.hideAsync();
   }, [ready]);
 
   return (

@@ -24,7 +24,19 @@
       "expo-status-bar",
       "expo-secure-store",
       "expo-font",
-      "expo-splash-screen",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-logo.png",
+          "imageWidth": 88,
+          "resizeMode": "contain",
+          "backgroundColor": "#F4F5F7",
+          "dark": {
+            "image": "./assets/splash-logo-dark.png",
+            "backgroundColor": "#09090B"
+          }
+        }
+      ],
       "expo-sqlite",
       "expo-background-task"
     ],
