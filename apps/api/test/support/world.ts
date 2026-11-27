@@ -278,6 +278,7 @@ export async function buildWorld(t: TestApp, opts: { history?: boolean } = {}): 
       },
       'PATCH /v1/trucks/:id': { lrNo: 'LR-1', version: 1 },
       'POST /v1/trucks/:id/cancel': { reason: 'Other', note: '', version: 1 },
+      'POST /v1/trucks/:id/approve': { version: 1 },
     },
     call: (role, method, path, body) => send(PERSON_FOR[role], method, path, body),
   };

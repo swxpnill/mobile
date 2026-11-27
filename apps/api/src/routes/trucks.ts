@@ -2,6 +2,7 @@ import {
   type DispatchBoard,
   type RecentVehicle,
   type Truck,
+  approveTruckBodySchema,
   assignTruckBodySchema,
   cancelTruckBodySchema,
   dispatchBoardSchema,
@@ -19,7 +20,7 @@ import { z } from 'zod';
 import { trucks } from '../db/schema/index.ts';
 import { defineRoute } from '../http/route.ts';
 import { anyId } from '../services/orderGraph.ts';
-import { assignTruck, cancelTruck, editTruck } from '../services/dispatch/assign.ts';
+import { approveTruck, assignTruck, cancelTruck, editTruck } from '../services/dispatch/assign.ts';
 import { assertVisible, findTruckRow, inPlantScope, truckViewCtx } from '../services/dispatch/truckViews.ts';
 import { type TruckRow } from '../views/orderGraph.ts';
 import { boardOrder, newestFirst, sameIstDay, toTruck, vehicleKey } from '../views/trucks.ts';
@@ -45,6 +46,16 @@ export async function truckRoutes(app: FastifyInstance): Promise<void> {
     response: { 200: truckSchema },
     async handler({ tx, user, scope, now, params, body }) {
       return { body: await editTruck(tx, { user, scope, now }, params.id, body) };
+    },
+  });
+
+  defineRoute(app, 'POST', '/trucks/:id/approve', {
+    action: 'dispatch.approve',
+    idempotent: true,
+    body: approveTruckBodySchema,
+    response: { 200: truckSchema },
+    async handler({ tx, user, scope, now, params, body }) {
+      return { body: await approveTruck(tx, { user, scope, now }, params.id, body.version) };
     },
   });
 

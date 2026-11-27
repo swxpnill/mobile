@@ -24,6 +24,7 @@ import { productRoutes } from './routes/products.ts';
 import { plantRoutes } from './routes/plants.ts';
 import { settingsRoutes } from './routes/settings.ts';
 import { truckRoutes } from './routes/trucks.ts';
+import { supervisorRoutes } from './routes/supervisor.ts';
 import { userRoutes } from './routes/users.ts';
 
 export interface AppDeps {
@@ -102,6 +103,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(homeRoutes, { prefix: '/v1' });
   await app.register(orderRoutes, { prefix: '/v1' });
   await app.register(truckRoutes, { prefix: '/v1' });
+  await app.register(supervisorRoutes, { prefix: '/v1' });
   await app.register(orderLifecycleRoutes, { prefix: '/v1' });
   await app.register(authRoutes({ env, otp, tokens }), {
     prefix: '/v1/auth',

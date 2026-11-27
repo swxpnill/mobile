@@ -20,6 +20,7 @@ import { afterTruckAssigned, afterTruckChanged } from '../dispatchEffects.ts';
 import type { OrderWriteCtx } from '../orderEdit.ts';
 import { lockSubOrder } from '../orderLifecycle.ts';
 import { lockOrderTree } from '../orderTree.ts';
+import { approveDispatch } from './apply.ts';
 import { assertVisible, findTruckRow, inPlantScope, truckViewCtx } from './truckViews.ts';
 
 // Ported from packages/mock-api/src/handlers/trucks.ts (assign, edit, cancel): the same checks, codes
@@ -234,5 +235,14 @@ export async function cancelTruck(tx: Tx, c: OrderWriteCtx, truckId: string | un
     meta: { subOrderId: t.subOrderId, truckId: t.id, vehicleNo: t.vehicleNo, reason: body.reason },
   });
   await afterTruckChanged(tx, c, t.id);
+  return truckResponse(tx, c, t.id);
+}
+
+/** `POST /v1/trucks/:id/approve` (TON-57): the office approves a weighed truck; that is the dispatch. */
+export async function approveTruck(tx: Tx, c: OrderWriteCtx, truckId: string | undefined, version: number): Promise<Truck> {
+  const { t } = await lockTruck(tx, c, truckId);
+  if (nextTruckState(t.state, 'approve') === null) throw new AppError(409, 'NOT_AWAITING_APPROVAL');
+  if (version !== t.version) throw new AppError(409, 'STALE');
+  await approveDispatch(tx, c, t);
   return truckResponse(tx, c, t.id);
 }

@@ -26,6 +26,8 @@ export interface RouteCtx<B, Q> {
   body: B;
   /** Request time from the injected clock. */
   now: number;
+  /** Request headers, lower-case names (a repeated header keeps its last value). */
+  headers: Record<string, string | undefined>;
   log: FastifyBaseLogger;
 }
 
@@ -189,6 +191,11 @@ function assertResponseShape(
 
 const paramsOf = (req: FastifyRequest) => (req.params ?? {}) as Record<string, string>;
 
+const headersOf = (req: FastifyRequest): Record<string, string | undefined> =>
+  Object.fromEntries(
+    Object.entries(req.headers).map(([k, v]) => [k, Array.isArray(v) ? v[v.length - 1] : v]),
+  );
+
 /** A non-2xx result: thrown inside the transaction so it rolls back, then sent as returned. */
 class NonSuccess {
   constructor(readonly sent: Sent) {}
@@ -317,6 +324,7 @@ export function defineRoute<B = unknown, Q = Record<string, string>>(
             query,
             body,
             now,
+            headers: headersOf(req),
             log: req.log,
           };
           const result = c.eventTransactions === true
