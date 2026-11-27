@@ -36,6 +36,20 @@
       "when": 1795775273674,
       "tag": "0004_sync_clock",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795776422860,
+      "tag": "0005_dispatch",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795776425215,
+      "tag": "0006_dispatch_allocation_sum",
+      "breakpoints": true
     }
   ]
 }

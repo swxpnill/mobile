@@ -1,7 +1,7 @@
 import { ERROR_MESSAGES, type ApiErrorBody, type ErrorCode } from '@tonnage/shared';
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { RETRYABLE_PG_CODES, pgCode } from '../db/pg-error.ts';
+import { RETRYABLE_PG_CODES, pgCode, pgError } from '../db/pg-error.ts';
 import { badBodyReason } from './body-parser.ts';
 
 /** Thrown by handlers; turned into `{ code, message, details? }` (same signature as the mock's `ApiError`). */
@@ -102,6 +102,9 @@ function toAppError(error: unknown): AppError {
   // Lock contention (deadlock, serialization failure, lock timeout): the client may send it again.
   const code = pgCode(error);
   if (code !== null && RETRYABLE_PG_CODES.has(code)) return new AppError(503, 'BUSY');
+  // The deferred allocation-sum trigger (B3, spec section 4) fires at commit, outside any handler:
+  // the request broke Σ allocations = gross − tare, which the shared rules should have refused.
+  if (pgError(error)?.constraint === 'truck_allocations_sum') return new AppError(422, 'ALLOC_MISMATCH');
   return new AppError(500, 'INTERNAL');
 }
 
