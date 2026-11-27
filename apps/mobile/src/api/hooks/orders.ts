@@ -44,15 +44,16 @@ export interface OrderFilters {
 const filterParam = (companyId: string) => (companyId === 'all' ? undefined : companyId);
 
 /** Home figures for the unit switcher's choice; the key includes it, so switching refetches. */
-export function useHome() {
-  return useHomeFor(useUnitFilter().companyId);
+export function useHome(enabled = true) {
+  return useHomeFor(useUnitFilter().companyId, enabled);
 }
 
 /** Home figures for one company or all of them (the unit switcher lists every unit's pending). */
-export function useHomeFor(companyId: string) {
+export function useHomeFor(companyId: string, enabled = true) {
+  const signedIn = useSignedIn();
   return useQuery({
     queryKey: [...HOME_KEY, companyId],
-    enabled: useSignedIn(),
+    enabled: signedIn && enabled,
     placeholderData: keepPreviousData,
     queryFn: () => api(`/v1/home${qs({ companyId: filterParam(companyId) })}`, { schema: homeSchema }),
   });

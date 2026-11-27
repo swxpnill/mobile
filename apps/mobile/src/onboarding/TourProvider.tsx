@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { BackHandler, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSession } from '../auth/session';
@@ -8,9 +8,11 @@ import { Text } from '../ui';
 import { CoachCard } from './CoachCard';
 import { placeCard } from './geometry';
 import { SpotlightOverlay } from './SpotlightOverlay';
-import { onboardingStore } from './store';
+import { onboardingStore, useProgress } from './store';
 import { targetsStore } from './targets';
 import { overlayOf, tourStore } from './tourStore';
+import { takeColdStartWelcome } from './welcome';
+import { WelcomeScreen } from './WelcomeScreen';
 
 const CARD_SIDE = 20;
 const CARD_ESTIMATE = 220;
@@ -30,6 +32,9 @@ export function finishTour(): void {
 export function TourProvider({ children }: { children: ReactNode }) {
   const status = useSession((s) => s.status);
   const identity = useSession((s) => s.identity);
+  const resumed = useSession((s) => s.resumed);
+  const progress = useProgress();
+  const prevStatus = useRef(status);
   const openSheets = onboardingStore((s) => s.openSheets);
   const overlay = tourStore(overlayOf);
   const paused = status !== 'signedIn' || openSheets > 0;
@@ -47,6 +52,20 @@ export function TourProvider({ children }: { children: ReactNode }) {
     if (status === 'signedOut') tourStore.getState().end();
   }, [status]);
 
+  // Board 41: the app reopened with the person still signed in, or they just unlocked it.
+  useEffect(() => {
+    const was = prevStatus.current;
+    prevStatus.current = status;
+    if (status !== 'signedIn') return;
+    if (was === 'locked' || (resumed && takeColdStartWelcome())) tourStore.getState().showWelcome();
+  }, [status, resumed]);
+
+  // Board 42: first sign-in of this person on this phone, once nothing else is showing.
+  useEffect(() => {
+    if (status !== 'signedIn' || !progress.hydrated || !progress.userId || progress.introSeen) return;
+    if (overlay === 'none') tourStore.getState().setIntro(true);
+  }, [status, progress.hydrated, progress.userId, progress.introSeen, overlay]);
+
   return (
     <View style={styles.fill}>
       <View
@@ -58,6 +77,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
         {children}
       </View>
       {!paused && overlay === 'tour' ? <TourLayer /> : null}
+      {status === 'signedIn' && overlay === 'welcome' ? <WelcomeScreen /> : null}
     </View>
   );
 }
