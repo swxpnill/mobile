@@ -32,6 +32,7 @@ import { OrderTrucks, SubOrderTrucks, assignHref } from './OrderTrucks';
 import { RequestVehicleSheet } from './RequestVehicleSheet';
 import { ShortCloseSheet } from './ShortCloseSheet';
 import { statusMeta } from './statusMeta';
+import { TourTarget } from '../../onboarding/TourTarget';
 
 type SheetName = 'actions' | 'shortClose' | 'delete' | 'move' | 'activity' | 'request' | null;
 
@@ -162,10 +163,10 @@ function Detail({ o, refetch, refreshing }: { o: Order; refetch(): void; refresh
       footer={
         may('truck.assign') && open.length > 0 && o.totals.pendingKg > 0 ? (
           <View style={styles.footer}>
+            <TourTarget id="order.requestVehicle" style={styles.fill}>
             <Button
               variant="secondary"
               icon="chat"
-              style={styles.fill}
               onPress={() => {
                 setPrefill(undefined);
                 setSheet('request');
@@ -173,6 +174,7 @@ function Detail({ o, refetch, refreshing }: { o: Order; refetch(): void; refresh
             >
               Request vehicle
             </Button>
+            </TourTarget>
             {assignable.length > 0 ? (
               <Button
                 onPress={() => (assignable.length === 1 ? router.push(assignHref(o, assignable[0]!)) : setSheet('actions'))}

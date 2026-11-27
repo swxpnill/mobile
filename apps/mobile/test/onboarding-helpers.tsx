@@ -17,7 +17,7 @@ import { ThemeProvider } from '../src/theme/ThemeProvider';
 
 export const MOBILE = {
   owner: '9826100012',
-  city_staff: '9426067890',
+  city_staff: '9425067890',
   plant_head: '9826100018',
   supervisor: '9826100014',
 } as const;

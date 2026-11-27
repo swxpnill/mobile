@@ -20,6 +20,7 @@ import { ReportTiles } from './ReportTiles';
 import { FILTER_ALL, FILTER_PARAM, REPORT_META, type ReportFilterKey } from './reportMeta';
 import { type DateRange, presetRange, rangeLabel } from './ranges';
 import { shareSummary } from './reportView';
+import { TourTarget } from '../../onboarding/TourTarget';
 
 const FILTER_TITLE: Record<ReportFilterKey, string> = {
   customer: 'Customer',
@@ -94,7 +95,9 @@ export function ReportsScreen() {
         ) : null}
       </View>
 
-      <ReportTiles selected={kind} onSelect={setKind} />
+      <TourTarget id="reports.firstTile">
+        <ReportTiles selected={kind} onSelect={setKind} />
+      </TourTarget>
 
       <ReportPreview
         key={kind}

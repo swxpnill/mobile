@@ -18,6 +18,7 @@ import { CorrectWeightSheet } from './CorrectWeightSheet';
 import { SupervisorCard } from './SupervisorCard';
 import { Progress, Weighments } from './TruckTimeline';
 import { TRUCK_STATE_META, isOpenState, planLabel, shownPhone } from './truckStateMeta';
+import { TourTarget } from '../../onboarding/TourTarget';
 
 const first = (name: string) => name.split(/\s+/)[0] ?? name;
 
@@ -202,7 +203,9 @@ function Detail({ x, refreshing, refetch }: { x: Truck; refreshing: boolean; ref
       <Progress x={x} />
       <Weighments x={x} />
 
-      <SupervisorCard truck={x} />
+      <TourTarget id="truck.supervisors">
+        <SupervisorCard truck={x} />
+      </TourTarget>
 
       <Text variant="heading">Driver & transporter</Text>
       <Group>

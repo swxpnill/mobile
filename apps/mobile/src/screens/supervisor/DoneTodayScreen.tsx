@@ -8,6 +8,7 @@ import { syncNow, useSyncStatus } from '../../offline/useSync';
 import { useTheme } from '../../theme/ThemeProvider';
 import { EmptyState, Group, Icon, Row, Screen, Text } from '../../ui';
 import { usePlantTitle } from './usePlantTitle';
+import { TourTarget } from '../../onboarding/TourTarget';
 
 /**
  * Canvas 35: trucks weighed today at this plant, from the device store, with the total net. TON-57:
@@ -93,6 +94,7 @@ export function DoneTodayScreen() {
               body="Trucks you weigh today show here."
             />
           ) : (
+            <TourTarget id="done.list">
             <Group>
               {done.rows.map((r) => {
                 const status = r.approved ? 'Dispatched' : r.synced ? 'Awaiting approval' : null;
@@ -131,6 +133,7 @@ export function DoneTodayScreen() {
                 );
               })}
             </Group>
+            </TourTarget>
           )}
         </>
       )}

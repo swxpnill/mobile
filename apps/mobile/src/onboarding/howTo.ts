@@ -132,7 +132,7 @@ const SUPERVISOR: HowTo[] = [
     title: 'Add another product to the truck',
     requires: 'weighment.capture',
     steps: [
-      'While typing product weights, tap Add a product.',
+      'While typing product weights, tap Add product.',
       'Choose a product from the same order.',
       'Type its weight and save as usual.',
     ],

@@ -11,6 +11,7 @@ import { MIN_TOUCH } from '../../theme/tokens';
 import { Button, EmptyState, Group, Header, Screen, Text } from '../../ui';
 import { messageFor } from '../messages';
 import { NotificationRow } from './NotificationRow';
+import { TourTarget } from '../../onboarding/TourTarget';
 
 /** Rows grouped by IST day, newest first: "Today", "Yesterday", "3 Nov". */
 export function groupByDay(items: readonly Notification[], nowMs: number): { title: string; items: Notification[] }[] {
@@ -85,8 +86,9 @@ export function NotificationsScreen() {
         <EmptyState icon="bell" title="No notifications yet" body="Orders, trucks and payments that need you show here." />
       ) : (
         <>
-          {groups.map((g) => (
-            <View key={g.title} style={styles.gap}>
+          {groups.map((g, gi) => (
+            <TourTarget key={g.title} id={gi === 0 ? 'notifications.list' : undefined}>
+            <View style={styles.gap}>
               <Text variant="overline" accessibilityRole="header" style={styles.overline}>
                 {g.title}
               </Text>
@@ -96,6 +98,7 @@ export function NotificationsScreen() {
                 ))}
               </Group>
             </View>
+            </TourTarget>
           ))}
           {list.hasNextPage ? (
             <Button variant="secondary" loading={list.isFetchingNextPage} onPress={() => void list.fetchNextPage()}>

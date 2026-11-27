@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TAB_META, type TabKey } from '../nav/tabs';
+import { TourTarget } from '../onboarding/TourTarget';
 import { useTheme } from '../theme/ThemeProvider';
 import { SMALL_TEXT_MAX_SCALE } from '../theme/tokens';
 import { Icon } from './Icon';
@@ -35,8 +36,8 @@ export function TabBar({
         const isNew = key === 'new';
         const fg = isNew ? t.invtx : selected ? t.brt : t.tx3;
         return (
+          <TourTarget key={key} id={`tab.${key}`} style={styles.slot}>
           <Pressable
-            key={key}
             accessibilityRole="tab"
             accessibilityLabel={meta.label}
             accessibilityState={{ selected }}
@@ -69,6 +70,7 @@ export function TabBar({
               {meta.label}
             </Text>
           </Pressable>
+          </TourTarget>
         );
       })}
     </View>
@@ -77,6 +79,7 @@ export function TabBar({
 
 const styles = StyleSheet.create({
   bar: { flexDirection: 'row', borderTopWidth: 1, paddingTop: 10, paddingHorizontal: 4 },
+  slot: { flex: 1 },
   item: { flex: 1, alignItems: 'center', gap: 4, minHeight: 56 },
   pill: { width: 56, height: 32, alignItems: 'center', justifyContent: 'center' },
   highlight: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },

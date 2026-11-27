@@ -10,6 +10,7 @@ import { BackHeader } from '../admin/parts';
 import { messageFor } from '../messages';
 import { EVENT_LABEL, rejectionReason, resolutionLine, sentLine } from './describe';
 import { RejectionDetailSheet } from './RejectionDetailSheet';
+import { TourTarget } from '../../onboarding/TourTarget';
 
 const FILTERS: readonly { value: RejectionFilter; label: string }[] = [
   { value: 'open', label: 'Open' },
@@ -51,8 +52,10 @@ export function NeedsAttentionScreen() {
   else
     body = (
       <Group>
-        {items.map((r) => (
-          <RejectionRow key={r.id} r={r} onPress={r.status === 'open' ? () => setOpenId(r.id) : undefined} />
+        {items.map((r, i) => (
+          <TourTarget key={r.id} id={i === 0 ? 'attention.first' : undefined}>
+            <RejectionRow r={r} onPress={r.status === 'open' ? () => setOpenId(r.id) : undefined} />
+          </TourTarget>
         ))}
       </Group>
     );

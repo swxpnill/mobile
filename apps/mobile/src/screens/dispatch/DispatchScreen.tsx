@@ -12,6 +12,7 @@ import { messageFor } from '../messages';
 import { UnitSwitcherSheet } from '../UnitSwitcherSheet';
 import { ApproveSheet } from './ApproveSheet';
 import { TruckCard } from './TruckCard';
+import { TourTarget } from '../../onboarding/TourTarget';
 
 const FILTERS: { value: DispatchState; label: string }[] = [
   { value: 'open', label: 'Open' },
@@ -80,7 +81,9 @@ export function DispatchScreen() {
       <SearchField value={search} onChangeText={setSearch} placeholder="Vehicle, order no, customer" label="Search trucks" />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
         {FILTERS.map((f) => (
-          <Chip key={f.value} label={f.label} count={countOf(f.value)} selected={state === f.value} onPress={() => setState(f.value)} />
+          <TourTarget key={f.value} id={f.value === 'weighed' ? 'dispatch.toApprove' : undefined}>
+            <Chip label={f.label} count={countOf(f.value)} selected={state === f.value} onPress={() => setState(f.value)} />
+          </TourTarget>
         ))}
       </ScrollView>
       {sentKg !== null && items.length > 0 ? (

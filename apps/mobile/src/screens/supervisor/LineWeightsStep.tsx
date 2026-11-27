@@ -16,6 +16,7 @@ import { useTheme } from '../../theme/ThemeProvider';
 import { MIN_TOUCH, type Tokens, radius } from '../../theme/tokens';
 import { Button, Group, Icon, Keypad, Row, Text } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
+import { TourTarget } from '../../onboarding/TourTarget';
 
 /** One product row on the truck: from its plan, or added from the sub-order (no plan). */
 interface WeighLine {
@@ -116,6 +117,7 @@ export function LineWeightsStep({
         </Text>
       </View>
 
+      <TourTarget id="weigh.lines">
       <View style={styles.lines} accessibilityRole="radiogroup" accessibilityLabel="Products on this truck">
         {lines.map((line, i) => (
           <LineRow
@@ -130,6 +132,7 @@ export function LineWeightsStep({
           />
         ))}
       </View>
+      </TourTarget>
 
       {addable.length > 0 ? (
         <Pressable

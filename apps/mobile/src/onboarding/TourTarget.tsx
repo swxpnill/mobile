@@ -14,7 +14,8 @@ export function TourTarget({
   style,
   children,
 }: {
-  id: TargetId;
+  /** No id: renders the children as they are (a card that is not the one being pointed at). */
+  id?: TargetId;
   style?: StyleProp<ViewStyle>;
   children: ReactNode;
 }) {
@@ -22,6 +23,7 @@ export function TourTarget({
   const tick = useTourTick();
 
   const report = useCallback(() => {
+    if (!id) return;
     measure(ref.current, (x, y, w, h) => {
       if (w > 0 && h > 0) targetsStore.getState().set(id, { x, y, w, h });
       else targetsStore.getState().clear(id);
@@ -32,8 +34,11 @@ export function TourTarget({
     report();
   }, [report, tick]);
 
-  useEffect(() => () => targetsStore.getState().clear(id), [id]);
+  useEffect(() => () => {
+    if (id) targetsStore.getState().clear(id);
+  }, [id]);
 
+  if (!id) return <>{children}</>;
   return (
     <View ref={ref} collapsable={false} style={style} onLayout={report}>
       {children}
