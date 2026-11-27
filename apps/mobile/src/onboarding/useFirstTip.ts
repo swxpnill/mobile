@@ -3,7 +3,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useMe } from '../api/hooks/me';
 import { useSession } from '../auth/session';
 import { DEFAULT_PROGRESS, onboardingStore } from './store';
-import { targetsStore } from './targets';
+import { intersects } from './geometry';
+import { targetsStore, toOverlay, useOverlayFrame } from './targets';
 import { overlayOf, tourStore } from './tourStore';
 import { tipFor } from './tips';
 import type { TargetId } from './tours';
@@ -35,7 +36,12 @@ export function useFirstTip(key: TargetId): void {
   const openSheets = onboardingStore((s) => s.openSheets);
   const hydrated = onboardingStore((s) => s.hydrated);
   const progress = onboardingStore((s) => (me ? s.byUser[me.id] : undefined)) ?? DEFAULT_PROGRESS;
-  const placed = targetsStore((s) => !!s.rects[key]);
+  const frame = useOverlayFrame();
+  // On screen now, not merely laid out: a tip below the fold would be used up unseen.
+  const placed = targetsStore((s) => {
+    const r = s.rects[key];
+    return !!r && intersects({ w: frame.w, h: frame.h }, toOverlay(r, frame));
+  });
 
   useFocusEffect(
     useCallback(() => {

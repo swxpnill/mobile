@@ -1,17 +1,17 @@
 import { type ComponentRef, type ReactNode, useEffect, useRef, useState } from 'react';
-import { BackHandler, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { BackHandler, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSession } from '../auth/session';
 import { useTheme } from '../theme/ThemeProvider';
 import { MIN_TOUCH } from '../theme/tokens';
 import { Text } from '../ui';
 import { CoachCard } from './CoachCard';
-import { type Rect, placeCard } from './geometry';
+import { intersects, placeCard } from './geometry';
 import { measure } from './measure';
 import { SpotlightOverlay } from './SpotlightOverlay';
 import { onboardingStore, useProgress } from './store';
-import { targetsStore } from './targets';
-import { overlayOf, tourStore } from './tourStore';
+import { targetsStore, toOverlay, useOverlayFrame } from './targets';
+import { notificationJustOpened, overlayOf, tourStore } from './tourStore';
 import { takeColdStartWelcome } from './welcome';
 import { WelcomeScreen } from './WelcomeScreen';
 import { TourIntroSheet } from './TourIntroSheet';
@@ -49,6 +49,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
     s.end();
     s.hideTip();
     s.setIntro(false);
+    s.hideWelcome();
   }, [identity]);
 
   useEffect(() => {
@@ -60,7 +61,9 @@ export function TourProvider({ children }: { children: ReactNode }) {
     const was = prevStatus.current;
     prevStatus.current = status;
     if (status !== 'signedIn') return;
-    if (was === 'locked' || (resumed && takeColdStartWelcome())) tourStore.getState().showWelcome();
+    const due = was === 'locked' || (resumed && takeColdStartWelcome());
+    // A notification tapped while locked has already opened its link: no greeting over it.
+    if (due && !notificationJustOpened()) tourStore.getState().showWelcome();
   }, [status, resumed]);
 
   // Board 42: first sign-in of this person on this phone, once nothing else is showing.
@@ -71,8 +74,14 @@ export function TourProvider({ children }: { children: ReactNode }) {
     if (overlayOf(tourStore.getState()) === 'none') tourStore.getState().setIntro(true);
   }, [status, progress.hydrated, progress.userId, progress.introSeen, overlay]);
 
+  const root = useRef<ComponentRef<typeof View>>(null);
+  const locate = () =>
+    measure(root.current, (x, y, w, h) => {
+      if (w > 0 && h > 0) targetsStore.getState().setFrame({ x, y, w, h });
+    });
+
   return (
-    <View style={styles.fill}>
+    <View ref={root} testID="onboarding-root" collapsable={false} style={styles.fill} onLayout={locate}>
       <View
         style={styles.fill}
         pointerEvents={blocking ? 'none' : 'auto'}
@@ -92,18 +101,10 @@ export function TourProvider({ children }: { children: ReactNode }) {
 function TourLayer() {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
-  const window = useWindowDimensions();
   const tour = tourStore((s) => s.tour);
   const rects = targetsStore((s) => s.rects);
   const [cardH, setCardH] = useState(CARD_ESTIMATE);
-  // Where this layer sits in the window: targets report window coordinates, and on edge-to-edge
-  // Android the window and this layer do not share an origin (status bar) or a height (nav bar).
-  const root = useRef<ComponentRef<typeof View>>(null);
-  const [frame, setFrame] = useState<Rect>({ x: 0, y: 0, w: window.width, h: window.height });
-  const locate = () =>
-    measure(root.current, (x, y, w, h) => {
-      if (w > 0 && h > 0) setFrame({ x, y, w, h });
-    });
+  const frame = useOverlayFrame();
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -125,12 +126,14 @@ function TourLayer() {
   const step = tour.steps[tour.index];
   if (!step) return null;
   const seen = step.target ? rects[step.target] : undefined;
-  const hole = seen ? { ...seen, x: seen.x - frame.x, y: seen.y - frame.y } : null;
   const size = { w: frame.w, h: frame.h };
+  const placed = seen ? toOverlay(seen, frame) : null;
+  // Scrolled out of sight: no hole, centred card (as for a step without a target).
+  const hole = placed && intersects(size, placed) ? placed : null;
   const top = placeCard(size, hole, cardH);
 
   return (
-    <View ref={root} collapsable={false} style={StyleSheet.absoluteFill} onLayout={locate}>
+    <View style={StyleSheet.absoluteFill}>
       {/* Takes every touch outside the card. */}
       <Pressable
         style={StyleSheet.absoluteFill}

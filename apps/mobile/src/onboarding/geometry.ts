@@ -33,6 +33,11 @@ export function spotlightPath(screen: Size, hole: Rect | null, pad = 6, radius =
   return outer + inner;
 }
 
+/** Whether any part of `r` is inside a screen of `size` (overlay coordinates). */
+export function intersects(size: Size, r: Rect): boolean {
+  return r.x < size.w && r.x + r.w > 0 && r.y < size.h && r.y + r.h > 0;
+}
+
 /**
  * Where the coach card goes: below the hole if it fits, else above, else centred. `pad` is the
  * hole's padding, `margin` the gap between hole and card and to the screen edges.
@@ -45,10 +50,12 @@ export function placeCard(
   pad = 6,
 ): { top: number } {
   const centred = { top: Math.max(margin, (screen.h - cardH) / 2) };
-  if (!hole) return centred;
+  // A target scrolled out of sight: the card shows centred, as for a step with no target.
+  if (!hole || !intersects(screen, hole)) return centred;
+  const clamp = (top: number) => ({ top: Math.max(margin, Math.min(top, screen.h - margin - cardH)) });
   const below = hole.y + hole.h + pad + margin;
-  if (below + cardH <= screen.h - margin) return { top: below };
+  if (below + cardH <= screen.h - margin) return clamp(below);
   const above = hole.y - pad - margin - cardH;
-  if (above >= margin) return { top: above };
+  if (above >= margin) return clamp(above);
   return centred;
 }

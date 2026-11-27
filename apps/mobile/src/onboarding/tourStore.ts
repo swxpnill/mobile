@@ -66,11 +66,22 @@ export function useOverlay(): Overlay {
   return tourStore(overlayOf);
 }
 
+let notificationAt = 0;
+/** A welcome due within this long of a tapped notification is skipped (one opened while locked). */
+export const NOTIFICATION_SKIP_MS = 10_000;
+
 /** A tapped notification goes straight to its link: the welcome must not sit on top of it. */
 export function dismissWelcome(): void {
+  notificationAt = Date.now();
   tourStore.getState().hideWelcome();
 }
 
+/** True when a notification was just tapped, so a welcome due now would cover its link. */
+export function notificationJustOpened(): boolean {
+  return Date.now() - notificationAt < NOTIFICATION_SKIP_MS;
+}
+
 export function resetTourForTests(): void {
+  notificationAt = 0;
   tourStore.setState({ welcome: false, intro: false, tour: null, tip: null });
 }

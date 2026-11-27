@@ -6,7 +6,7 @@ jest.mock('../src/onboarding/measure', () => ({
   measure: (_node: unknown, cb: (x: number, y: number, w: number, h: number) => void) =>
     cb(mockRect[0]!, mockRect[1]!, mockRect[2]!, mockRect[3]!),
 }));
-import { placeCard, spotlightPath } from '../src/onboarding/geometry';
+import { intersects, placeCard, spotlightPath } from '../src/onboarding/geometry';
 import { TourTarget } from '../src/onboarding/TourTarget';
 import { targetsStore } from '../src/onboarding/targets';
 
@@ -42,6 +42,23 @@ describe('placeCard', () => {
   it('is centred when neither fits or there is no hole', () => {
     expect(placeCard(SCREEN, { x: 0, y: 60, w: 412, h: 800 }, 220).top).toBe((915 - 220) / 2);
     expect(placeCard(SCREEN, null, 220).top).toBe((915 - 220) / 2);
+  });
+});
+
+describe('off-screen targets', () => {
+  it('a hole wholly below or above the screen counts as no hole', () => {
+    expect(placeCard(SCREEN, { x: 14, y: 1200, w: 380, h: 200 }, 220).top).toBe((915 - 220) / 2);
+    expect(placeCard(SCREEN, { x: 14, y: -400, w: 380, h: 200 }, 220).top).toBe((915 - 220) / 2);
+  });
+  it('the card always stays inside the screen', () => {
+    const top = placeCard(SCREEN, { x: 14, y: 890, w: 380, h: 200 }, 220).top;
+    expect(top).toBeGreaterThanOrEqual(16);
+    expect(top + 220).toBeLessThanOrEqual(915 - 16);
+  });
+  it('intersects tells whether any of a rect is on screen', () => {
+    expect(intersects(SCREEN, { x: 0, y: 900, w: 10, h: 40 })).toBe(true);
+    expect(intersects(SCREEN, { x: 0, y: 915, w: 10, h: 40 })).toBe(false);
+    expect(intersects(SCREEN, { x: 0, y: -40, w: 10, h: 40 })).toBe(false);
   });
 });
 

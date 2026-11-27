@@ -1,4 +1,5 @@
 import { act, fireEvent, screen } from '@testing-library/react-native';
+import { BackHandler } from 'react-native';
 import type { ReactTestRendererJSON } from 'react-test-renderer';
 import { meSchema } from '@tonnage/shared';
 import { api } from '../src/api/client';
@@ -110,6 +111,36 @@ describe('welcome back', () => {
     await act(async () => void (await jest.advanceTimersByTimeAsync(WELCOME_CAP_MS + WELCOME_FADE_MS + 100)));
     expect(shown()).toBe(false);
     expect(screen.getByText('Welcome to Tonnage')).toBeOnTheScreen();
+  });
+
+  it('a sign-out during the welcome leaves nothing for the next person', async () => {
+    await reopenAs(MOBILE.owner);
+    await wrap(ctx.client, <TourProvider>{null}</TourProvider>);
+    expect(shown()).toBe(true);
+    await act(async () => useSession.getState().signOut());
+    expect(tourStore.getState().welcome).toBe(false);
+  });
+
+  it('Android Back does nothing while the welcome shows', async () => {
+    const handlers: (() => boolean)[] = [];
+    const spy = jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_e, h) => {
+      handlers.push(h as () => boolean);
+      return { remove: () => undefined };
+    });
+    await reopenAs(MOBILE.owner);
+    await wrap(ctx.client, <TourProvider>{null}</TourProvider>);
+    expect(shown()).toBe(true);
+    expect(handlers.at(-1)?.()).toBe(true);
+    spy.mockRestore();
+  });
+
+  it('a notification opened under the fingerprint lock skips the welcome on unlock', async () => {
+    await signInAs(ctx.mock, MOBILE.owner);
+    await wrap(ctx.client, <TourProvider>{null}</TourProvider>);
+    await act(async () => useSession.getState().lock());
+    await act(async () => dismissWelcome());
+    await act(async () => useSession.getState().unlock());
+    expect(shown()).toBe(false);
   });
 
   it('passes the accessibility audit', async () => {

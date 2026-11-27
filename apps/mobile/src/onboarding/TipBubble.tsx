@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Animated, Pressable, StyleSheet, View } from 'react-native';
 import { useMe } from '../api/hooks/me';
 import { useReduceMotion } from '../a11y/useReduceMotion';
 import { useTheme } from '../theme/ThemeProvider';
 import { MIN_TOUCH } from '../theme/tokens';
 import { Text } from '../ui';
-import { targetsStore } from './targets';
+import { targetsStore, toOverlay, useOverlayFrame } from './targets';
 import { tourStore } from './tourStore';
 import { tipFor } from './tips';
 
@@ -13,6 +13,8 @@ const W = 300;
 const SIDE = 20;
 const GAP = 14;
 const ARROW = 14;
+/** A tall target (a whole list) is pointed at by its top band, not its middle. */
+const BAND = 56;
 
 /**
  * Board 45: a dark bubble pointing at the thing it explains, with a pulsing dot on it. The screen
@@ -21,10 +23,12 @@ const ARROW = 14;
 export function TipBubble() {
   const { t } = useTheme();
   const reduceMotion = useReduceMotion();
-  const { width, height } = useWindowDimensions();
+  const frame = useOverlayFrame();
+  const width = frame.w;
+  const height = frame.h;
   const { data: me } = useMe();
   const key = tourStore((s) => s.tip);
-  const rect = targetsStore((s) => (key ? s.rects[key] : undefined));
+  const seen = targetsStore((s) => (key ? s.rects[key] : undefined));
   const [bubbleH, setBubbleH] = useState(150);
   const pulse = useRef(new Animated.Value(0)).current;
 
@@ -36,19 +40,26 @@ export function TipBubble() {
   }, [pulse, reduceMotion]);
 
   const tip = me && key ? tipFor(me.role, key) : undefined;
-  if (!tip || !rect) return null;
+  if (!tip || !seen) return null;
+
+  const r = toOverlay(seen, frame);
+  // Point at the visible top band of the target, so a long list does not push the bubble away.
+  const top0 = Math.max(r.y, 0);
+  const rect = { ...r, y: top0, h: Math.max(0, Math.min(r.y + r.h, height) - top0) };
+  if (rect.h > BAND) rect.h = BAND;
 
   const w = Math.min(W, width - SIDE * 2);
   const cx = rect.x + rect.w / 2;
   const left = Math.max(SIDE, Math.min(cx - w / 2, width - SIDE - w));
   const above = rect.y + rect.h / 2 > height / 2;
-  const top = above ? rect.y - GAP - bubbleH : rect.y + rect.h + GAP;
+  const top = Math.max(SIDE, Math.min(above ? rect.y - GAP - bubbleH : rect.y + rect.h + GAP, height - SIDE - bubbleH));
   const arrowLeft = Math.max(16, Math.min(cx - left - ARROW / 2, w - 16 - ARROW));
   const dotTop = above ? rect.y - 5 : rect.y + rect.h - 5;
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       <View
+        testID="tip-dot"
         pointerEvents="none"
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"

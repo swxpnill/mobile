@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Animated, BackHandler, StyleSheet, View } from 'react-native';
 import Svg, { Rect } from 'react-native-svg';
 import { useCompanies } from '../api/hooks/companies';
 import { useDisplayBasis, useMe } from '../api/hooks/me';
@@ -57,6 +57,12 @@ export function WelcomeScreen() {
       tourStore.getState().hideWelcome(),
     );
   };
+
+  // Back would act on the screen hidden behind the greeting: it waits the 1.5 s out.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => true);
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     const cap = setTimeout(() => leave.current(), WELCOME_CAP_MS);

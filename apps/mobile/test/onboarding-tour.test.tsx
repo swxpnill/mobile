@@ -4,6 +4,7 @@ import type { ReactTestRendererJSON } from 'react-test-renderer';
 import { useSession } from '../src/auth/session';
 import { TourProvider } from '../src/onboarding/TourProvider';
 import { onboardingStore } from '../src/onboarding/store';
+import { tourStore } from '../src/onboarding/tourStore';
 import { targetsStore } from '../src/onboarding/targets';
 import { useTour } from '../src/onboarding/useTour';
 import { auditA11y } from './a11y/audit';
@@ -159,10 +160,19 @@ describe('tour', () => {
   it('draws the hole in the overlay’s own coordinates (status bar offset on Android)', async () => {
     mockFrame = [0, 40, 412, 875];
     await startOwnerTour();
-    await fireEvent(screen.getByTestId('coach-card').parent!.parent!, 'layout', {
+    await fireEvent(screen.getByTestId('onboarding-root'), 'layout', {
       nativeEvent: { layout: { x: 0, y: 0, width: 412, height: 875 } },
     });
     expect(screen.getByTestId('spot-ring', { includeHiddenElements: true })).toHaveStyle({ left: 14 - 6, top: 40 - 40 - 6 });
+  });
+
+  it('a sign-out right after Start tour does not start it for the next person', async () => {
+    await signInAs(ctx.mock, MOBILE.owner);
+    await wrap(ctx.client, <TourProvider><Starter /></TourProvider>);
+    await fireEvent.press(await screen.findByRole('button', { name: 'start' }));
+    await act(async () => useSession.getState().signOut());
+    await act(() => new Promise<void>((r) => setTimeout(r, 500)));
+    expect(tourStore.getState().tour).toBeNull();
   });
 
   it('the coach card passes the accessibility audit', async () => {

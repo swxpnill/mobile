@@ -1,11 +1,13 @@
 import { act, fireEvent, screen } from '@testing-library/react-native';
-import { Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import type { ReactTestRendererJSON } from 'react-test-renderer';
 import { TIP_SETTLE_MS, useFirstTip } from '../src/onboarding/useFirstTip';
 import { onboardingStore } from '../src/onboarding/store';
 import { TourProvider } from '../src/onboarding/TourProvider';
 import { TourTarget } from '../src/onboarding/TourTarget';
 import { tourStore } from '../src/onboarding/tourStore';
+import { targetsStore } from '../src/onboarding/targets';
+import { Screen } from '../src/ui';
 import { auditA11y } from './a11y/audit';
 import { type Ctx, MOBILE, ids, meLoaded, setup, signInAs, wrap } from './onboarding-helpers';
 
@@ -18,8 +20,9 @@ jest.mock('expo-router', () => {
     useFocusEffect: (cb: () => void | (() => void)) => useEffect(cb, [cb]),
   };
 });
+let mockRect: [number, number, number, number] = [20, 840, 180, 52];
 jest.mock('../src/onboarding/measure', () => ({
-  measure: (_n: unknown, cb: (x: number, y: number, w: number, h: number) => void) => cb(20, 840, 180, 52),
+  measure: (_n: unknown, cb: (x: number, y: number, w: number, h: number) => void) => cb(...mockRect),
 }));
 
 function OrderDetailLike() {
@@ -45,6 +48,7 @@ async function openAs(mobile: string, introSeen = true) {
 }
 
 beforeEach(async () => {
+  mockRect = [20, 840, 180, 52];
   ctx = await setup({ seedOrders: true });
 });
 afterEach(() => ctx.client.clear());
@@ -101,6 +105,41 @@ describe('first-visit tips', () => {
     expect(tourStore.getState().tip).toBe('order.requestVehicle');
     await view.rerender(<></>);
     expect(tourStore.getState().tip).toBeNull();
+  });
+
+  it('a target below the visible screen is not shown and not used up', async () => {
+    mockRect = [20, 2000, 180, 52];
+    const { id } = await openAs(MOBILE.owner);
+    await settle();
+    expect(screen.queryByText(TIP)).toBeNull();
+    expect(onboardingStore.getState().byUser[id]?.tipsSeen ?? []).not.toContain('order.requestVehicle');
+  });
+
+  it('is placed in the overlay’s own coordinates (status bar offset)', async () => {
+    await openAs(MOBILE.owner);
+    mockRect = [0, 40, 412, 875];
+    await fireEvent(screen.getByTestId('onboarding-root'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 412, height: 875 } },
+    });
+    await settle();
+    // Target at window y 840 → overlay y 800: the dot sits on its top edge.
+    expect(screen.getByTestId('tip-dot', { includeHiddenElements: true })).toHaveStyle({ top: 800 - 5 });
+  });
+
+  it('a tall target keeps the bubble inside the screen', async () => {
+    mockRect = [20, 110, 372, 1200];
+    await openAs(MOBILE.owner);
+    await settle();
+    const top = StyleSheet.flatten(screen.getByTestId('tip-bubble').props.style).top as number;
+    expect(top).toBeGreaterThanOrEqual(16);
+  });
+
+  it('a scroll measures the targets again', async () => {
+    await openAs(MOBILE.owner);
+    const before = targetsStore.getState().tick;
+    await wrap(ctx.client, <Screen title="T"><Text>x</Text></Screen>);
+    await fireEvent(screen.getByTestId('screen-scroll'), 'scrollEndDrag', { nativeEvent: {} });
+    expect(targetsStore.getState().tick).toBeGreaterThan(before);
   });
 
   it('passes the accessibility audit', async () => {

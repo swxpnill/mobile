@@ -2,6 +2,7 @@ import type { Role } from '@tonnage/shared';
 import { type Href, useRouter } from 'expo-router';
 import { useCallback } from 'react';
 import { useMe } from '../api/hooks/me';
+import { useSession } from '../auth/session';
 import { firstTab } from '../nav/tabs';
 import { onboardingStore } from './store';
 import { targetsStore } from './targets';
@@ -30,7 +31,10 @@ export function useTour(): {
     onboardingStore.getState().update(me.id, { introSeen: true });
     tourStore.getState().setIntro(false);
     router.navigate(`/${firstTab(me.role)}` as Href);
+    const identity = useSession.getState().identity;
     setTimeout(() => {
+      // Signed out or switched person meanwhile: the tour was theirs, not the next person's.
+      if (useSession.getState().identity !== identity) return;
       tourStore.getState().begin({
         steps: stepsFor(me.role, firstName(me.name)),
         index: 0,
