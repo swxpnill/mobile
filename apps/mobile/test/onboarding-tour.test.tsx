@@ -12,7 +12,13 @@ import { type Ctx, MOBILE, ids, setup, signInAs, wrap } from './onboarding-helpe
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
 // Targets are placed by each test through the store, not by a native layout.
-jest.mock('../src/onboarding/measure', () => ({ measure: () => undefined }));
+// The overlay's own frame in the window (null: not measured); targets come through the store.
+let mockFrame: [number, number, number, number] | null = null;
+jest.mock('../src/onboarding/measure', () => ({
+  measure: (_n: unknown, cb: (x: number, y: number, w: number, h: number) => void) => {
+    if (mockFrame) cb(...mockFrame);
+  },
+}));
 
 let backHandlers: (() => boolean)[] = [];
 let ctx: Ctx;
@@ -66,6 +72,7 @@ beforeEach(async () => {
     return { remove: () => (backHandlers = backHandlers.filter((x) => x !== h)) };
   });
   ctx = await setup();
+  mockFrame = null;
 });
 afterEach(() => ctx.client.clear());
 
@@ -147,6 +154,15 @@ describe('tour', () => {
     await startOwnerTour();
     await act(async () => targetsStore.getState().set('home.units', { x: 30, y: 300, w: 160, h: 44 }));
     expect(screen.getByTestId('spot-ring', { includeHiddenElements: true })).toHaveStyle({ left: 30 - 6, top: 300 - 6 });
+  });
+
+  it('draws the hole in the overlay’s own coordinates (status bar offset on Android)', async () => {
+    mockFrame = [0, 40, 412, 875];
+    await startOwnerTour();
+    await fireEvent(screen.getByTestId('coach-card').parent!.parent!, 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 412, height: 875 } },
+    });
+    expect(screen.getByTestId('spot-ring', { includeHiddenElements: true })).toHaveStyle({ left: 14 - 6, top: 40 - 40 - 6 });
   });
 
   it('the coach card passes the accessibility audit', async () => {

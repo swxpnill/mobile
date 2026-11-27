@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ComponentRef, type ReactNode, useEffect, useRef, useState } from 'react';
 import { BackHandler, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSession } from '../auth/session';
@@ -6,7 +6,8 @@ import { useTheme } from '../theme/ThemeProvider';
 import { MIN_TOUCH } from '../theme/tokens';
 import { Text } from '../ui';
 import { CoachCard } from './CoachCard';
-import { placeCard } from './geometry';
+import { type Rect, placeCard } from './geometry';
+import { measure } from './measure';
 import { SpotlightOverlay } from './SpotlightOverlay';
 import { onboardingStore, useProgress } from './store';
 import { targetsStore } from './targets';
@@ -89,10 +90,18 @@ export function TourProvider({ children }: { children: ReactNode }) {
 function TourLayer() {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
-  const { width, height } = useWindowDimensions();
+  const window = useWindowDimensions();
   const tour = tourStore((s) => s.tour);
   const rects = targetsStore((s) => s.rects);
   const [cardH, setCardH] = useState(CARD_ESTIMATE);
+  // Where this layer sits in the window: targets report window coordinates, and on edge-to-edge
+  // Android the window and this layer do not share an origin (status bar) or a height (nav bar).
+  const root = useRef<ComponentRef<typeof View>>(null);
+  const [frame, setFrame] = useState<Rect>({ x: 0, y: 0, w: window.width, h: window.height });
+  const locate = () =>
+    measure(root.current, (x, y, w, h) => {
+      if (w > 0 && h > 0) setFrame({ x, y, w, h });
+    });
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -113,11 +122,13 @@ function TourLayer() {
   if (!tour) return null;
   const step = tour.steps[tour.index];
   if (!step) return null;
-  const hole = step.target ? (rects[step.target] ?? null) : null;
-  const top = placeCard({ w: width, h: height }, hole, cardH);
+  const seen = step.target ? rects[step.target] : undefined;
+  const hole = seen ? { ...seen, x: seen.x - frame.x, y: seen.y - frame.y } : null;
+  const size = { w: frame.w, h: frame.h };
+  const top = placeCard(size, hole, cardH);
 
   return (
-    <View style={StyleSheet.absoluteFill}>
+    <View ref={root} collapsable={false} style={StyleSheet.absoluteFill} onLayout={locate}>
       {/* Takes every touch outside the card. */}
       <Pressable
         style={StyleSheet.absoluteFill}
@@ -125,7 +136,7 @@ function TourLayer() {
         importantForAccessibility="no"
         onPress={() => undefined}
       />
-      <SpotlightOverlay hole={hole} />
+      <SpotlightOverlay hole={hole} size={size} />
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={tour.preview ? 'Close preview' : 'Skip tour'}

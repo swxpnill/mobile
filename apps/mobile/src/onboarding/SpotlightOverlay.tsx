@@ -1,15 +1,18 @@
-import { StyleSheet, View, useWindowDimensions } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useTheme } from '../theme/ThemeProvider';
-import { type Rect, spotlightPath } from './geometry';
+import { type Rect, type Size, spotlightPath } from './geometry';
 
 export const HOLE_PAD = 6;
 export const HOLE_RADIUS = 18;
 
-/** Dims the screen except a rounded hole over `hole`, with a light ring around it (canvas 43). */
-export function SpotlightOverlay({ hole }: { hole: Rect | null }) {
+/**
+ * Dims the overlay except a rounded hole over `hole`, with a light ring around it (canvas 43).
+ * `hole` and `size` are in the overlay's own coordinates.
+ */
+export function SpotlightOverlay({ hole, size }: { hole: Rect | null; size: Size }) {
   const { t } = useTheme();
-  const { width, height } = useWindowDimensions();
+  const { w: width, h: height } = size;
   const radius = hole ? Math.min(HOLE_RADIUS, (hole.h + HOLE_PAD * 2) / 2) : 0;
   return (
     <View
