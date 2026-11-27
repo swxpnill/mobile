@@ -2,7 +2,7 @@ import { formatRupeesShort, toDisplayQty, unitLabel } from '@tonnage/shared';
 import { Bell } from '../notifications/Bell';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { byCode, useCompanies } from '../../api/hooks/companies';
 import { useDisplayBasis, useMe } from '../../api/hooks/me';
 import { useHome } from '../../api/hooks/orders';
@@ -13,6 +13,7 @@ import { unitBarColor } from '../../theme/tokens';
 import { Avatar, Badge, Button, Group, Icon, Screen, Text, UnitTag } from '../../ui';
 import { messageFor } from '../messages';
 import { UnitSwitcherSheet } from '../UnitSwitcherSheet';
+import { HomeSkeleton } from './HomeSkeleton';
 import { InPlantSection } from './InPlantSection';
 import { TourTarget } from '../../onboarding/TourTarget';
 
@@ -85,7 +86,7 @@ export function HomeScreen() {
             </Button>
           </View>
         ) : (
-          <ActivityIndicator color={t.br} accessibilityLabel="Loading" />
+          <HomeSkeleton />
         )
       ) : (
         <>

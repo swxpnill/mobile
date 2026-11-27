@@ -19,3 +19,4 @@ export { SearchField, useDebouncedValue } from './SearchField';
 export { ConfirmSheet } from './ConfirmSheet';
 export { Keypad, WeightReadout, pressKey, weightUnit, type KeypadKey } from './Keypad';
 export { CalendarSheet, monthGrid } from './CalendarSheet';
+export { Skeleton, SkeletonGroup } from './Skeleton';
