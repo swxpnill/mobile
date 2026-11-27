@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, useEffect } from 'react';
+import { onboardingStore } from '../onboarding/store';
 import { useReduceMotion } from '../a11y/useReduceMotion';
 import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,6 +33,12 @@ export function Sheet({
   // A Modal is its own native window: the lock screen cannot cover it, so it hides while locked.
   const locked = useSession((s) => s.status === 'locked');
   const reduceMotion = useReduceMotion();
+  // Tours and tips wait while a sheet is up (they would cover it).
+  useEffect(() => {
+    if (!visible) return;
+    onboardingStore.getState().sheetOpened();
+    return () => onboardingStore.getState().sheetClosed();
+  }, [visible]);
   const close = () => {
     if (!busy) onClose();
   };

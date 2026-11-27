@@ -2,6 +2,7 @@ import type { MockControls } from '@tonnage/mock-api';
 import { SAMPLE_MASTERS, SAMPLE_WORLD, istDateOf, meSchema, orderListSchema, orderSchema, plantSchema } from '@tonnage/shared';
 import { z } from 'zod';
 import { useSession } from '../auth/session';
+import { onboardingStore } from '../onboarding/store';
 import { clearAllVehicleRequestQueues } from '../offline/vehicleRequestQueue';
 import { clearAllDeviceStores } from '../offline/sqliteDeviceStore';
 import { API_MODE, getMockApi } from './transport';
@@ -66,6 +67,7 @@ export async function resetDemoData(): Promise<void> {
   await c.reset();
   await clearAllDeviceStores(SAMPLE_WORLD.users.map((u) => u.id));
   await clearAllVehicleRequestQueues();
+  onboardingStore.getState().reset(); // welcome, intro and tips show again for everyone
   await useSession.getState().signOut();
 }
 

@@ -12,6 +12,7 @@ import { UnitBasisProvider } from '../src/api/hooks/me';
 import { useNetStatus } from '../src/api/netStatus';
 import { setMockApi, setTransport } from '../src/api/transport';
 import { resetSessionForTests, useSession } from '../src/auth/session';
+import { onboardingStore } from '../src/onboarding/store';
 import { atGate, page, task } from '../src/offline/deviceStoreContract';
 import { openDeviceStore, resetDeviceStoresForTests } from '../src/offline/sqliteDeviceStore';
 import { CompaniesScreen } from '../src/screens/admin/CompaniesScreen';
@@ -275,6 +276,12 @@ describe('Reset demo data', () => {
     await AsyncStorage.setItem(`tonnage-vehicle-requests-${ids.users.rajesh}`, '[]');
     await demo.resetDemoData();
     expect((await AsyncStorage.getAllKeys()).filter((k) => k.startsWith('tonnage-vehicle-requests-'))).toEqual([]);
+  });
+
+  it('Reset demo data clears welcome, tour and tip progress for everyone', async () => {
+    onboardingStore.getState().update(ids.users.rajesh, { introSeen: true, tourDone: true });
+    await demo.resetDemoData();
+    expect(onboardingStore.getState().byUser).toEqual({});
   });
 
   it('Cancel keeps everything', async () => {
