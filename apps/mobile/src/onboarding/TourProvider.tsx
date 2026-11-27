@@ -13,6 +13,7 @@ import { targetsStore } from './targets';
 import { overlayOf, tourStore } from './tourStore';
 import { takeColdStartWelcome } from './welcome';
 import { WelcomeScreen } from './WelcomeScreen';
+import { TourIntroSheet } from './TourIntroSheet';
 
 const CARD_SIDE = 20;
 const CARD_ESTIMATE = 220;
@@ -78,6 +79,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
       </View>
       {!paused && overlay === 'tour' ? <TourLayer /> : null}
       {status === 'signedIn' && overlay === 'welcome' ? <WelcomeScreen /> : null}
+      {status === 'signedIn' ? <TourIntroSheet /> : null}
     </View>
   );
 }
