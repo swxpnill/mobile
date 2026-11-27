@@ -39,10 +39,12 @@ const shown = () => screen.queryByTestId('welcome', { includeHiddenElements: tru
 
 describe('welcome back', () => {
   it('shows on a reopened app with the name, role badge and a live line', async () => {
+    // Time stands still, so the welcome stays up however slow the machine is.
+    jest.useFakeTimers();
     await reopenAs(MOBILE.owner);
     await wrap(ctx.client, <TourProvider>{null}</TourProvider>);
-    expect(await screen.findByText('Welcome back')).toBeOnTheScreen();
-    expect(screen.getByText('Rajesh')).toBeOnTheScreen();
+    expect(await screen.findByText('Rajesh')).toBeOnTheScreen();
+    expect(screen.getByText('Welcome back')).toBeOnTheScreen();
     expect(screen.getByText('Owner · All units')).toBeOnTheScreen();
     expect(await screen.findByText(/MT pending to dispatch$/)).toBeOnTheScreen();
   });
