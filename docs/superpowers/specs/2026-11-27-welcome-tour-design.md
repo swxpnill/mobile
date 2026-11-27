@@ -107,8 +107,7 @@ sheet/modal is open or while the lock screen is up; it waits.
 - **Welcome back (41):** whenever the app is closed and reopened while the person is still signed
   in (the session resumes from the 60-day refresh token; nobody is signed out), and after
   unlocking from the idle lock. Not after a fresh sign-in (the intro follows instead), not when the app opened from a
-  tapped notification (it goes straight to the link). Shows for ~1.4 s (min 0.9 s once the live
-  line is ready, max 1.8 s), fades out. It cannot be skipped by a tap (user decision 2026-11-27); the max window keeps it short. Content: logo mark, "Welcome back", first
+  tapped notification (it goes straight to the link). Shows for 1.5 s from when it is on screen (user decision 2026-11-27), then fades out. It cannot be skipped by a tap (user decision 2026-11-27); the max window keeps it short. Content: logo mark, "Welcome back", first
   name, role badge (`Owner · All units`, `Plant head · Siltara`, `Supervisor · Aarav, Siltara`),
   and a live line from data the app already loads:
   - owner / city staff: pending to dispatch in the viewer's unit basis, or "N to approve" when

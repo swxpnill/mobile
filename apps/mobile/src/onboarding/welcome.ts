@@ -1,11 +1,14 @@
 import { type Company, type Plant, type Role, type UnitBasis, toDisplayQty, unitLabel } from '@tonnage/shared';
 import { ROLE_SHORT, scopeLine } from '../nav/roles';
 
-/** Board 41 stays at least this long once its live line is ready… */
-export const WELCOME_MIN_MS = 900;
-/** …and never longer than this, ready or not. It cannot be tapped away (user decision 2026-11-27). */
-export const WELCOME_MAX_MS = 1800;
+/**
+ * Board 41 is on screen this long, counted from when it is laid out (the screen's own slide-in
+ * does not eat into it), then fades. Not tapped away (user decisions 2026-11-27: 1.5 s).
+ */
+export const WELCOME_SHOW_MS = 1500;
 export const WELCOME_FADE_MS = 250;
+/** Safety net from mount, should the layout event never come: the app is never held behind it. */
+export const WELCOME_CAP_MS = 3000;
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 

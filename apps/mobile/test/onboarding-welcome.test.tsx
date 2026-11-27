@@ -5,7 +5,7 @@ import { api } from '../src/api/client';
 import { ME_KEY } from '../src/api/hooks/me';
 import { useSession } from '../src/auth/session';
 import { TourProvider } from '../src/onboarding/TourProvider';
-import { WELCOME_MAX_MS, WELCOME_MIN_MS, rearmWelcome, roleBadge, welcomeLine } from '../src/onboarding/welcome';
+import { WELCOME_CAP_MS, WELCOME_FADE_MS, WELCOME_SHOW_MS, rearmWelcome, roleBadge, welcomeLine } from '../src/onboarding/welcome';
 import { onboardingStore } from '../src/onboarding/store';
 import { dismissWelcome, tourStore } from '../src/onboarding/tourStore';
 import { auditA11y } from './a11y/audit';
@@ -64,15 +64,18 @@ describe('welcome back', () => {
     expect(shown()).toBe(true);
   });
 
-  it('stays at least the minimum and at most the maximum, and a tap does not close it', async () => {
+  it('stays a full 1.5 s from when it is on screen, then fades; a tap does not close it', async () => {
     jest.useFakeTimers();
     await reopenAs(MOBILE.owner);
     await wrap(ctx.client, <TourProvider>{null}</TourProvider>);
-    expect(shown()).toBe(true);
+    await screen.findByText('Rajesh');
+    await fireEvent(screen.getByTestId('welcome', { includeHiddenElements: true }), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 412, height: 915 } },
+    });
     await fireEvent.press(screen.getByTestId('welcome', { includeHiddenElements: true }));
-    await act(async () => void (await jest.advanceTimersByTimeAsync(WELCOME_MIN_MS - 100)));
+    await act(async () => void (await jest.advanceTimersByTimeAsync(WELCOME_SHOW_MS - 50)));
     expect(shown()).toBe(true);
-    await act(async () => void (await jest.advanceTimersByTimeAsync(WELCOME_MAX_MS + 500)));
+    await act(async () => void (await jest.advanceTimersByTimeAsync(WELCOME_FADE_MS + 200)));
     expect(shown()).toBe(false);
   });
 
@@ -88,7 +91,7 @@ describe('welcome back', () => {
     jest.useFakeTimers();
     await reopenAs(MOBILE.owner, false);
     await wrap(ctx.client, <TourProvider>{null}</TourProvider>);
-    await act(async () => void (await jest.advanceTimersByTimeAsync(WELCOME_MAX_MS + 500)));
+    await act(async () => void (await jest.advanceTimersByTimeAsync(WELCOME_CAP_MS + WELCOME_FADE_MS + 100)));
     expect(shown()).toBe(false);
     expect(tourStore.getState().intro).toBe(true);
   });
@@ -104,7 +107,7 @@ describe('welcome back', () => {
     await act(async () => void (await jest.advanceTimersByTimeAsync(300)));
     expect(shown()).toBe(true);
     expect(screen.queryByText('Welcome to Tonnage')).toBeNull();
-    await act(async () => void (await jest.advanceTimersByTimeAsync(WELCOME_MAX_MS + 500)));
+    await act(async () => void (await jest.advanceTimersByTimeAsync(WELCOME_CAP_MS + WELCOME_FADE_MS + 100)));
     expect(shown()).toBe(false);
     expect(screen.getByText('Welcome to Tonnage')).toBeOnTheScreen();
   });

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, StyleSheet, View } from 'react-native';
 import Svg, { Rect } from 'react-native-svg';
 import { useCompanies } from '../api/hooks/companies';
@@ -12,7 +12,7 @@ import { type Tokens, unitBarColor } from '../theme/tokens';
 import { Icon, Text } from '../ui';
 import { tourStore } from './tourStore';
 import { firstName } from './useTour';
-import { WELCOME_FADE_MS, WELCOME_MAX_MS, WELCOME_MIN_MS, roleBadge, welcomeLine } from './welcome';
+import { WELCOME_CAP_MS, WELCOME_FADE_MS, WELCOME_SHOW_MS, roleBadge, welcomeLine } from './welcome';
 
 const ROLE_DOT: Record<string, keyof Tokens> = {
   owner: 'br',
@@ -37,7 +37,8 @@ export function WelcomeScreen() {
   const home = useHome(office);
   const snap = useDeviceSnapshot();
   const opacity = useRef(new Animated.Value(1)).current;
-  const started = useRef(Date.now());
+  // The clock starts when the welcome is actually laid out on screen.
+  const [onScreen, setOnScreen] = useState(false);
 
   const data = !me
     ? {}
@@ -58,16 +59,15 @@ export function WelcomeScreen() {
   };
 
   useEffect(() => {
-    const cap = setTimeout(() => leave.current(), WELCOME_MAX_MS);
+    const cap = setTimeout(() => leave.current(), WELCOME_CAP_MS);
     return () => clearTimeout(cap);
   }, []);
 
   useEffect(() => {
-    if (!ready) return;
-    const wait = Math.max(0, WELCOME_MIN_MS - (Date.now() - started.current));
-    const timer = setTimeout(() => leave.current(), wait);
+    if (!onScreen) return;
+    const timer = setTimeout(() => leave.current(), WELCOME_SHOW_MS);
     return () => clearTimeout(timer);
-  }, [ready]);
+  }, [onScreen]);
 
   const name = me ? firstName(me.name) : '';
   const badge = me ? roleBadge(me.role, me.plantIds, companies, plants) : '';
@@ -75,6 +75,7 @@ export function WelcomeScreen() {
   return (
     <Animated.View
       testID="welcome"
+      onLayout={() => setOnScreen(true)}
       accessible
       accessibilityRole="alert"
       accessibilityLabel={me ? `Welcome back, ${name}. ${badge}. ${line}` : 'Welcome back'}
