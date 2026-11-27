@@ -42,7 +42,8 @@ export function TasksScreen() {
   const firstAssigned = shown.find((x) => x.state === 'assigned')?.truckId;
   const pointers: TaskPointers = {
     arrived: firstAssigned,
-    tare: firstAssigned ?? shown.find((x) => x.state === 'at_gate')?.truckId,
+    // A tare button that works now (an arrived truck) teaches more than the locked step.
+    tare: shown.find((x) => x.state === 'at_gate')?.truckId ?? firstAssigned,
     weigh: shown.find((x) => x.state === 'loading')?.truckId,
   };
 
