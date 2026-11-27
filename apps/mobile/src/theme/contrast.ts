@@ -55,6 +55,8 @@ export interface TextPair {
 export const TEXT_PAIRS: readonly TextPair[] = [
   ...(['tx', 'tx2', 'tx3'] as const).flatMap((fg) => (['bg', 'card', 'ctl'] as const).map((bg) => ({ fg, bg, min: 4.5 as const }))),
   { fg: 'brt', bg: 'card', min: 4.5 },
+  { fg: 'tipTx', bg: 'tipBg', min: 4.5 },
+  { fg: 'tipTx2', bg: 'tipBg', min: 4.5 },
   { fg: 'brt', bg: 'brs', on: 'card', min: 4.5 },
   { fg: 'okt', bg: 'card', min: 4.5 },
   { fg: 'okt', bg: 'oks', on: 'card', min: 4.5 },

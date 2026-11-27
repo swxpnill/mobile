@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useRef } from 'react';
+import { type ComponentRef, type ReactNode, useCallback, useEffect, useRef } from 'react';
 import { type StyleProp, View, type ViewStyle } from 'react-native';
 import { measure } from './measure';
 import { targetsStore, useTourTick } from './targets';
@@ -18,7 +18,7 @@ export function TourTarget({
   style?: StyleProp<ViewStyle>;
   children: ReactNode;
 }) {
-  const ref = useRef<View>(null);
+  const ref = useRef<ComponentRef<typeof View>>(null);
   const tick = useTourTick();
 
   const report = useCallback(() => {
