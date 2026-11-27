@@ -1,5 +1,8 @@
 import { act, fireEvent, screen } from '@testing-library/react-native';
 import type { ReactTestRendererJSON } from 'react-test-renderer';
+import { meSchema } from '@tonnage/shared';
+import { api } from '../src/api/client';
+import { ME_KEY } from '../src/api/hooks/me';
 import { useSession } from '../src/auth/session';
 import { TourProvider } from '../src/onboarding/TourProvider';
 import { WELCOME_MAX_MS, WELCOME_MIN_MS, rearmWelcome, roleBadge, welcomeLine } from '../src/onboarding/welcome';
@@ -86,6 +89,22 @@ describe('welcome back', () => {
     await act(async () => void (await jest.advanceTimersByTimeAsync(WELCOME_MAX_MS + 500)));
     expect(shown()).toBe(false);
     expect(tourStore.getState().intro).toBe(true);
+  });
+
+  it('the intro sheet waits until the welcome has gone (profile already cached)', async () => {
+    await reopenAs(MOBILE.owner, false);
+    // A reopened app has the profile from its offline copy on the very first render.
+    const first = await wrap(ctx.client, <>{null}</>);
+    await ctx.client.fetchQuery({ queryKey: ME_KEY, queryFn: () => api('/v1/me', { schema: meSchema }) });
+    await first.unmount();
+    jest.useFakeTimers();
+    await wrap(ctx.client, <TourProvider>{null}</TourProvider>);
+    await act(async () => void (await jest.advanceTimersByTimeAsync(300)));
+    expect(shown()).toBe(true);
+    expect(screen.queryByText('Welcome to Tonnage')).toBeNull();
+    await act(async () => void (await jest.advanceTimersByTimeAsync(WELCOME_MAX_MS + 500)));
+    expect(shown()).toBe(false);
+    expect(screen.getByText('Welcome to Tonnage')).toBeOnTheScreen();
   });
 
   it('passes the accessibility audit', async () => {

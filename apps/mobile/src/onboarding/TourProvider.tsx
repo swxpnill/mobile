@@ -66,7 +66,9 @@ export function TourProvider({ children }: { children: ReactNode }) {
   // Board 42: first sign-in of this person on this phone, once nothing else is showing.
   useEffect(() => {
     if (status !== 'signedIn' || !progress.hydrated || !progress.userId || progress.introSeen) return;
-    if (overlay === 'none') tourStore.getState().setIntro(true);
+    // Read the store, not this render's `overlay`: the welcome may have been shown by the effect
+    // just above in this same commit (the profile is cached on a reopened app).
+    if (overlayOf(tourStore.getState()) === 'none') tourStore.getState().setIntro(true);
   }, [status, progress.hydrated, progress.userId, progress.introSeen, overlay]);
 
   return (

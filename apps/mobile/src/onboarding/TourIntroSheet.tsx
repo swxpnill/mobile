@@ -14,7 +14,8 @@ export function TourIntroSheet() {
   const { t } = useTheme();
   const { data: me } = useMe();
   const tour = useTour();
-  const visible = tourStore((s) => s.intro);
+  // Never over the welcome (a Modal would sit on top of it).
+  const visible = tourStore((s) => s.intro && !s.welcome);
   if (!me) return null;
   const intro = INTRO[me.role];
   const name = firstName(me.name);
