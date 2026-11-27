@@ -29,6 +29,13 @@
       "when": 1795589942749,
       "tag": "0003_orders",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795775273674,
+      "tag": "0004_sync_clock",
+      "breakpoints": true
     }
   ]
 }

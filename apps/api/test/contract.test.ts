@@ -19,7 +19,7 @@ registerSuites([...M1_SUITES, ...M2_SUITES], async () => {
     },
     clock,
     fixtures: apiFixtures(t.ownerDb, clock),
-    capabilities: { concurrency: true },
+    capabilities: { concurrency: true, notifications: false },
     close: () => t.close(),
   };
 });

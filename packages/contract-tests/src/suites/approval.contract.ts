@@ -248,8 +248,9 @@ export function register(factory: TargetFactory): void {
       ]);
     });
 
-    it('who is told: weighing asks owner and city staff; approving tells the others, not the approver', async () => {
+    it('who is told: weighing asks owner and city staff; approving tells the others, not the approver', async (ctx) => {
       const t = target();
+      if (!t.capabilities.notifications) ctx.skip(); // the API writes notifications from B4 (B3 Ruling 6)
       const { aLine, truck } = await canvasWithTruck(t);
       await weighOnPhone(t, truck.id, aLine.id);
       const kinds = async (who: { mobile: string }) =>

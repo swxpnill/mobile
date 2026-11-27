@@ -26,6 +26,7 @@ const TENANT_TABLES = [
   'product_companies',
   'products',
   'sub_orders',
+  'tenant_sync_clock',
   'truck_allocations',
   'truck_plan_lines',
   'trucks',
