@@ -68,7 +68,7 @@ async function visibleSubOrder(
  * Locks the order and the one sub-order (with its lines and trucks); 404 when either is gone.
  * With `shareCompany`, the sub-order's company is taken FOR SHARE first (the lock order) and returned.
  */
-async function lockSubOrder(
+export async function lockSubOrder(
   tx: Tx,
   c: OrderWriteCtx,
   subOrderId: string | undefined,

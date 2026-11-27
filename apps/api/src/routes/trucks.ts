@@ -2,8 +2,11 @@ import {
   type DispatchBoard,
   type RecentVehicle,
   type Truck,
+  assignTruckBodySchema,
+  cancelTruckBodySchema,
   dispatchBoardSchema,
   dispatchQuerySchema,
+  editTruckBodySchema,
   isOpenTruckState,
   istDayStart,
   recentVehicleSchema,
@@ -16,6 +19,7 @@ import { z } from 'zod';
 import { trucks } from '../db/schema/index.ts';
 import { defineRoute } from '../http/route.ts';
 import { anyId } from '../services/orderGraph.ts';
+import { assignTruck, cancelTruck, editTruck } from '../services/dispatch/assign.ts';
 import { assertVisible, findTruckRow, inPlantScope, truckViewCtx } from '../services/dispatch/truckViews.ts';
 import { type TruckRow } from '../views/orderGraph.ts';
 import { boardOrder, newestFirst, sameIstDay, toTruck, vehicleKey } from '../views/trucks.ts';
@@ -24,6 +28,36 @@ import { boardOrder, newestFirst, sameIstDay, toTruck, vehicleKey } from '../vie
 const RECENT_SCAN = 500;
 
 export async function truckRoutes(app: FastifyInstance): Promise<void> {
+  defineRoute(app, 'POST', '/sub-orders/:id/trucks', {
+    action: 'truck.assign',
+    idempotent: true,
+    body: assignTruckBodySchema,
+    response: { 201: truckSchema },
+    async handler({ tx, user, scope, now, params, body }) {
+      return { status: 201, body: await assignTruck(tx, { user, scope, now }, params.id, body) };
+    },
+  });
+
+  defineRoute(app, 'PATCH', '/trucks/:id', {
+    action: 'truck.edit',
+    idempotent: true,
+    body: editTruckBodySchema,
+    response: { 200: truckSchema },
+    async handler({ tx, user, scope, now, params, body }) {
+      return { body: await editTruck(tx, { user, scope, now }, params.id, body) };
+    },
+  });
+
+  defineRoute(app, 'POST', '/trucks/:id/cancel', {
+    action: 'truck.cancel',
+    idempotent: true,
+    body: cancelTruckBodySchema,
+    response: { 200: truckSchema },
+    async handler({ tx, user, scope, now, params, body }) {
+      return { body: await cancelTruck(tx, { user, scope, now }, params.id, body) };
+    },
+  });
+
   // Before /trucks/:id, or "recent-vehicles" is read as a truck id.
   defineRoute(app, 'GET', '/trucks/recent-vehicles', {
     action: 'truck.assign',

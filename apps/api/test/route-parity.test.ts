@@ -68,7 +68,14 @@ interface Shape {
 
 /** Both sides write path params as `:name`; any other notation is normalised to it. */
 /** B3's routes so far (Ruling 1: 16 when B3 is done). */
-const B3_ROUTES = ['GET /v1/trucks/recent-vehicles', 'GET /v1/trucks/:id', 'GET /v1/dispatch'];
+const B3_ROUTES = [
+  'GET /v1/trucks/recent-vehicles',
+  'GET /v1/trucks/:id',
+  'GET /v1/dispatch',
+  'POST /v1/sub-orders/:id/trucks',
+  'PATCH /v1/trucks/:id',
+  'POST /v1/trucks/:id/cancel',
+];
 
 const normalise = (path: string) => path.replace(/\{(\w+)\}/g, ':$1');
 

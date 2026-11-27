@@ -268,6 +268,16 @@ export async function buildWorld(t: TestApp, opts: { history?: boolean } = {}): 
       'POST /v1/sub-orders/:id/reopen': { version: aip.version },
       'POST /v1/orders/:id/move-quantity': { fromLineId: l0.id, toCompanyId: C.KRM, kg: 1_000, version: canvas.version },
       'DELETE /v1/orders/:id': { confirmNumber: canvas.number },
+      'POST /v1/sub-orders/:id/trucks': {
+        vehicleNo: 'CG 04 ZZ 9999',
+        transporterId: null,
+        driverName: 'Driver',
+        driverPhone: '9425210877',
+        lrNo: '',
+        plan: [{ orderLineId: aip.lines[0]!.id, plannedKg: 1_000 }],
+      },
+      'PATCH /v1/trucks/:id': { lrNo: 'LR-1', version: 1 },
+      'POST /v1/trucks/:id/cancel': { reason: 'Other', note: '', version: 1 },
     },
     call: (role, method, path, body) => send(PERSON_FOR[role], method, path, body),
   };
