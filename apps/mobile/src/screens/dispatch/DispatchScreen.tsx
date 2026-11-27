@@ -13,6 +13,7 @@ import { UnitSwitcherSheet } from '../UnitSwitcherSheet';
 import { ApproveSheet } from './ApproveSheet';
 import { TruckCard } from './TruckCard';
 import { TourTarget } from '../../onboarding/TourTarget';
+import { useFirstTip } from '../../onboarding/useFirstTip';
 
 const FILTERS: { value: DispatchState; label: string }[] = [
   { value: 'open', label: 'Open' },
@@ -26,6 +27,7 @@ const FILTERS: { value: DispatchState; label: string }[] = [
 
 /** Canvas board 08: trucks across the plants in scope; plant heads only read. */
 export function DispatchScreen() {
+  useFirstTip('dispatch.toApprove');
   const router = useRouter();
   const { t } = useTheme();
   const basis = useDisplayBasis();

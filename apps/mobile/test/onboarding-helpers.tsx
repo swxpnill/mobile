@@ -1,13 +1,13 @@
 // Shared set-up for the onboarding tests: a mock API, a signed-in person, the providers.
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { render } from '@testing-library/react-native';
+import { render, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
 import type { ReactElement } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { SAMPLE_WORLD, tokenPairSchema } from '@tonnage/shared';
 import { createFakeClock, createMockApi, type MockApi } from '@tonnage/mock-api';
-import { UnitBasisProvider } from '../src/api/hooks/me';
+import { ME_KEY, UnitBasisProvider } from '../src/api/hooks/me';
 import { setMockApi, setTransport } from '../src/api/transport';
 import { resetSessionForTests, useSession } from '../src/auth/session';
 import { resetOnboardingForTests, onboardingStore } from '../src/onboarding/store';
@@ -76,4 +76,11 @@ export function wrap(client: QueryClient, ui: ReactElement) {
       </QueryClientProvider>
     </SafeAreaProvider>,
   );
+}
+
+/** Waits until the signed-in profile has loaded (before switching to fake timers). */
+export async function meLoaded(client: QueryClient): Promise<void> {
+  await waitFor(() => {
+    if (!client.getQueryData(ME_KEY)) throw new Error('me not loaded');
+  });
 }

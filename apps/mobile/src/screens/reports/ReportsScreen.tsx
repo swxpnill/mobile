@@ -21,6 +21,7 @@ import { FILTER_ALL, FILTER_PARAM, REPORT_META, type ReportFilterKey } from './r
 import { type DateRange, presetRange, rangeLabel } from './ranges';
 import { shareSummary } from './reportView';
 import { TourTarget } from '../../onboarding/TourTarget';
+import { useFirstTip } from '../../onboarding/useFirstTip';
 
 const FILTER_TITLE: Record<ReportFilterKey, string> = {
   customer: 'Customer',
@@ -31,6 +32,7 @@ const FILTER_TITLE: Record<ReportFilterKey, string> = {
 
 /** Board 23: pick a report, range, unit and the report's own filter; preview, then share. */
 export function ReportsScreen() {
+  useFirstTip('reports.firstTile');
   const basis = useDisplayBasis();
   const today = istDateOf(Date.now());
   const [kind, setKind] = useState<ReportKind>('dispatch-register');

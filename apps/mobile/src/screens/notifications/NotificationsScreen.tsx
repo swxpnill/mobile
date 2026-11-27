@@ -12,6 +12,7 @@ import { Button, EmptyState, Group, Header, Screen, Text } from '../../ui';
 import { messageFor } from '../messages';
 import { NotificationRow } from './NotificationRow';
 import { TourTarget } from '../../onboarding/TourTarget';
+import { useFirstTip } from '../../onboarding/useFirstTip';
 
 /** Rows grouped by IST day, newest first: "Today", "Yesterday", "3 Nov". */
 export function groupByDay(items: readonly Notification[], nowMs: number): { title: string; items: Notification[] }[] {
@@ -28,6 +29,7 @@ export function groupByDay(items: readonly Notification[], nowMs: number): { tit
 
 /** Canvas board 37. Text follows the person's unit basis without a refetch (spec §5.6). */
 export function NotificationsScreen() {
+  useFirstTip('notifications.list');
   const router = useRouter();
   const { t } = useTheme();
   const basis = useDisplayBasis();

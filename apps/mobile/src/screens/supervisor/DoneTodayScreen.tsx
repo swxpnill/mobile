@@ -9,12 +9,14 @@ import { useTheme } from '../../theme/ThemeProvider';
 import { EmptyState, Group, Icon, Row, Screen, Text } from '../../ui';
 import { usePlantTitle } from './usePlantTitle';
 import { TourTarget } from '../../onboarding/TourTarget';
+import { useFirstTip } from '../../onboarding/useFirstTip';
 
 /**
  * Canvas 35: trucks weighed today at this plant, from the device store, with the total net. TON-57:
  * each one awaits the office's approval until it is dispatched.
  */
 export function DoneTodayScreen() {
+  useFirstTip('done.list');
   const { t } = useTheme();
   const basis = useDisplayBasis();
   const place = usePlantTitle();

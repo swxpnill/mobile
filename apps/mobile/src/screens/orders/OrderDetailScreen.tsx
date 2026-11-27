@@ -33,11 +33,13 @@ import { RequestVehicleSheet } from './RequestVehicleSheet';
 import { ShortCloseSheet } from './ShortCloseSheet';
 import { statusMeta } from './statusMeta';
 import { TourTarget } from '../../onboarding/TourTarget';
+import { useFirstTip } from '../../onboarding/useFirstTip';
 
 type SheetName = 'actions' | 'shortClose' | 'delete' | 'move' | 'activity' | 'request' | null;
 
 /** Canvas board 04: one order, its sub-orders per company, lines, open trucks and actions. */
 export function OrderDetailScreen({ id }: { id: string }) {
+  useFirstTip('order.requestVehicle');
   const { t } = useTheme();
   const order = useOrder(id);
   if (!order.data) {

@@ -11,6 +11,7 @@ import { messageFor } from '../messages';
 import { EVENT_LABEL, rejectionReason, resolutionLine, sentLine } from './describe';
 import { RejectionDetailSheet } from './RejectionDetailSheet';
 import { TourTarget } from '../../onboarding/TourTarget';
+import { useFirstTip } from '../../onboarding/useFirstTip';
 
 const FILTERS: readonly { value: RejectionFilter; label: string }[] = [
   { value: 'open', label: 'Open' },
@@ -22,6 +23,7 @@ const FILTERS: readonly { value: RejectionFilter; label: string }[] = [
  * Each opens a sheet to restore it (re-run through the same dispatch code) or dismiss it.
  */
 export function NeedsAttentionScreen() {
+  useFirstTip('attention.first');
   const { t } = useTheme();
   const [filter, setFilter] = useState<RejectionFilter>('open');
   const [openId, setOpenId] = useState<string | null>(null);
