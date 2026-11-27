@@ -85,7 +85,9 @@ export function WelcomeScreen() {
 
   // Where things are, from layout: the screen height, the centre column's top, the logo slot's top.
   const [frame, setFrame] = useState<{ h?: number; col?: number; slot?: number }>({});
-  const placed = frame.h !== undefined && frame.col !== undefined && frame.slot !== undefined;
+  // Placed once the profile is known too: before it, the name and badge are empty and the column
+  // would still move under the logo after its start was worked out.
+  const placed = !!me && frame.h !== undefined && frame.col !== undefined && frame.slot !== undefined;
   const started = useRef(false);
   // Timers of the entrance and hold: cleared on unmount only, so a later re-layout (the live line
   // arriving) cannot cancel them.
@@ -245,13 +247,13 @@ export function WelcomeScreen() {
             </Text>
             <Icon name="check" size={16} color={t.brt} strokeWidth={2} />
           </View>
-          <Text weight="semibold" style={[styles.name, { color: t.brt }]}>
+          <Text testID="welcome-name" weight="semibold" style={[styles.name, { color: t.brt }]}>
             {name}
           </Text>
         </Animated.View>
       </View>
 
-      <Animated.View style={[styles.bottom, rise(bottom)]}>
+      <Animated.View testID="welcome-bottom" style={[styles.bottom, rise(bottom)]}>
         {badge ? (
           <View style={[styles.role, { backgroundColor: t.card, borderColor: t.bd }]}>
             <View style={[styles.dot, { backgroundColor: t[ROLE_DOT[me?.role ?? 'owner'] ?? 'br'] }]} />
@@ -293,8 +295,9 @@ const styles = StyleSheet.create({
   segBar: { flex: 1, borderRadius: 2 },
   greet: { alignItems: 'center', marginTop: 88 },
   wbRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  name: { fontSize: 40, lineHeight: 48, letterSpacing: -1, marginTop: 2 },
-  bottom: { alignItems: 'center', gap: 14, paddingBottom: 64, paddingHorizontal: 24 },
+  // Fixed heights: text arriving later never moves the logo above.
+  name: { fontSize: 40, lineHeight: 48, minHeight: 48, letterSpacing: -1, marginTop: 2 },
+  bottom: { alignItems: 'center', justifyContent: 'flex-end', gap: 14, minHeight: 70, marginBottom: 64, paddingHorizontal: 24 },
   role: {
     flexDirection: 'row',
     alignItems: 'center',

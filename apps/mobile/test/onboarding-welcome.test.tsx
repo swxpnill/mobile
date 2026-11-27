@@ -1,4 +1,4 @@
-import { act, fireEvent, screen } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { AccessibilityInfo, BackHandler } from 'react-native';
 import type { ReactTestRendererJSON } from 'react-test-renderer';
 import { meSchema } from '@tonnage/shared';
@@ -101,6 +101,28 @@ describe('welcome back', () => {
     expect(shown()).toBe(true);
     await act(async () => void (await jest.advanceTimersByTimeAsync(WELCOME_FADE_MS + 300)));
     expect(shown()).toBe(false);
+  });
+
+  it('waits for the profile before its first frame, so the layout no longer moves under the logo', async () => {
+    const hide = jest.fn(() => Promise.resolve());
+    holdSplash(hide);
+    await reopenAs(MOBILE.owner);
+    ctx.mock.controls.setLatency(400);
+    await wrap(ctx.client, <><TourProvider>{null}</TourProvider><WelcomeHost /></>);
+    await layOut();
+    await act(() => new Promise<void>((r) => setTimeout(r, 100)));
+    expect(hide).not.toHaveBeenCalled();
+    await screen.findByText('Rajesh', {}, { timeout: 3000 });
+    await layOut();
+    await waitFor(() => expect(hide).toHaveBeenCalledTimes(1));
+  });
+
+  it('keeps the name line and the bottom block at full height before their text arrives', async () => {
+    await reopenAs(MOBILE.owner);
+    ctx.mock.controls.setLatency(400);
+    await wrap(ctx.client, <><TourProvider>{null}</TourProvider><WelcomeHost /></>);
+    expect(screen.getByTestId('welcome-bottom', { includeHiddenElements: true })).toHaveStyle({ minHeight: 70 });
+    expect(screen.getByTestId('welcome-name', { includeHiddenElements: true })).toHaveStyle({ minHeight: 48 });
   });
 
   it('with Remove animations on, everything shows at once and it holds 1.5 s', async () => {
