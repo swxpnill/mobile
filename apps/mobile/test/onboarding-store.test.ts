@@ -88,7 +88,7 @@ describe('onboarding store', () => {
         createElement(
           ThemeProvider,
           null,
-          createElement(Sheet, { visible, title: 'T', onClose: () => undefined }, createElement(Text, null, 'x')),
+          createElement(Sheet, { visible, title: 'T', onClose: () => undefined, children: createElement(Text, null, 'x') }),
         ),
       );
     const r = await render(ui(true));
