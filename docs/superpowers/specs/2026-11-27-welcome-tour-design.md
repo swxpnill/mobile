@@ -208,3 +208,28 @@ the spinner. Large text: card grows; placement re-measures.
 
 Exact animation timings, card placement maths, the SVG hole radius per target, the "How do I…"
 step wording (reviewed in the plan), and token additions (named, both palettes, contrast-tested).
+
+## Addendum 2026-11-27: seamless launch (splash → welcome) and Home placeholders
+
+Asked for after comparing a release Flutter app that "opens without loading". Its trick, seen frame by
+frame: a native splash that is only the logo on the welcome's background, a first screen that starts
+with the logo exactly there and animates it into place, and a Home that shows placeholders at once.
+
+1. **Branded splash.** `expo-splash-screen` config: the "T" glyph alone (no tile, no text; Android 12+
+   allows only a centred icon) on the welcome background, `#F4F5F7` light and `#09090B` dark, glyph in
+   that palette's unit colours, `imageWidth` 88 dp. The splash follows the phone's dark setting; the
+   welcome follows the app's theme setting (a forced theme can differ for one frame: accepted).
+2. **Hand-off.** On a reopened, signed-in app the native splash is held (not hidden when the app is
+   ready) until Welcome back has laid out its first frame with the glyph at the screen centre, the
+   splash's spot; a safety cap (2.5 s) hides it anyway. Otherwise (sign-in, lock screen) it hides as
+   before. Welcome back moves from the signed-in stack to the root shell (beside the lock screen), so
+   the stack's slide-in never moves it.
+3. **Entrance.** From that first frame: the glyph shrinks into its white tile while the tile fades in
+   and the logo rises to its place (550 ms, ease-out), then "Tonnage", the tagline and bars, the
+   greeting and the role badge fade and rise in, staggered (≈ 900 ms in all). The 1.5 s hold starts
+   when the entrance has finished. Reduce motion: no movement, everything at once.
+4. **Home placeholders.** Home's loading spinner becomes a skeleton of its own layout (pending card,
+   two tiles, three "In plant now" rows) in token colours with a gentle pulse (static with reduce
+   motion), read as "Loading" by TalkBack. A reusable `Skeleton` primitive in `src/ui`.
+
+Only a release or preview build (EAS) shows the real splash; Expo Go shows its own loader.
