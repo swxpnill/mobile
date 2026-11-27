@@ -1,8 +1,9 @@
 import type { TruckState } from '@tonnage/shared';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import type { Db } from '../../src/db/client.ts';
-import { orderLines, orders, plants, subOrders, truckAllocations, truckPlanLines, trucks } from '../../src/db/schema/index.ts';
+import { orderLines, orders, plants, subOrders, truckAllocations, truckPlanLines, trucks, weighments } from '../../src/db/schema/index.ts';
+import { issueLoadingSlip, writeEarning } from '../../src/services/dispatch/money.ts';
 
 /** The mock's `AddTruckInput`, less the demo-seed extras. */
 export interface TruckInput {
@@ -110,6 +111,37 @@ export async function ownerInsertTruck(ownerDb: Db, input: TruckInput, nowMs: nu
       await tx.insert(truckAllocations).values(
         allocations.map((a, position) => ({ tenantId, truckId: id, orderLineId: a.orderLineId, position, netKg: a.netKg, ...stamps })),
       );
+    }
+    // As the mock's `addTruck`: a tare reading at the tare time, a gross one at the latest step,
+    // and a dispatched truck's loading slip and broker earning (B3).
+    const tareAt = tareKg === null ? null : hasWeights ? stepAt(STEP_BEFORE.tare) : at;
+    const weigh = (kind: 'tare' | 'gross', kg: number, when: Date) =>
+      tx.insert(weighments).values({
+        id: uuidv7(),
+        tenantId,
+        truckId: id,
+        kind,
+        kg,
+        enteredBy: sub.createdBy,
+        deviceId: 'fixture',
+        clientEventId: uuidv7(),
+        capturedAtDevice: when,
+        capturedAt: when,
+        receivedAt: when,
+        clockSkewFlag: false,
+        supersededBy: null,
+        createdAt: when,
+        updatedAt: when,
+      });
+    if (tareKg !== null && tareAt !== null) await weigh('tare', tareKg, tareAt);
+    if (hasWeights && tareKg !== null) await weigh('gross', tareKg + net, at);
+    if (s === 'dispatched') {
+      // nextNumber stamps the series row with the transaction's tenant, as a request does.
+      await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
+      const ref = { id, tenantId, orderId: sub.sub.orderId, subOrderId: sub.sub.id };
+      const slip = await issueLoadingSlip(tx, ref, nowMs);
+      await tx.update(trucks).set({ loadingSlipNo: slip }).where(eq(trucks.id, id));
+      await writeEarning(tx, ref, nowMs, sub.createdBy);
     }
     return id;
   });

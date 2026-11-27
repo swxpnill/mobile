@@ -46,8 +46,8 @@ const send = async (role: Role, r: RouteTableEntry, path: string) => {
 const code = (body: unknown) => (body as { code?: unknown } | null)?.code;
 
 describe('policy matrix', () => {
-  it('covers the 48 M1 + M2 routes: 5 public, every other one with an action', () => {
-    expect(routes).toHaveLength(48);
+  it('covers the M1 + M2 routes and B3 so far: 5 public, every other one with an action', () => {
+    expect(routes).toHaveLength(51);
     expect(routes.filter((r) => r.public === true).map(name).sort()).toEqual(
       ['GET /v1/meta', 'POST /v1/auth/refresh', 'POST /v1/auth/request-code', 'POST /v1/auth/sign-out', 'POST /v1/auth/verify'].sort(),
     );
@@ -95,5 +95,5 @@ describe('policy matrix', () => {
 /** A fresh, well-formed id that names nothing, for every kind. */
 function randomIds(): Record<IdKind, string> {
   const id = uuidv7();
-  return { companies: id, plants: id, users: id, parties: id, products: id, orders: id, drafts: id, 'sub-orders': id };
+  return { companies: id, plants: id, users: id, parties: id, products: id, orders: id, drafts: id, 'sub-orders': id, trucks: id };
 }

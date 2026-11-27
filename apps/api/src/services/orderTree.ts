@@ -2,6 +2,7 @@ import { linesHeldByTrucks } from '@tonnage/shared';
 import { and, asc, eq, sql, type SQLWrapper } from 'drizzle-orm';
 import type { Tx } from '../db/client.ts';
 import { companies, orderLines, orders, subOrders, truckAllocations, truckPlanLines, trucks } from '../db/schema/index.ts';
+import { removeTruckLedger } from './dispatch/money.ts';
 import type { OrderGraph, SubOrderGraph } from '../views/orderGraph.ts';
 import { anyId, loadOrderGraph } from './orderGraph.ts';
 
@@ -99,6 +100,8 @@ export async function pruneOrderTree(
           .where(anyId(trucks.subOrderId, subOrderIds))
           .orderBy(asc(trucks.id));
   const truckIds = removedTrucks.map((t) => t.id);
+  // B3: the trucks' broker earnings and reversals go with them (payments stay, as in the mock).
+  await removeTruckLedger(tx, truckIds);
   if (lineIds.length > 0) {
     await tx.delete(truckAllocations).where(anyId(truckAllocations.orderLineId, lineIds));
     await tx.delete(truckPlanLines).where(anyId(truckPlanLines.orderLineId, lineIds));
