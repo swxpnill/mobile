@@ -13,7 +13,6 @@ import { onboardingStore, useProgress } from './store';
 import { targetsStore, toOverlay, useOverlayFrame } from './targets';
 import { notificationJustOpened, overlayOf, tourStore } from './tourStore';
 import { takeColdStartWelcome } from './welcome';
-import { WelcomeScreen } from './WelcomeScreen';
 import { TourIntroSheet } from './TourIntroSheet';
 import { TipBubble } from './TipBubble';
 
@@ -91,7 +90,6 @@ export function TourProvider({ children }: { children: ReactNode }) {
         {children}
       </View>
       {!paused && overlay === 'tour' ? <TourLayer /> : null}
-      {status === 'signedIn' && overlay === 'welcome' ? <WelcomeScreen /> : null}
       {status === 'signedIn' ? <TourIntroSheet /> : null}
       {!paused && overlay === 'tip' ? <TipBubble /> : null}
     </View>

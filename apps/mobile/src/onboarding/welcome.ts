@@ -2,13 +2,14 @@ import { type Company, type Plant, type Role, type UnitBasis, toDisplayQty, unit
 import { ROLE_SHORT, scopeLine } from '../nav/roles';
 
 /**
- * Board 41 is on screen this long, counted from when it is laid out (the screen's own slide-in
- * does not eat into it), then fades. Not tapped away (user decisions 2026-11-27: 1.5 s).
+ * Board 41 holds this long once its entrance has finished, then fades. Not tapped away (user decisions 2026-11-27: 1.5 s).
  */
 export const WELCOME_SHOW_MS = 1500;
 export const WELCOME_FADE_MS = 250;
+/** The entrance (logo into its tile, then the words), before the hold starts. */
+export const WELCOME_ENTER_MS = 900;
 /** Safety net from mount, should the layout event never come: the app is never held behind it. */
-export const WELCOME_CAP_MS = 3000;
+export const WELCOME_CAP_MS = 4500;
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
