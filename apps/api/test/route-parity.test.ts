@@ -78,6 +78,8 @@ const B3_ROUTES = [
   'POST /v1/trucks/:id/approve',
   'POST /v1/trucks/:id/correct-weight',
   'POST /v1/weighments/sync',
+  'GET /v1/supervisor/tasks',
+  'GET /v1/supervisor/done-today',
 ];
 
 const normalise = (path: string) => path.replace(/\{(\w+)\}/g, ':$1');

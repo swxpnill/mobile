@@ -34,12 +34,13 @@ async function replayed(tx: Tx, eventId: string): Promise<SyncResult | null> {
   return { status: 'rejected', eventId, code: seen.code!, message: seen.message ?? '' };
 }
 
-/** Another request claimed the same event id first: this transaction rolls back and replays it. */
-class ClaimedElsewhere extends Error {}
-
-/** Keeps the outcome (the event's claim): `false` when another transaction already holds the id. */
-async function remember(tx: Tx, ctx: DispatchCtx, event: SyncEvent, result: SyncResult): Promise<boolean> {
-  if (result.status === 'duplicate') return true;
+/**
+ * Claims the event id (B3 Ruling 4, step 1) before anything is decided: `false` when it was seen
+ * before. A concurrent request holding the same id uncommitted makes this insert wait on the
+ * unique index until that one commits (then `false`) or rolls back (then the claim is ours), so
+ * the event is applied once whatever the timing. The row starts `accepted` and gets the outcome.
+ */
+async function claim(tx: Tx, ctx: DispatchCtx, event: SyncEvent): Promise<boolean> {
   const rows = await tx
     .insert(syncEvents)
     .values({
@@ -47,14 +48,23 @@ async function remember(tx: Tx, ctx: DispatchCtx, event: SyncEvent, result: Sync
       clientEventId: event.eventId,
       userId: ctx.user.id,
       truckId: event.truckId,
-      status: result.status,
-      code: result.status === 'rejected' ? result.code : null,
-      message: result.status === 'rejected' ? result.message : null,
+      status: 'accepted',
+      code: null,
+      message: null,
       createdAt: new Date(ctx.now),
     })
     .onConflictDoNothing()
     .returning({ id: syncEvents.clientEventId });
   return rows.length > 0;
+}
+
+/** Stores the claimed event's outcome. */
+async function remember(tx: Tx, ctx: DispatchCtx, event: SyncEvent, result: SyncResult): Promise<void> {
+  if (result.status !== 'rejected') return;
+  await tx
+    .update(syncEvents)
+    .set({ status: 'rejected', code: result.code, message: result.message })
+    .where(and(eq(syncEvents.tenantId, ctx.user.tenantId), eq(syncEvents.clientEventId, event.eventId)));
 }
 
 /** Keeps a refused event for Needs attention (§6.5), when its truck exists in the caller's tenant. */
@@ -83,8 +93,11 @@ async function recordRejection(tx: Tx, ctx: DispatchCtx, event: SyncEvent, r: Re
 
 /** One event: its stored answer when seen before, else decided, remembered and (refused) recorded. */
 async function oneEvent(tx: Tx, ctx: DispatchCtx, event: SyncEvent, blocked: Set<string>): Promise<SyncResult> {
-  const seen = await replayed(tx, event.eventId);
-  if (seen) return seen;
+  if (!(await claim(tx, ctx, event))) {
+    const seen = await replayed(tx, event.eventId);
+    if (!seen) throw new Error(`sync event ${event.eventId} claimed but not stored`);
+    return seen;
+  }
   let r: SyncResult;
   if (blocked.has(event.truckId)) {
     // Only a truck the caller may see reports its state (a PLANT_SCOPE truck stays opaque).
@@ -102,7 +115,7 @@ async function oneEvent(tx: Tx, ctx: DispatchCtx, event: SyncEvent, blocked: Set
   } else {
     r = await decideEvent(tx, ctx, event);
   }
-  if (!(await remember(tx, ctx, event, r))) throw new ClaimedElsewhere();
+  await remember(tx, ctx, event, r);
   if (r.status === 'rejected') await recordRejection(tx, ctx, event, r);
   return r;
 }
@@ -120,14 +133,7 @@ export async function syncWeighments(ctx: EventRouteCtx<SyncBody, Record<string,
   const blocked = new Set<string>();
   const results: SyncResult[] = [];
   for (const event of ctx.body.events) {
-    let r: SyncResult;
-    try {
-      r = await ctx.inOwnTransaction((tx) => oneEvent(tx, d, event, blocked));
-    } catch (e) {
-      if (!(e instanceof ClaimedElsewhere)) throw e;
-      // Another request applied this event meanwhile: its answer, as a replay.
-      r = (await ctx.inOwnTransaction((tx) => replayed(tx, event.eventId))) ?? { status: 'duplicate', eventId: event.eventId };
-    }
+    const r = await ctx.inOwnTransaction((tx) => oneEvent(tx, d, event, blocked));
     if (r.status === 'rejected') blocked.add(event.truckId);
     results.push(r);
   }
