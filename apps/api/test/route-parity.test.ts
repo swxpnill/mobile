@@ -76,6 +76,7 @@ const B3_ROUTES = [
   'PATCH /v1/trucks/:id',
   'POST /v1/trucks/:id/cancel',
   'POST /v1/trucks/:id/approve',
+  'POST /v1/trucks/:id/correct-weight',
   'POST /v1/weighments/sync',
 ];
 

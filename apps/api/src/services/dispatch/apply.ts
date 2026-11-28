@@ -15,6 +15,7 @@ import { v7 as uuidv7 } from 'uuid';
 import type { Tx } from '../../db/client.ts';
 import { orderLines, subOrders, truckAllocations, trucks, users, weighments } from '../../db/schema/index.ts';
 import type { AuthedUser } from '../../http/auth-hook.ts';
+import { AppError } from '../../http/errors.ts';
 import { graphMath, type TruckRow } from '../../views/orderGraph.ts';
 import { toTask } from '../../views/trucks.ts';
 import { logActivity } from '../activity.ts';
@@ -24,7 +25,7 @@ import type { OrderWriteCtx } from '../orderEdit.ts';
 import { loadOrderGraph } from '../orderGraph.ts';
 import { bumped, lockOrderTree } from '../orderTree.ts';
 import { loadSettings } from '../settings.ts';
-import { issueLoadingSlip, writeEarning } from './money.ts';
+import { issueLoadingSlip, rewriteEarning, writeEarning } from './money.ts';
 import { inPlantScope, truckViewCtx } from './truckViews.ts';
 
 // Ported from packages/mock-api/src/dispatch.ts: the §6.5 table for one sync event, the approval
@@ -233,6 +234,85 @@ export async function approveDispatch(tx: Tx, c: OrderWriteCtx, truck: TruckRow)
   });
   await afterDispatched(tx, c, truck.id, net);
   await closeWithinTolerance(tx, c, truck);
+}
+
+export interface WeightCorrection {
+  tareKg: number;
+  grossKg: number;
+  allocations: { orderLineId: string; netKg: number }[];
+  reason: string;
+}
+
+/**
+ * Owner and city staff (TON-57), awaiting approval or after dispatch (§5.2): the new weights
+ * replace the old ones, which stay as superseded. Money and the tolerance close only exist after
+ * dispatch: the earning is reversed and rewritten at its dispatch rates, and the tolerance close is
+ * judged again from scratch. The caller has locked the order tree and checked the version.
+ */
+export async function applyWeightCorrection(tx: Tx, c: OrderWriteCtx, truck: TruckRow, body: WeightCorrection): Promise<void> {
+  const weighed = truck.state === 'weighed';
+  if ((!weighed && truck.state !== 'dispatched') || truck.tareKg === null || truck.grossKg === null) {
+    throw new AppError(409, 'TRUCK_LOCKED');
+  }
+  const net = netKg(body.grossKg, body.tareKg);
+  const lineIds = new Set(
+    (await tx.select({ id: orderLines.id }).from(orderLines).where(eq(orderLines.subOrderId, truck.subOrderId))).map((l) => l.id),
+  );
+  const check = checkAllocations(net, body.allocations, lineIds);
+  if (check !== 'ok') throw new AppError(409, check);
+
+  const at = new Date(c.now);
+  const reweigh = async (kind: 'tare' | 'gross', kg: number) => {
+    const previous = await currentWeighment(tx, truck.id, kind);
+    const wid = uuidv7();
+    await tx.insert(weighments).values({
+      id: wid,
+      tenantId: truck.tenantId,
+      truckId: truck.id,
+      kind,
+      kg,
+      enteredBy: c.user.id,
+      deviceId: 'server',
+      clientEventId: null,
+      capturedAtDevice: at,
+      capturedAt: at,
+      receivedAt: at,
+      clockSkewFlag: false,
+      supersededBy: null,
+      createdAt: at,
+      updatedAt: at,
+    });
+    if (previous) await tx.update(weighments).set({ supersededBy: wid, updatedAt: at }).where(eq(weighments.id, previous.id));
+  };
+  await reweigh('tare', body.tareKg);
+  await reweigh('gross', body.grossKg);
+  await replaceAllocations(tx, truck, body.allocations, c.now);
+  const changedAt = new Date(await bumpChangeClock(tx, truck.tenantId, c.now));
+  await tx
+    .update(trucks)
+    // The corrected tare is the live one now.
+    .set({ tareKg: body.tareKg, tareAt: at, grossKg: body.grossKg, version: bumped(trucks.version), updatedAt: changedAt })
+    .where(eq(trucks.id, truck.id));
+  await logActivity(tx, c.user, c.now, {
+    entityType: 'order',
+    entityId: truck.orderId,
+    orderId: truck.orderId,
+    action: 'truck.weight_corrected',
+    meta: {
+      subOrderId: truck.subOrderId,
+      truckId: truck.id,
+      vehicleNo: truck.vehicleNo,
+      oldNetKg: netKg(truck.grossKg, truck.tareKg),
+      newNetKg: net,
+      reason: body.reason,
+      beforeApproval: weighed,
+    },
+  });
+  if (!weighed) {
+    await rewriteEarning(tx, truck, c.now, c.user.id);
+    await undoToleranceClose(tx, c.now, truck);
+    await closeWithinTolerance(tx, c, truck);
+  }
 }
 
 /**

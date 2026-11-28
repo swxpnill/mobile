@@ -47,7 +47,7 @@ const code = (body: unknown) => (body as { code?: unknown } | null)?.code;
 
 describe('policy matrix', () => {
   it('covers the M1 + M2 routes and B3 so far: 5 public, every other one with an action', () => {
-    expect(routes).toHaveLength(56);
+    expect(routes).toHaveLength(57);
     expect(routes.filter((r) => r.public === true).map(name).sort()).toEqual(
       ['GET /v1/meta', 'POST /v1/auth/refresh', 'POST /v1/auth/request-code', 'POST /v1/auth/sign-out', 'POST /v1/auth/verify'].sort(),
     );

@@ -20,7 +20,7 @@ import { afterTruckAssigned, afterTruckChanged } from '../dispatchEffects.ts';
 import type { OrderWriteCtx } from '../orderEdit.ts';
 import { lockSubOrder } from '../orderLifecycle.ts';
 import { lockOrderTree } from '../orderTree.ts';
-import { approveDispatch } from './apply.ts';
+import { applyWeightCorrection, approveDispatch, type WeightCorrection } from './apply.ts';
 import { assertVisible, findTruckRow, inPlantScope, truckViewCtx } from './truckViews.ts';
 
 // Ported from packages/mock-api/src/handlers/trucks.ts (assign, edit, cancel): the same checks, codes
@@ -244,5 +244,18 @@ export async function approveTruck(tx: Tx, c: OrderWriteCtx, truckId: string | u
   if (nextTruckState(t.state, 'approve') === null) throw new AppError(409, 'NOT_AWAITING_APPROVAL');
   if (version !== t.version) throw new AppError(409, 'STALE');
   await approveDispatch(tx, c, t);
+  return truckResponse(tx, c, t.id);
+}
+
+/** `POST /v1/trucks/:id/correct-weight` (owner and city staff, while weighed or after dispatch). */
+export async function correctTruckWeight(
+  tx: Tx,
+  c: OrderWriteCtx,
+  truckId: string | undefined,
+  body: WeightCorrection & { version: number },
+): Promise<Truck> {
+  const { t } = await lockTruck(tx, c, truckId);
+  if (body.version !== t.version) throw new AppError(409, 'STALE');
+  await applyWeightCorrection(tx, c, t, body);
   return truckResponse(tx, c, t.id);
 }
