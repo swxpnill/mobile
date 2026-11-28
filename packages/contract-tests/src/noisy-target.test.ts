@@ -19,7 +19,7 @@ registerAll(async () => {
     reset: m.controls.reset,
     clock,
     fixtures: m.fixtures,
-    capabilities: { concurrency: false },
+    capabilities: { concurrency: false, notifications: true },
     close: async () => {
       closed += 1;
     },

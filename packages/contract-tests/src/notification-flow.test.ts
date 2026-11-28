@@ -36,7 +36,7 @@ describe('notifications, flow by flow (every person, rows and pushes)', () => {
   beforeAll(async () => {
     const m = await createMockApi({ clock });
     m.controls.onPush((p) => pushes.push(p));
-    t = { transport: m.transport, reset: m.controls.reset, clock, fixtures: m.fixtures, capabilities: { concurrency: false } };
+    t = { transport: m.transport, reset: m.controls.reset, clock, fixtures: m.fixtures, capabilities: { concurrency: false, notifications: true } };
     await signInAll();
   });
   afterAll(() => pushes.splice(0));

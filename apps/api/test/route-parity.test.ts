@@ -67,6 +67,26 @@ interface Shape {
 }
 
 /** Both sides write path params as `:name`; any other notation is normalised to it. */
+/** B3's routes so far (Ruling 1: 16 when B3 is done). */
+const B3_ROUTES = [
+  'GET /v1/trucks/recent-vehicles',
+  'GET /v1/trucks/:id',
+  'GET /v1/dispatch',
+  'POST /v1/sub-orders/:id/trucks',
+  'PATCH /v1/trucks/:id',
+  'POST /v1/trucks/:id/cancel',
+  'POST /v1/trucks/:id/approve',
+  'POST /v1/trucks/:id/correct-weight',
+  'POST /v1/weighments/sync',
+  'GET /v1/supervisor/tasks',
+  'GET /v1/supervisor/done-today',
+  'GET /v1/weighment-rejections',
+  'GET /v1/weighment-rejections/count',
+  'POST /v1/weighment-rejections/:id/restore',
+  'POST /v1/weighment-rejections/:id/dismiss',
+  'POST /v1/orders/:id/vehicle-requests',
+];
+
 const normalise = (path: string) => path.replace(/\{(\w+)\}/g, ':$1');
 
 const shape = (r: {
@@ -86,7 +106,7 @@ const byRoute = (a: Shape, b: Shape) => a.route.localeCompare(b.route);
 
 afterAll(closeTestApps);
 
-describe('route parity with the mock (M1 + M2)', () => {
+describe('route parity with the mock (M1 + M2 + B3 so far)', () => {
   it('the M1 list holds 22 distinct routes, every one of them in the mock', () => {
     expect(new Set(M1_ROUTES).size).toBe(22);
     const mock = new Set(ALL_ROUTES.map((r) => `${r.method} ${normalise(r.pattern)}`));
@@ -99,9 +119,15 @@ describe('route parity with the mock (M1 + M2)', () => {
     expect(B2_ROUTES.filter((r) => !mock.has(r))).toEqual([]);
   });
 
-  it('the API registers exactly the M1 and B2 routes under /v1, with the same public, action and idempotent', async () => {
+  it('the B3 list is distinct, every one of them in the mock', () => {
+    expect(new Set(B3_ROUTES).size).toBe(B3_ROUTES.length);
+    const mock = new Set(ALL_ROUTES.map((r) => `${r.method} ${normalise(r.pattern)}`));
+    expect(B3_ROUTES.filter((r) => !mock.has(r))).toEqual([]);
+  });
+
+  it('the API registers exactly the M1, B2 and B3 routes under /v1, with the same public, action and idempotent', async () => {
     const { app } = await buildTestApp();
-    const wanted = new Set<string>([...M1_ROUTES, ...B2_ROUTES]);
+    const wanted = new Set<string>([...M1_ROUTES, ...B2_ROUTES, ...B3_ROUTES]);
     const mock = ALL_ROUTES.map((r) => shape({ ...r, path: r.pattern }))
       .filter((s) => wanted.has(s.route))
       .sort(byRoute);
@@ -109,7 +135,7 @@ describe('route parity with the mock (M1 + M2)', () => {
       .filter((r) => r.url.startsWith('/v1/'))
       .map((r) => shape({ ...r, path: r.url }))
       .sort(byRoute);
-    expect(api).toHaveLength(48);
+    expect(api).toHaveLength(48 + B3_ROUTES.length);
     expect(api).toEqual(mock);
   });
 });

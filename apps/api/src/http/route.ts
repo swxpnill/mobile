@@ -26,7 +26,18 @@ export interface RouteCtx<B, Q> {
   body: B;
   /** Request time from the injected clock. */
   now: number;
+  /** Request headers, lower-case names (a repeated header keeps its last value). */
+  headers: Record<string, string | undefined>;
   log: FastifyBaseLogger;
+}
+
+/**
+ * The context of a route with `eventTransactions: true` (B3 Ruling 4): besides the request
+ * transaction (auth, the Idempotency-Key claim, the stored answer), each unit of work can commit on
+ * its own, on another pooled connection, in a transaction scoped to the caller's tenant.
+ */
+export interface EventRouteCtx<B, Q> extends RouteCtx<B, Q> {
+  inOwnTransaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T>;
 }
 
 /** Public routes run outside any request transaction (auth commits its refusals, Ruling 5). */
@@ -53,11 +64,21 @@ export interface PublicRouteConfig<B, Q> extends CommonConfig<B, Q> {
   handler(ctx: PublicRouteCtx<B, Q>): Promise<RouteResult>;
 }
 
-export interface AuthedRouteConfig<B, Q> extends CommonConfig<B, Q> {
+interface AuthedBase<B, Q> extends CommonConfig<B, Q> {
   public?: never;
   action: Action;
   idempotent?: true;
+}
+
+export interface AuthedRouteConfig<B, Q> extends AuthedBase<B, Q> {
+  eventTransactions?: never;
   handler(ctx: RouteCtx<B, Q>): Promise<RouteResult>;
+}
+
+/** A route whose handler commits units of work on their own (`ctx.inOwnTransaction`). */
+export interface EventRouteConfig<B, Q> extends AuthedBase<B, Q> {
+  eventTransactions: true;
+  handler(ctx: EventRouteCtx<B, Q>): Promise<RouteResult>;
 }
 
 export interface RouteTableEntry {
@@ -170,6 +191,11 @@ function assertResponseShape(
 
 const paramsOf = (req: FastifyRequest) => (req.params ?? {}) as Record<string, string>;
 
+const headersOf = (req: FastifyRequest): Record<string, string | undefined> =>
+  Object.fromEntries(
+    Object.entries(req.headers).map(([k, v]) => [k, Array.isArray(v) ? v[v.length - 1] : v]),
+  );
+
 /** A non-2xx result: thrown inside the transaction so it rolls back, then sent as returned. */
 class NonSuccess {
   constructor(readonly sent: Sent) {}
@@ -192,7 +218,25 @@ export function defineRoute<B = unknown, Q = Record<string, string>>(
   app: FastifyInstance,
   method: HttpMethod,
   url: string,
-  config: PublicRouteConfig<B, Q> | AuthedRouteConfig<B, Q>,
+  config: PublicRouteConfig<B, Q>,
+): void;
+export function defineRoute<B = unknown, Q = Record<string, string>>(
+  app: FastifyInstance,
+  method: HttpMethod,
+  url: string,
+  config: AuthedRouteConfig<B, Q>,
+): void;
+export function defineRoute<B = unknown, Q = Record<string, string>>(
+  app: FastifyInstance,
+  method: HttpMethod,
+  url: string,
+  config: EventRouteConfig<B, Q>,
+): void;
+export function defineRoute<B = unknown, Q = Record<string, string>>(
+  app: FastifyInstance,
+  method: HttpMethod,
+  url: string,
+  config: PublicRouteConfig<B, Q> | AuthedRouteConfig<B, Q> | EventRouteConfig<B, Q>,
 ): void {
   const fullUrl = `${app.prefix}${url}`;
   const name = `${method} ${fullUrl}`;
@@ -272,7 +316,7 @@ export function defineRoute<B = unknown, Q = Record<string, string>>(
             }
           }
 
-          const result = await c.handler({
+          const ctx: RouteCtx<B, Q> = {
             user: u,
             scope: plantScope(u),
             tx,
@@ -280,8 +324,16 @@ export function defineRoute<B = unknown, Q = Record<string, string>>(
             query,
             body,
             now,
+            headers: headersOf(req),
             log: req.log,
-          });
+          };
+          const result = c.eventTransactions === true
+            ? await (c as EventRouteConfig<B, Q>).handler({
+                ...ctx,
+                // A fresh pooled transaction, not a savepoint of this one: it commits on its own.
+                inOwnTransaction: (fn) => withTenant(pipeline.db, u.tenantId, fn),
+              })
+            : await (c as AuthedRouteConfig<B, Q>).handler(ctx);
           const status = result.status ?? 200;
           const plain = toWire(result.body);
           // What this caller is sent, and the full body that is stored and replayed to other roles.

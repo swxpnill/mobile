@@ -11,7 +11,7 @@ describe('GET /v1/meta', () => {
     const { app } = await buildTestApp({ clock });
     const res = await app.inject({ method: 'GET', url: '/v1/meta' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ minSupportedVersion: '1.0.0', serverTime: '2026-11-03T04:30:00.000Z', apiVersion: '0.2.0' });
+    expect(res.json()).toEqual({ minSupportedVersion: '1.0.0', serverTime: '2026-11-03T04:30:00.000Z', apiVersion: '0.3.0' });
     expect(metaSchema.safeParse(res.json()).success).toBe(true);
   });
 

@@ -24,7 +24,17 @@ export const PERSON_FOR: Record<Role, string> = {
 };
 
 /** The kinds of `:id` the M1 and M2 routes take, read from the path. */
-export type IdKind = 'companies' | 'plants' | 'users' | 'parties' | 'products' | 'orders' | 'drafts' | 'sub-orders';
+export type IdKind =
+  | 'companies'
+  | 'plants'
+  | 'users'
+  | 'parties'
+  | 'products'
+  | 'orders'
+  | 'drafts'
+  | 'sub-orders'
+  | 'trucks'
+  | 'weighment-rejections';
 
 /** Which record a route's `:id` names: `/v1/orders/drafts/:id` is a draft, else the first segment. */
 export function idKindOf(url: string): IdKind | null {
@@ -39,6 +49,8 @@ export function idKindOf(url: string): IdKind | null {
     case 'products':
     case 'orders':
     case 'sub-orders':
+    case 'trucks':
+    case 'weighment-rejections':
       return kind;
     default:
       throw new Error(`no id kind for ${url}: add it to idKindOf`);
@@ -169,7 +181,7 @@ export async function buildWorld(t: TestApp, opts: { history?: boolean } = {}): 
       version: afterEdit.version,
     });
   }
-  await ownerInsertTruck(
+  const siltaraTruck = await ownerInsertTruck(
     t.ownerDb,
     { subOrderId: aipAtStart.id, state: 'dispatched', vehicleNo: 'CG 04 MT 1001', tareKg: 9_000, plan: [{ orderLineId: l0.id, plannedKg: 12_000 }], allocations: [{ orderLineId: l0.id, netKg: 11_850 }] },
     t.clock.now(),
@@ -177,6 +189,12 @@ export async function buildWorld(t: TestApp, opts: { history?: boolean } = {}): 
   await ownerInsertTruck(
     t.ownerDb,
     { subOrderId: aipAtStart.id, state: 'weighed', vehicleNo: 'CG 04 MT 1002', tareKg: 9_200, plan: [{ orderLineId: l1.id, plannedKg: 10_000 }], allocations: [{ orderLineId: l1.id, netKg: 10_040 }] },
+    t.clock.now(),
+  );
+  // Borai: out of a Siltara plant role's scope.
+  const boraiTruck = await ownerInsertTruck(
+    t.ownerDb,
+    { subOrderId: krmSub.id, state: 'assigned', vehicleNo: 'CG 07 BR 2002', plan: [{ orderLineId: krmSub.lines[0]!.id, plannedKg: 5_000 }] },
     t.clock.now(),
   );
   if (opts.history === true) {
@@ -210,6 +228,24 @@ export async function buildWorld(t: TestApp, opts: { history?: boolean } = {}): 
     productId: otherProduct,
     at: new Date(t.clock.now()),
   });
+  const otherTruck = await ownerInsertTruck(
+    t.ownerDb,
+    { subOrderId: otherOrder.subOrderId, state: 'assigned', vehicleNo: 'XX 01 ZZ 0001', plan: [] },
+    t.clock.now(),
+  );
+  // A refused arrival on each tenant's truck, for Needs attention (owner only).
+  const rejection = async (tenantId: string, truckId: string, userId: string) => {
+    const id = uuidv7();
+    const event = { eventId: uuidv7(), truckId, deviceSeq: 1, capturedAtDevice: new Date(t.clock.now()).toISOString(), type: 'AT_GATE' };
+    await t.ownerDb.$client.query(
+      `insert into weighment_rejections (id, tenant_id, client_event_id, truck_id, user_id, device_id, offset_ms, event, code, server_state, status, created_at, updated_at)
+       values ($1, $2, $3, $4, $5, 'device-world-0001', 0, $6, 'INVALID_STATE', 'assigned', 'open', $7, $7)`,
+      [id, tenantId, event.eventId, truckId, userId, JSON.stringify(event), new Date(t.clock.now())],
+    );
+    return id;
+  };
+  const siltaraRejection = await rejection(SAMPLE_WORLD.tenant.id, siltaraTruck, U.ravi);
+  const otherRejection = await rejection(other.tenantId, otherTruck, otherOwnerId);
   const otherDraft = uuidv7();
   const at = new Date(t.clock.now());
   await t.ownerDb
@@ -226,11 +262,13 @@ export async function buildWorld(t: TestApp, opts: { history?: boolean } = {}): 
       orders: canvas.id,
       drafts: draft(PERSON_FOR[role]),
       'sub-orders': aip.id,
+      trucks: siltaraTruck,
+      'weighment-rejections': siltaraRejection,
     }),
     otherScope: (role) => {
       if (role === 'owner') return {};
       if (role === 'city_staff') return { drafts: draft(U.amit) };
-      return { companies: C.KRM, plants: PL.borai, orders: krm.id, 'sub-orders': krmSub.id };
+      return { companies: C.KRM, plants: PL.borai, orders: krm.id, 'sub-orders': krmSub.id, trucks: boraiTruck };
     },
     otherTenant: {
       companies: other.companyId,
@@ -241,6 +279,8 @@ export async function buildWorld(t: TestApp, opts: { history?: boolean } = {}): 
       orders: otherOrder.orderId,
       drafts: otherDraft,
       'sub-orders': otherOrder.subOrderId,
+      trucks: otherTruck,
+      'weighment-rejections': otherRejection,
     },
     bodies: {
       'PATCH /v1/companies/:id': { version: 1 },
@@ -254,6 +294,33 @@ export async function buildWorld(t: TestApp, opts: { history?: boolean } = {}): 
       'POST /v1/sub-orders/:id/reopen': { version: aip.version },
       'POST /v1/orders/:id/move-quantity': { fromLineId: l0.id, toCompanyId: C.KRM, kg: 1_000, version: canvas.version },
       'DELETE /v1/orders/:id': { confirmNumber: canvas.number },
+      'POST /v1/sub-orders/:id/trucks': {
+        vehicleNo: 'CG 04 ZZ 9999',
+        transporterId: null,
+        driverName: 'Driver',
+        driverPhone: '9425210877',
+        lrNo: '',
+        plan: [{ orderLineId: aip.lines[0]!.id, plannedKg: 1_000 }],
+      },
+      'PATCH /v1/trucks/:id': { lrNo: 'LR-1', version: 1 },
+      'POST /v1/trucks/:id/cancel': { reason: 'Other', note: '', version: 1 },
+      'POST /v1/trucks/:id/approve': { version: 1 },
+      'POST /v1/weighment-rejections/:id/dismiss': { reason: 'Duplicate truck' },
+      'POST /v1/orders/:id/vehicle-requests': {
+        partyId: P.rkAgarwal,
+        contactName: 'R.K. Agarwal',
+        number: '+919826100099',
+        channel: 'whatsapp',
+        lines: [{ orderLineId: aip.lines[0]!.id, kg: 1_000 }],
+        totalKg: 1_000,
+      },
+      'POST /v1/trucks/:id/correct-weight': {
+        tareKg: 10_000,
+        grossKg: 11_000,
+        allocations: [{ orderLineId: aip.lines[0]!.id, netKg: 1_000 }],
+        reason: 'Weighbridge recalibrated',
+        version: 1,
+      },
     },
     call: (role, method, path, body) => send(PERSON_FOR[role], method, path, body),
   };

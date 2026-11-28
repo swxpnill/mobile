@@ -623,7 +623,11 @@ describe('delete-preview and hard delete', () => {
     await sameOn('DELETE', (s) => `/v1/orders/${id(s)}`, (s) => ({ body: { confirmNumber: ` ${of(orders, s).number.toLowerCase()} ` } }), 204);
     expect(spy).toHaveBeenCalledTimes(1);
     expect(spy.mock.calls[0]?.[2]).toEqual({ orderId: api.id, trucks: truckIds.map((t) => ({ id: t.id, plantId: t.plant_id })) });
-    expect(await rowsMentioning(ids)).toEqual({});
+    // Only the trucks' tombstones stay (B3 Ruling 7): phones drop the tasks and settle their outbox.
+    expect(await rowsMentioning(ids)).toEqual({ 'truck_tombstones.truck_id': truckIds.length });
+    expect(await q('select reason from truck_tombstones where truck_id = any($1::uuid[])', [truckIds.map((t) => t.id)])).toEqual(
+      truckIds.map(() => ({ reason: 'deleted' })),
+    );
     // The other order is untouched: one order, sub-order and line left, no trucks.
     const left: Record<string, number> = {};
     for (const table of ['orders', 'sub_orders', 'order_lines', 'trucks', 'truck_plan_lines', 'truck_allocations']) {

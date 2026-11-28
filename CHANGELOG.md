@@ -7,12 +7,14 @@ All notable changes to Tonnage are listed here, newest first. The format follows
 
 ### Fixed
 
+- Weighment sync: the same events in two requests at once (different Idempotency-Keys) are applied once; the second used to fail with 500 on the tare.
 - Move quantity gives the source and target sub-orders a new version, so a short close from an older screen is 409 `STALE`.
 - A repeated order number (a format without `YYMM` after the financial year resets) is 409 `ORDER_NUMBER_TAKEN`, not 500.
 - An order edit that repeats a line id is 422 `VALIDATION`.
 
 ### Added
 
+- B3 (dispatch and sync on Postgres): the M3 routes run on the API: trucks (assign, edit, cancel, approve, correct weight, detail, recent vehicles, the Dispatch board), the phone's weighment sync with one transaction per event, the tasks pull and Done today, Needs attention (list, count, restore, dismiss) and vehicle requests. A per-tenant change clock keeps the phone's pull cursor from skipping a change written by a slow transaction. Approval writes the loading slip and the broker earning; a weight correction after dispatch reverses and rewrites the earning and re-judges the tolerance close. A hard delete leaves `deleted` truck tombstones for the phones. The M1–M3 contract suites are green against the API (the notifications case waits for B4); `apiVersion` 0.3.0.
 - Seamless launch: a branded splash (the T glyph on the welcome background, light and dark) held until Welcome back has drawn the same logo in the same place; Welcome back then animates the logo into its tile and brings the words in, holds 1.5 s and fades into the app. Home shows a skeleton of its layout instead of a spinner while it loads (reusable `Skeleton` in `src/ui`).
 - Welcome, role tours and first-visit tips (canvas 41–46): Welcome back when the app is reopened or unlocked, a first sign-in intro, spotlight tours over the real screens for owner, city staff, plant head and supervisor, one-time tips on nine screens, and More / Profile → Help & tour (replay, the team's tours, How do I…, tips on or off). Progress is per person on the phone; Demo tools → Replay first sign-in shows it again.
 - B2 (orders on Postgres): the M2 routes (parties, products, orders, drafts, Home and the order lifecycle) run on Postgres with RLS; the M1 and M2 contract suites are green against the API; a generated permission matrix and a money-leak check over every GET; the masters seed with the mock's ids; `apiVersion` in `GET /v1/meta`.

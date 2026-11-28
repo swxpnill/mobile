@@ -58,6 +58,11 @@ export interface ContractTarget {
   capabilities: {
     /** The target really runs requests concurrently (the mock serialises them). */
     concurrency: boolean;
+    /**
+     * The target writes notifications (the mock; the API from B4). Cases that read
+     * `/v1/notifications` to check who was told skip themselves without it.
+     */
+    notifications: boolean;
   };
   /** Releases the target (server, DB pool). Called once after each suite. */
   close?(): Promise<void>;

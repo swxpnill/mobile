@@ -11,6 +11,7 @@ const RLS_EXEMPT = ['refresh_tokens'];
 /** The tenant tables so far, so the catalog check below can never pass vacuously. */
 const TENANT_TABLES = [
   'activity_log',
+  'broker_ledger',
   'companies',
   'contact_numbers',
   'devices',
@@ -26,11 +27,18 @@ const TENANT_TABLES = [
   'product_companies',
   'products',
   'sub_orders',
+  'sync_events',
+  'tenant_sync_clock',
   'truck_allocations',
   'truck_plan_lines',
+  'truck_tombstones',
   'trucks',
   'user_plants',
   'users',
+  'vehicle_request_lines',
+  'vehicle_requests',
+  'weighment_rejections',
+  'weighments',
 ];
 
 /** Every public table with a tenant_id column, and whether it has RLS on and how many tenant_isolation policies. */
