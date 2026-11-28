@@ -6,6 +6,9 @@ import {
   type QtyTotals,
   type SubOrder,
   type TenantSettings,
+  type VehicleRequest,
+  type VehicleRequestChannel,
+  isRequestOpen,
   orderAgeDays,
   billedRate,
   brokerEarningEstimate,
@@ -37,6 +40,23 @@ export interface OrderViewCtx {
   partyById: ReadonlyMap<string, { id: string; name: string; city: string }>;
   addressById: ReadonlyMap<string, { id: string; partyId: string; label: string; address: string }>;
   userNameById: ReadonlyMap<string, string>;
+  /** Each order's vehicle requests, oldest first (B3 Task 8). */
+  vehicleRequestsByOrder: ReadonlyMap<string, readonly VehicleRequestRec[]>;
+}
+
+/** A stored vehicle request with its lines. */
+export interface VehicleRequestRec {
+  id: string;
+  orderId: string;
+  partyId: string;
+  partyName: string;
+  contactName: string;
+  number: string;
+  channel: VehicleRequestChannel;
+  totalKg: number;
+  requestedAt: Date;
+  requestedBy: string;
+  lines: { orderLineId: string; subOrderId: string; kg: number }[];
 }
 
 const iso = (d: Date) => d.toISOString();
@@ -131,6 +151,51 @@ function addressRef(c: OrderViewCtx, partyId: string | null, addressId: string |
   return a && partyId !== null && a.partyId === partyId ? { id: a.id, label: a.label, address: a.address } : null;
 }
 
+/**
+ * The order's open vehicle requests, newest first (the mock's `openVehicleRequests`). A plant head
+ * sees those that touch one of their sub-orders, trimmed to those sub-orders' lines and their total.
+ */
+function openVehicleRequests(c: OrderViewCtx, m: GraphMath, g: OrderGraph, visible: readonly SubOrderGraph[]): VehicleRequest[] {
+  const visibleIds = new Set(visible.map((s) => s.sub.id));
+  const subById = new Map(g.subOrders.map((s) => [s.sub.id, s]));
+  const lineById = new Map(g.subOrders.flatMap((s) => s.lines).map((l) => [l.id, l]));
+  const ctx = {
+    trucks: g.subOrders.flatMap((s) =>
+      s.trucks
+        .filter((t) => t.truck.state !== 'cancelled') // a cancelled truck never came
+        .map((t) => ({ subOrderIds: [t.truck.subOrderId], assignedAt: iso(t.truck.assignedAt) })),
+    ),
+    subOrderClosed: (id: string) => {
+      const sub = subById.get(id);
+      return sub === undefined || isTerminal(m.subOrderStatus(sub));
+    },
+    linePendingKg: (id: string) => {
+      const line = lineById.get(id);
+      return line === undefined ? 0 : pending(m.lineQty(line));
+    },
+  };
+  return [...(c.vehicleRequestsByOrder.get(g.order.id) ?? [])]
+    .map((r) => ({ ...r, requestedAt: iso(r.requestedAt) }))
+    .filter((r) => r.lines.some((l) => visibleIds.has(l.subOrderId)) && isRequestOpen(r, ctx))
+    .reverse() // newest first also among requests made in the same instant
+    .sort((x, y) => Date.parse(y.requestedAt) - Date.parse(x.requestedAt))
+    .map((r) => {
+      const lines = r.lines.filter((l) => visibleIds.has(l.subOrderId));
+      return {
+        id: r.id,
+        partyId: r.partyId,
+        partyName: r.partyName,
+        contactName: r.contactName,
+        number: r.number,
+        channel: r.channel,
+        lines: lines.map((l) => ({ ...l })),
+        totalKg: lines.reduce((sum, l) => sum + l.kg, 0),
+        requestedAt: r.requestedAt,
+        requestedBy: { id: r.requestedBy, name: c.userNameById.get(r.requestedBy) ?? '' },
+      };
+    });
+}
+
 /** The full order as `orderSchema`; the caller must see at least one sub-order (else 404 earlier). */
 export function toOrder(g: OrderGraph, c: OrderViewCtx): Order {
   const m = graphMath(g);
@@ -153,8 +218,7 @@ export function toOrder(g: OrderGraph, c: OrderViewCtx): Order {
     basicRate: o.basicRate,
     notify: { customer: o.notifyCustomer, broker: o.notifyBroker },
     subOrders: subs.map((s) => toSubOrder(c, m, g, s)),
-    // Ruling 1: vehicle requests move to B3 (their open/closed rule needs truck assignment).
-    vehicleRequests: [],
+    vehicleRequests: openVehicleRequests(c, m, g, subs),
     totals,
     estimatedValue: lines.reduce((sum, l) => sum + lineValueOf(l), 0),
     ...(o.brokerId !== null

@@ -33,7 +33,7 @@ const blankToNull = (v: string | null): string | null => (v === null || v === ''
 const validation = (path: (string | number)[], message: string) => new AppError(422, 'VALIDATION', [{ path, message }]);
 
 /** Another open truck of the tenant with the same vehicle number. */
-async function vehicleBusy(tx: Tx, vehicleNo: string, exceptId?: string): Promise<boolean> {
+export async function vehicleBusy(tx: Tx, vehicleNo: string, exceptId?: string): Promise<boolean> {
   const rows = await tx
     .select({ id: trucks.id, vehicleNo: trucks.vehicleNo })
     .from(trucks)
@@ -56,7 +56,7 @@ function assertPlanLines(sub: SubOrderGraph, plan: { orderLineId: string }[]): v
 }
 
 /** A plan row bigger than what is left to assign (the truck's own current plan is given back on edit). */
-function overAssignable(
+export function overAssignable(
   g: OrderGraph,
   sub: SubOrderGraph,
   plan: { orderLineId: string; plannedKg: number }[],
@@ -72,7 +72,7 @@ function overAssignable(
   });
 }
 
-async function truckResponse(tx: Tx, c: OrderWriteCtx, truckId: string, warnings: Warning[] = []): Promise<Truck> {
+export async function truckResponse(tx: Tx, c: OrderWriteCtx, truckId: string, warnings: Warning[] = []): Promise<Truck> {
   const v = await truckViewCtx(tx, c.user, c.scope, c.now, [truckId], { supervisors: true, weighments: true });
   return withWarnings(toTruck(v, truckId, { withWeighments: true }), warnings);
 }

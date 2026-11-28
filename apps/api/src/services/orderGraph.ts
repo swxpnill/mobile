@@ -12,11 +12,13 @@ import {
   truckPlanLines,
   trucks,
   users,
+  vehicleRequestLines,
+  vehicleRequests,
 } from '../db/schema/index.ts';
 import type { AuthedUser } from '../http/auth-hook.ts';
 import { AppError } from '../http/errors.ts';
 import type { OrderGraph, SubOrderGraph, TruckGraph } from '../views/orderGraph.ts';
-import { type OrderViewCtx, visibleSubOrders } from '../views/orders.ts';
+import { type OrderViewCtx, type VehicleRequestRec, visibleSubOrders } from '../views/orders.ts';
 import { isId, visibleCompanies } from './org.ts';
 import { loadSettings } from './settings.ts';
 
@@ -135,7 +137,13 @@ export async function orderViewCtx(
   const add = (set: Set<string>, id: string | null) => {
     if (id !== null) set.add(id);
   };
-  for (const g of graphs) {
+  const list = [...graphs];
+  const requests = await loadVehicleRequests(
+    tx,
+    list.map((g) => g.order.id),
+  );
+  for (const r of requests) userIds.add(r.requestedBy);
+  for (const g of list) {
     const o = g.order;
     add(partyIds, o.customerId);
     add(partyIds, o.brokerId);
@@ -190,7 +198,40 @@ export async function orderViewCtx(
     partyById: new Map(partyRows.map((p) => [p.id, p])),
     addressById: new Map(addressRows.map((a) => [a.id, a])),
     userNameById: new Map(userRows.map((u) => [u.id, u.name])),
+    vehicleRequestsByOrder: groupBy(requests, (r) => r.orderId),
   };
+}
+
+/** The orders' vehicle requests with their lines (in the order sent), oldest first. */
+async function loadVehicleRequests(tx: Tx, orderIds: readonly string[]): Promise<VehicleRequestRec[]> {
+  if (orderIds.length === 0) return [];
+  const heads = await tx
+    .select()
+    .from(vehicleRequests)
+    .where(anyId(vehicleRequests.orderId, orderIds))
+    .orderBy(asc(vehicleRequests.requestedAt), asc(vehicleRequests.id));
+  if (heads.length === 0) return [];
+  const lines = groupBy(
+    await tx
+      .select()
+      .from(vehicleRequestLines)
+      .where(anyId(vehicleRequestLines.requestId, heads.map((h) => h.id)))
+      .orderBy(asc(vehicleRequestLines.position)),
+    (l) => l.requestId,
+  );
+  return heads.map((h) => ({
+    id: h.id,
+    orderId: h.orderId,
+    partyId: h.partyId,
+    partyName: h.partyName,
+    contactName: h.contactName,
+    number: h.number,
+    channel: h.channel,
+    totalKg: h.totalKg,
+    requestedAt: h.requestedAt,
+    requestedBy: h.requestedBy,
+    lines: (lines.get(h.id) ?? []).map((l) => ({ orderLineId: l.orderLineId, subOrderId: l.subOrderId, kg: l.kg })),
+  }));
 }
 
 /** The order with its view context, or 404 when it is missing or none of its sub-orders is visible. */

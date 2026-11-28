@@ -24,7 +24,17 @@ export const PERSON_FOR: Record<Role, string> = {
 };
 
 /** The kinds of `:id` the M1 and M2 routes take, read from the path. */
-export type IdKind = 'companies' | 'plants' | 'users' | 'parties' | 'products' | 'orders' | 'drafts' | 'sub-orders' | 'trucks';
+export type IdKind =
+  | 'companies'
+  | 'plants'
+  | 'users'
+  | 'parties'
+  | 'products'
+  | 'orders'
+  | 'drafts'
+  | 'sub-orders'
+  | 'trucks'
+  | 'weighment-rejections';
 
 /** Which record a route's `:id` names: `/v1/orders/drafts/:id` is a draft, else the first segment. */
 export function idKindOf(url: string): IdKind | null {
@@ -40,6 +50,7 @@ export function idKindOf(url: string): IdKind | null {
     case 'orders':
     case 'sub-orders':
     case 'trucks':
+    case 'weighment-rejections':
       return kind;
     default:
       throw new Error(`no id kind for ${url}: add it to idKindOf`);
@@ -222,6 +233,19 @@ export async function buildWorld(t: TestApp, opts: { history?: boolean } = {}): 
     { subOrderId: otherOrder.subOrderId, state: 'assigned', vehicleNo: 'XX 01 ZZ 0001', plan: [] },
     t.clock.now(),
   );
+  // A refused arrival on each tenant's truck, for Needs attention (owner only).
+  const rejection = async (tenantId: string, truckId: string, userId: string) => {
+    const id = uuidv7();
+    const event = { eventId: uuidv7(), truckId, deviceSeq: 1, capturedAtDevice: new Date(t.clock.now()).toISOString(), type: 'AT_GATE' };
+    await t.ownerDb.$client.query(
+      `insert into weighment_rejections (id, tenant_id, client_event_id, truck_id, user_id, device_id, offset_ms, event, code, server_state, status, created_at, updated_at)
+       values ($1, $2, $3, $4, $5, 'device-world-0001', 0, $6, 'INVALID_STATE', 'assigned', 'open', $7, $7)`,
+      [id, tenantId, event.eventId, truckId, userId, JSON.stringify(event), new Date(t.clock.now())],
+    );
+    return id;
+  };
+  const siltaraRejection = await rejection(SAMPLE_WORLD.tenant.id, siltaraTruck, U.ravi);
+  const otherRejection = await rejection(other.tenantId, otherTruck, otherOwnerId);
   const otherDraft = uuidv7();
   const at = new Date(t.clock.now());
   await t.ownerDb
@@ -239,6 +263,7 @@ export async function buildWorld(t: TestApp, opts: { history?: boolean } = {}): 
       drafts: draft(PERSON_FOR[role]),
       'sub-orders': aip.id,
       trucks: siltaraTruck,
+      'weighment-rejections': siltaraRejection,
     }),
     otherScope: (role) => {
       if (role === 'owner') return {};
@@ -255,6 +280,7 @@ export async function buildWorld(t: TestApp, opts: { history?: boolean } = {}): 
       drafts: otherDraft,
       'sub-orders': otherOrder.subOrderId,
       trucks: otherTruck,
+      'weighment-rejections': otherRejection,
     },
     bodies: {
       'PATCH /v1/companies/:id': { version: 1 },
@@ -279,6 +305,15 @@ export async function buildWorld(t: TestApp, opts: { history?: boolean } = {}): 
       'PATCH /v1/trucks/:id': { lrNo: 'LR-1', version: 1 },
       'POST /v1/trucks/:id/cancel': { reason: 'Other', note: '', version: 1 },
       'POST /v1/trucks/:id/approve': { version: 1 },
+      'POST /v1/weighment-rejections/:id/dismiss': { reason: 'Duplicate truck' },
+      'POST /v1/orders/:id/vehicle-requests': {
+        partyId: P.rkAgarwal,
+        contactName: 'R.K. Agarwal',
+        number: '+919826100099',
+        channel: 'whatsapp',
+        lines: [{ orderLineId: aip.lines[0]!.id, kg: 1_000 }],
+        totalKg: 1_000,
+      },
       'POST /v1/trucks/:id/correct-weight': {
         tareKg: 10_000,
         grossKg: 11_000,
