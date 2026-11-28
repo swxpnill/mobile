@@ -31,6 +31,6 @@
     "drizzle-kit": "^0.31.11",
     "embedded-postgres": "16.16.0-beta.19",
     "tsx": "^4.23.15",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.1"
   }
 }
